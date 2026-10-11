@@ -1,0 +1,16 @@
+boot 4b73bd141266cf0625dd8925d7b5212f
+boot-frames dde28e44
+mode2 30263033425fe057a603d1d2392f10d7
+mode2-frames 6ed602b9
+teletext 1746aa319b89f099feedb8eb570e9541
+teletext-frames 9c6c8e94
+elite 0073ac50c119b03ce1a63461f2b90e37
+elite-frames 6a498569
+boot-nosync 4b73bd141266cf0625dd8925d7b5212f
+boot-nosync-frames f832e1eb
+mode2-nosync 30263033425fe057a603d1d2392f10d7
+mode2-nosync-frames 189be623
+teletext-nosync 1746aa319b89f099feedb8eb570e9541
+teletext-nosync-frames 7522da8a
+elite-nosync 0073ac50c119b03ce1a63461f2b90e37
+elite-nosync-frames abfe1f32
