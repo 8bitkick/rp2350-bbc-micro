@@ -1,0 +1,10 @@
+*.o
+*~
+.idea
+# builds (scripts/setup.sh: build/; the test harness: build-a32/, build-qemu/, ...)
+build/
+build-*/
+deps/
+# not part of this repository (scripts/setup.sh fetches them)
+discs/elite-disc-*.ssd
+roms/general/gxr.rom

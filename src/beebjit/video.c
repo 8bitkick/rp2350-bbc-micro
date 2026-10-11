@@ -1,0 +1,3582 @@
+#include "video.h"
+
+#include "bbc.h"
+
+#include "bbc_options.h"
+#include "log.h"
+#include "render.h"
+#include "teletext.h"
+#include "timing.h"
+#include "util.h"
+#include "via.h"
+
+#include <assert.h>
+#include <inttypes.h>
+#include <limits.h>
+#include <stdint.h>
+#include <string.h>
+
+#if BEEBJIT_RENDER_WIRE
+/* Render calls go to the renderer through a ring (port specific). */
+#include "beebjit_wire_video.h"
+#endif
+
+/* A real BBC in a non-interlaced bitmapped mode has a CRTC period of 19968us,
+ * just short of 20ms.
+ * e.g. *TV0,1 (interlace off, defaults to on for the model B)
+ *      MODE 0
+ * The calculation, with horizontal total 128, vertical total 39, lines
+ * per character 8, 2Mhz clock, is:
+ * (128 * 39 * 8) / 2
+ * For interlaced modes, there's an extra half scanline per frame for a total
+ * of exactly 20000us.
+ */
+static const uint32_t k_video_us_per_vsync = 19968; /* about 20ms / 50Hz */
+
+static const uint32_t k_crtc_register_mask = 0x1F;
+
+enum {
+  k_ula_addr_control = 0,
+  k_ula_addr_palette = 1,
+};
+
+enum {
+  k_ula_flash = 0x01,
+  k_ula_teletext = 0x02,
+  k_ula_clock_speed = 0x10,
+
+  k_ula_chars_per_line = 0x0C,
+  k_ula_chars_per_line_shift = 2,
+};
+
+enum {
+  k_crtc_addr_reg = 0,
+  k_crtc_addr_val = 1,
+};
+
+enum {
+  k_crtc_reg_horiz_total = 0,
+  k_crtc_reg_horiz_displayed = 1,
+  k_crtc_reg_horiz_position = 2,
+  k_crtc_reg_sync_width = 3,
+  k_crtc_reg_vert_total = 4,
+  k_crtc_reg_vert_adjust = 5,
+  k_crtc_reg_vert_displayed = 6,
+  k_crtc_reg_vert_sync_position = 7,
+  k_crtc_reg_interlace = 8,
+  k_crtc_reg_lines_per_character = 9,
+  k_crtc_reg_cursor_start = 10,
+  k_crtc_reg_cursor_end = 11,
+  k_crtc_reg_mem_addr_high = 12,
+  k_crtc_reg_mem_addr_low = 13,
+  k_crtc_reg_cursor_high = 14,
+  k_crtc_reg_cursor_low = 15,
+  k_crtc_reg_light_pen_high = 16,
+  k_crtc_reg_light_pen_low = 17,
+};
+
+enum {
+  k_video_timer_null = 0,
+  k_video_timer_expect_vsync_raise = 1,
+  k_video_timer_expect_vsync_lower = 2,
+  k_video_timer_jump_to_vsync_raise = 3,
+  k_video_timer_jump_to_vsync_lower = 4,
+  k_video_timer_jump_full_frame = 5,
+};
+
+enum {
+  k_video_display_enable_horiz = 1,
+  k_video_display_enable_vert = 2,
+  k_video_display_enable_all = 3,
+};
+
+struct video_struct {
+  uint8_t* p_bbc_mem;
+  uint8_t* p_shadow_mem;
+  int externally_clocked;
+  struct timing_struct* p_timing;
+  struct teletext_struct* p_teletext;
+  struct via_struct* p_system_via;
+  uint32_t timer_id;
+  void (*p_framebuffer_ready_callback)(void*, int, int, int);
+  void* p_framebuffer_ready_object;
+  int* p_fast_flag;
+
+  int log_timer;
+  uint32_t log_count_horiz_total;
+  uint32_t log_count_hsync_width;
+  uint32_t log_count_vsync_width;
+
+  /* Rendering. */
+  struct render_struct* p_render;
+  int is_framing_changed_for_render;
+  int is_wall_time_vsync_hit;
+  uint64_t last_wall_time_vsync_hit_cycles;
+  int is_rendering_active;
+  int has_paint_timer_triggered;
+
+  /* Frame skip (video:frame-skip): rendering stops while the picture can't
+   * have changed (no store to the pages the CRTC reads, no CRTC / ULA /
+   * latch write, no cursor blink or teletext flash change: bbc.h's page
+   * flags), and starts again at the vsync after a change, so a change shows
+   * one frame late. The skipped frames are ticked for the host.
+   */
+  int opt_frame_skip;
+  int is_frame_skipping;
+  int frame_skip_wanted;
+  int fs_panel_cursor_on;
+  int fs_next_cursor_on;
+  int fs_panel_flash;
+  int fs_next_flash;
+  uint32_t fs_flash_count;
+  /* CRTC, ULA and latch writes so far (statistics). */
+  uint32_t num_hw_writes;
+
+  /* Options. */
+  uint32_t frames_skip;
+  uint32_t frame_skip_counter;
+  int opt_is_always_clear_frame_buffer;
+  int opt_is_show_frame_boundaries;
+  int opt_is_hack_legacy_quest_cap;
+  int opt_is_hack_legacy_shift_mode7;
+  int opt_is_always_render;
+
+  /* Timing. */
+  uint64_t wall_time;
+  uint64_t vsync_next_time;
+  uint64_t prev_system_ticks;
+  int timer_fire_mode;
+  uint64_t num_vsyncs;
+  uint64_t num_crtc_advances;
+  uint64_t paint_start_cycles;
+  uint64_t paint_cycles;
+  uint32_t paint_timer_id;
+  int via_ca1_irq_level;
+
+  /* Video ULA state and derivatives. */
+  uint8_t ula_palette[16];
+  uint8_t video_ula_control;
+  int is_ula_clock_fast;
+  uint32_t screen_wrap_add;
+  uint32_t clock_tick_shift;
+  int is_nula;
+  int32_t nula_pending_palette;
+
+  /* 6845 registers and derivatives. */
+  uint8_t crtc_registers[k_video_crtc_num_registers];
+  /* The one field referenced by JIT. */
+  uint8_t crtc_address_register;
+  int is_interlace;
+  int is_interlace_sync_and_video;
+  uint32_t scanline_stride;
+  uint32_t scanline_mask;
+  uint8_t hsync_pulse_width;
+  uint8_t vsync_pulse_width;
+  uint8_t half_r0;
+  int cursor_disabled;
+  int cursor_flashing;
+  uint32_t cursor_flash_mask;
+  uint8_t cursor_start_line;
+  int has_sane_framing_parameters;
+  int32_t frame_crtc_ticks;
+  uint32_t skew_dispen_index;
+  uint8_t cursor_skew;
+
+  /* 6845 state. */
+  uint64_t crtc_frames;
+  int is_odd_frame;
+  uint8_t horiz_counter;
+  uint8_t scanline_counter;
+  uint8_t vert_counter;
+  uint8_t vert_adjust_counter;
+  uint8_t vsync_scanline_counter;
+  uint8_t hsync_tick_counter;
+  uint32_t address_counter;
+  uint32_t address_counter_saved;
+  int is_vert_adjust_pending;
+  int is_in_vert_adjust;
+  int in_vsync;
+  int is_even_vsync;
+  int is_odd_vsync;
+  int in_hsync;
+  int in_dummy_raster;
+  int had_odd_vsync_this_row;
+  int had_even_vsync_this_row;
+  uint32_t display_enable_bits;
+  int has_hit_cursor_line_start;
+  int has_hit_cursor_line_end;
+  int is_end_of_main_latched;
+  int is_end_of_vert_adjust_latched;
+  int is_end_of_frame_latched;
+  uint32_t start_of_line_state_checks;
+  int is_first_frame_scanline;
+  int64_t last_vsync_raise_ticks;
+  int64_t last_vsync_lower_ticks;
+  int32_t cursor_skew_counter;
+  int dispen_shifts[4];
+#if BEEBJIT_RENDER_WIRE
+  /* The last ordinary line's command (video_do_fast_line), which the next
+   * lines of a steady character row repeat with their own bytes.
+   */
+  uint32_t fast_arg;
+  uint32_t fast_w1;
+  uint32_t fast_n;
+  uint32_t fast_fetch_start;
+  int fast_shifts[3];
+#endif
+
+  /* Most recent video byte fetched from memory. */
+  uint8_t data_byte;
+
+  /* State for memory fetch calculation. */
+  uint8_t* p_mem_base;
+  uint8_t romsel;
+  uint8_t acccon;
+};
+
+static inline uint8_t
+video_read_data_byte(struct video_struct* p_video,
+                     int is_odd_tick,
+                     uint32_t address_counter,
+                     uint8_t scanline_counter,
+                     uint32_t screen_wrap_add) {
+  uint32_t address;
+
+  /* If MA13 set => MODE7 style addressing. */
+  if (address_counter & 0x2000) {
+    int is_teletext = (p_video->video_ula_control & k_ula_teletext);
+    /* Normal MODE7. */
+    address = (0x7C00 | (address_counter & 0x3FF));
+    /* Model B machines have this quirky extension to address 0x3C00. */
+    if (!(address_counter & 0x800) && (p_video->p_shadow_mem == NULL)) {
+      address = (0x3C00 | (address_counter & 0x3FF));
+    }
+    /* In the corner-case combination of MODE7 style addressing, plus a 2MHz
+     * CRTC clock, a quirk of the memory refresh system is revealed. The
+     * memory fetch address bit MA6 is xor'ed with the 1MHz clock.
+     * Testing LinearTTX.ssd on a BBC Master indicates the xor of bit 6
+     * should happen on 'even' ticks, which is why the '(ticks & 1)'
+     * check is inverted.
+     * In both teletext and 1MHz bitmap mode, latching is performed such that
+     * the non-xor'ed memory location is used.
+     */
+    if (is_teletext) {
+      /* No address xor. */
+    } else if (!p_video->is_ula_clock_fast) {
+      /* No address xor. */
+    } else {
+      /* 2MHz, bitmap mode. */
+      if (!is_odd_tick) {
+        address ^= 64;
+      }
+    }
+  } else {
+    /* Normal bitmapped mode. */
+    address = (address_counter * 8);
+    address += (scanline_counter & 0x7);
+    if (address_counter & 0x1000) {
+      /* MA12 set => screen address wrap around. */
+      address -= screen_wrap_add;
+    }
+    address &= 0x7FFF;
+  }
+
+  if (p_video->p_shadow_mem != NULL) {
+    uint8_t* p_base = p_video->p_mem_base;
+    /* Bit of a hack -- we have to hunt down where all the screen memory
+     * currently is, because of the way we handle memory paging.
+     */
+    if (address < 0x3000) {
+      uint8_t acccon = p_video->acccon;
+      if (acccon & 0x01) {
+        /* Shadow displaying. */
+        if (address < 0x1000) {
+          /* ANDY */
+          if (p_video->romsel & 0x80) {
+            p_base = (p_video->p_bbc_mem + 0x8000);
+          } else {
+            p_base = p_video->p_shadow_mem;
+          }
+        } else {
+          /* HAZEL */
+          if (acccon & 0x08) {
+            p_base = (p_video->p_bbc_mem + 0xB000);
+          } else {
+            p_base = p_video->p_shadow_mem;
+          }
+        }
+      } else {
+        p_base = p_video->p_bbc_mem;
+      }
+    }
+    return p_base[address];
+  } else {
+    return p_video->p_bbc_mem[address];
+  }
+}
+
+static inline void
+video_start_new_frame(struct video_struct* p_video) {
+  uint32_t address_counter;
+
+  /* video_start_new_frame() is always called as an addendum to starting a new
+   * line, so no need to redo that work.
+   */
+  assert(p_video->horiz_counter == 0);
+  assert(p_video->start_of_line_state_checks & 1);
+  assert(p_video->display_enable_bits & k_video_display_enable_horiz);
+
+  p_video->scanline_counter = 0;
+  p_video->vert_counter = 0;
+  p_video->vert_adjust_counter = 0;
+
+  p_video->had_odd_vsync_this_row = 0;
+  p_video->had_even_vsync_this_row = 0;
+  assert(!p_video->is_vert_adjust_pending);
+  p_video->is_in_vert_adjust = 0;
+  p_video->in_dummy_raster = 0;
+  p_video->is_odd_frame = (p_video->crtc_frames & 1);
+  p_video->has_hit_cursor_line_start = 0;
+  p_video->has_hit_cursor_line_end = 0;
+  p_video->is_end_of_main_latched = 0;
+  p_video->is_end_of_vert_adjust_latched = 0;
+  p_video->is_end_of_frame_latched = 0;
+  p_video->is_first_frame_scanline = 1;
+
+  p_video->display_enable_bits |= k_video_display_enable_vert;
+  address_counter = (p_video->crtc_registers[k_crtc_reg_mem_addr_high] << 8);
+  address_counter |= p_video->crtc_registers[k_crtc_reg_mem_addr_low];
+  p_video->address_counter = address_counter;
+  p_video->address_counter_saved = address_counter;
+
+  if (p_video->opt_is_show_frame_boundaries) {
+    render_horiz_line(p_video->p_render, 0xffff0000);
+  }
+}
+
+void
+video_force_paint(struct video_struct* p_video, int do_clear_after_paint) {
+  int do_full_render = p_video->externally_clocked;
+  int do_wait_for_paint = (p_video->opt_is_always_render ||
+                           p_video->has_paint_timer_triggered);
+
+  assert(render_has_buffer(p_video->p_render));
+
+  /* NOTE: in accurate mode, it would be more correct to clear the
+   * buffer from the framing change to the end of that frame, as well
+   * as for the next frame.
+   */
+  p_video->p_framebuffer_ready_callback(p_video->p_framebuffer_ready_object,
+                                        do_full_render,
+                                        do_clear_after_paint,
+                                        do_wait_for_paint);
+}
+
+static void
+video_do_paint(struct video_struct* p_video) {
+  int do_clear_after_paint;
+
+  /* Skip the paint for the appropriate option. */
+  if (p_video->frame_skip_counter > 0) {
+    p_video->frame_skip_counter--;
+    return;
+  }
+
+  p_video->frame_skip_counter = p_video->frames_skip;
+
+  do_clear_after_paint = (p_video->is_framing_changed_for_render ||
+                          p_video->opt_is_always_clear_frame_buffer);
+
+  video_force_paint(p_video, do_clear_after_paint);
+  p_video->is_framing_changed_for_render = 0;
+}
+
+static inline int
+video_is_at_vsync_raise(struct video_struct* p_video) {
+  if (timing_get_scaled_total_timer_ticks(p_video->p_timing) ==
+      (uint64_t) p_video->last_vsync_raise_ticks) {
+    assert(p_video->in_vsync);
+    return 1;
+  }
+  return 0;
+}
+
+static int
+video_is_at_vsync_lower(struct video_struct* p_video) {
+  if (timing_get_scaled_total_timer_ticks(p_video->p_timing) ==
+      (uint64_t) p_video->last_vsync_lower_ticks) {
+    assert(!p_video->in_vsync);
+    return 1;
+  }
+  return 0;
+}
+
+static void
+video_check_go_inactive(struct video_struct* p_video) {
+  assert(!p_video->externally_clocked);
+
+  assert(p_video->is_rendering_active);
+
+  if (p_video->opt_is_always_render) {
+    return;
+  }
+
+  /* If we're in fast mode, give rendering and painting a rest after each
+   * paint.
+   * We'll get prodded to start again by the 50Hz real time tick, which will
+   * get noticed in video_timer_fired().
+   */
+  if (!*p_video->p_fast_flag || p_video->has_paint_timer_triggered) {
+    return;
+  }
+
+  p_video->is_rendering_active = 0;
+  /* Also need to clear is_wall_time_vsync_hit, otherwise when this function
+   * returns back into video_timer_fired, rendering could go immediately
+   * active again!
+   */
+  p_video->is_wall_time_vsync_hit = 0;
+}
+
+static void video_go_active(struct video_struct* p_video);
+
+static void
+video_check_go_active(struct video_struct* p_video) {
+  assert(!p_video->externally_clocked);
+
+  if (p_video->is_rendering_active) {
+    return;
+  }
+
+  if (p_video->is_frame_skipping) {
+    /* Only once the picture has changed, and only at the vsync lower (not
+     * the timeout below: the renderer must be positioned exactly).
+     */
+    if (!p_video->frame_skip_wanted || !video_is_at_vsync_lower(p_video)) {
+      return;
+    }
+  } else if (!p_video->is_wall_time_vsync_hit) {
+    return;
+  }
+
+  if (!render_has_buffer(p_video->p_render)) {
+    return;
+  }
+
+  if ((p_video->paint_start_cycles > 0) &&
+      !p_video->has_paint_timer_triggered) {
+    return;
+  }
+
+  if (video_is_at_vsync_lower(p_video)) {
+    /* Proceed. */
+  } else if (timing_has_scaled_ticks_passed(
+                 p_video->p_timing,
+                 p_video->last_wall_time_vsync_hit_cycles,
+                 100000)) {
+    /* This is possible if the CRTC configuration isn't generating vsyncs. In
+     * this case, we still want to make rendering active to capture output.
+     */
+    /* Proceed. */
+  } else {
+    return;
+  }
+
+  video_go_active(p_video);
+}
+
+/* Rendering on, from the vsync lower the CRTC is at. */
+static void
+video_go_active(struct video_struct* p_video) {
+  struct render_struct* p_render;
+  uint32_t i;
+
+  /* If rendering is inactive, make it active again if we've hit a wall time
+   * vsync. If fast mode persists, it'll go inactive immediately after the
+   * next paint at the next vsync raise.
+   */
+  p_render = p_video->p_render;
+  /* Wrestle the renderer to match the current odd or even interlace frame
+   * state.
+   */
+  if (p_video->is_interlace && !p_video->is_odd_frame) {
+    render_set_beam_pos(p_render, 512, -1);
+  } else {
+    render_set_beam_pos(p_render, 0, 0);
+  }
+
+  /* We now go active at the VSYNC lower point, but flyback is at the VSYNC
+   * raise point. So we need to lower the video beam accordingly.
+   */
+  for (i = 0; i < p_video->vsync_pulse_width; ++i) {
+    render_hsync(p_render, 0);
+  }
+
+  p_video->is_rendering_active = 1;
+  p_video->is_wall_time_vsync_hit = 0;
+  p_video->is_frame_skipping = 0;
+  p_video->frame_skip_wanted = 0;
+  p_video->timer_fire_mode = k_video_timer_null;
+}
+
+static void
+video_flyback_callback(void* p) {
+  struct video_struct* p_video = (struct video_struct*) p;
+
+  assert(!p_video->externally_clocked);
+
+  if (p_video->is_rendering_active) {
+    video_do_paint(p_video);
+    video_check_go_inactive(p_video);
+  } else if (p_video->is_frame_skipping) {
+    /* A skipped frame's tick, or the last frame drawn before skipping. */
+    video_do_paint(p_video);
+  }
+}
+
+/* ---- Frame skip (see the fields) ---- */
+
+static inline void
+video_frame_skip_mark(void) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+}
+
+static int
+video_frame_skip_cursor_on(struct video_struct* p_video) {
+  if (p_video->cursor_disabled) {
+    return 0;
+  }
+  return (!p_video->cursor_flashing ||
+          !!(p_video->crtc_frames & p_video->cursor_flash_mask));
+}
+
+/* The pages the CRTC will read this frame get k_bbc_page_flag_screen (as
+ * video_read_data_byte() addresses them), the others lose it.
+ */
+static void
+video_frame_skip_set_region(struct video_struct* p_video) {
+  uint32_t lo;
+  uint32_t hi;
+  uint32_t i;
+  uint32_t start = (p_video->crtc_registers[k_crtc_reg_mem_addr_high] << 8);
+  start |= p_video->crtc_registers[k_crtc_reg_mem_addr_low];
+  start &= 0x3FFF;
+
+  if (p_video->p_shadow_mem != NULL) {
+    /* Master: not worked out. */
+    lo = 0;
+    hi = 0x10000;
+  } else if (start & 0x2000) {
+    /* MODE 7 style addressing: a 1KB window. */
+    lo = ((start & 0x800) ? 0x7C00 : 0x3C00);
+    hi = (lo + 0x400);
+  } else {
+    uint32_t chars = (p_video->crtc_registers[k_crtc_reg_horiz_displayed] *
+                      (p_video->crtc_registers[k_crtc_reg_vert_displayed] + 1));
+    uint32_t end = (start + chars);
+    uint32_t wrap_base = (0x8000 - p_video->screen_wrap_add);
+    lo = ((start * 8) & 0x7FFF);
+    if ((end > 0x1000) || (p_video->screen_wrap_add == 0)) {
+      /* The address wraps (MA12) to the screen's base. */
+      if (wrap_base < lo) {
+        lo = wrap_base;
+      }
+      hi = 0x8000;
+    } else {
+      hi = ((end * 8) + 8);
+    }
+  }
+  if (hi > 0x8000) {
+    hi = 0x8000;
+  }
+  for (i = 0; i < 256; ++i) {
+    g_bbc_page_flags[i] &= ~k_bbc_page_flag_screen;
+  }
+  for (i = (lo >> 8); i < ((hi + 255) >> 8); ++i) {
+    g_bbc_page_flags[i] |= k_bbc_page_flag_screen;
+  }
+}
+
+/* At each vsync raise: whether the frame starting now can differ from the
+ * one on the panel. If the frame that just ended was drawn and this one
+ * can't differ, stop rendering; while skipping, a change asks for rendering
+ * from the next vsync lower (video_check_go_active()), and each skipped
+ * frame is ticked so the host sees a frame.
+ */
+static void
+video_frame_skip_at_vsync(struct video_struct* p_video) {
+  int was_active = p_video->is_rendering_active;
+  int changed;
+
+  if (was_active) {
+    /* The frame that just ended is drawn (or being drawn): the panel shows
+     * it.
+     */
+    p_video->fs_panel_cursor_on = p_video->fs_next_cursor_on;
+    p_video->fs_panel_flash = p_video->fs_next_flash;
+  }
+  p_video->fs_next_cursor_on = video_frame_skip_cursor_on(p_video);
+  p_video->fs_next_flash = (p_video->fs_flash_count >= 16);
+  changed = ((g_bbc_page_flags[k_bbc_page_flags_dirty] != 0) ||
+             (p_video->fs_next_cursor_on != p_video->fs_panel_cursor_on) ||
+             (p_video->fs_next_flash != p_video->fs_panel_flash));
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = 0;
+  video_frame_skip_set_region(p_video);
+
+  if (was_active) {
+    if (!changed &&
+        p_video->has_sane_framing_parameters &&
+        render_has_buffer(p_video->p_render)) {
+      p_video->is_rendering_active = 0;
+      p_video->is_frame_skipping = 1;
+      p_video->frame_skip_wanted = 0;
+      p_video->is_wall_time_vsync_hit = 0;
+    }
+  } else if (p_video->is_frame_skipping) {
+    if (changed) {
+      p_video->frame_skip_wanted = 1;
+    }
+#if BEEBJIT_RENDER_WIRE
+    beebjit_wire_put1(k_wire_frame_tick, 0);
+    /* Published now (and, on a synchronous wire, drawn now). */
+    beebjit_wire_wait(0);
+#else
+    video_flyback_callback(p_video);
+#endif
+  }
+}
+
+static void video_frame_skip_at_vsync(struct video_struct* p_video);
+
+static void
+video_update_VSYNC(struct video_struct* p_video, uint64_t ticks) {
+  struct via_struct* p_system_via;
+  int is_new_vsync;
+
+  if (p_video->is_interlace && !p_video->is_odd_frame) {
+    is_new_vsync = p_video->is_even_vsync;
+  } else {
+    is_new_vsync = p_video->is_odd_vsync;
+  }
+
+  if (p_video->opt_is_hack_legacy_quest_cap) {
+    if (p_video->is_interlace && (p_video->crtc_frames & 1)) {
+      is_new_vsync = p_video->is_even_vsync;
+    } else {
+      is_new_vsync = p_video->is_odd_vsync;
+    }
+  }
+
+  if (is_new_vsync == p_video->in_vsync) {
+    return;
+  }
+
+  p_video->in_vsync = is_new_vsync;
+
+  p_system_via = p_video->p_system_via;
+  if (p_system_via) {
+    via_set_CA1(p_system_via, is_new_vsync);
+  }
+
+  if (is_new_vsync) {
+    p_video->num_vsyncs++;
+
+    if (p_video->is_rendering_active) {
+      /* Painting occurs in the renderer's flyback callback;
+       * see video_flyback_callback().
+       */
+      render_vsync(p_video->p_render);
+    }
+
+    p_video->last_vsync_raise_ticks = ticks;
+    if (p_video->opt_frame_skip) {
+      video_frame_skip_at_vsync(p_video);
+    }
+  } else {
+    teletext_VSYNC_changed(p_video->p_teletext, 0);
+    /* As teletext_new_frame_started() counts (whether or not the renderer
+     * is told, it counts every one).
+     */
+    p_video->fs_flash_count = ((p_video->fs_flash_count + 1) & 63);
+
+    p_video->last_vsync_lower_ticks = ticks;
+    if (p_video->is_frame_skipping &&
+        p_video->frame_skip_wanted &&
+        (p_video->timer_fire_mode < k_video_timer_jump_to_vsync_raise) &&
+        render_has_buffer(p_video->p_render)) {
+      /* Run tick by tick (a register write bounced it out of jump mode):
+       * resume here, at the lower itself; the ticks that follow render.
+       */
+      video_go_active(p_video);
+    }
+  }
+}
+
+static uint8_t
+video_do_rendering_tick(struct video_struct* p_video,
+                        uint8_t horiz_counter,
+                        int r0_hit,
+                        int r9_hit,
+                        int is_odd_tick) {
+  uint16_t address_counter;
+  int r1_hit;
+  uint8_t data;
+  int this_external_dispen;
+  uint8_t external_RA;
+
+  r1_hit = (horiz_counter ==
+            p_video->crtc_registers[k_crtc_reg_horiz_displayed]);
+
+  if (r1_hit && r9_hit) {
+    p_video->address_counter_saved = p_video->address_counter;
+  }
+
+  if (r1_hit || r0_hit) {
+    p_video->display_enable_bits &= ~k_video_display_enable_horiz;
+  }
+
+  if (p_video->in_hsync) {
+    p_video->hsync_tick_counter--;
+    if (p_video->hsync_tick_counter == 0) {
+      p_video->in_hsync = 0;
+    }
+  } else {
+    int r2_hit = (horiz_counter ==
+                  p_video->crtc_registers[k_crtc_reg_horiz_position]);
+    if (r2_hit && (p_video->hsync_pulse_width > 0)) {
+      render_hsync(
+          p_video->p_render,
+          (p_video->hsync_pulse_width << p_video->clock_tick_shift));
+      p_video->in_hsync = 1;
+      p_video->hsync_tick_counter = p_video->hsync_pulse_width;
+    }
+  }
+
+  /* Handle maintaining the DISPEN history for skew. */
+  p_video->dispen_shifts[2] = p_video->dispen_shifts[1];
+  p_video->dispen_shifts[1] = p_video->dispen_shifts[0];
+  p_video->dispen_shifts[0] =
+      (p_video->display_enable_bits == k_video_display_enable_all);
+  /* The DISPEN signal could be based on the current display bits, or
+   * previous display bits if there's skew, or a hard-wired 0
+   * (dispen_shifts[3]) if the skew register indicates display off.
+   */
+  this_external_dispen = p_video->dispen_shifts[p_video->skew_dispen_index];
+  /* TODO: only call these if DISPEN changed? */
+  render_set_DISPEN(p_video->p_render, this_external_dispen);
+
+  if (!p_video->cursor_disabled) {
+    uint32_t cursor_addr =
+        (p_video->crtc_registers[k_crtc_reg_cursor_high] << 8);
+    cursor_addr |= p_video->crtc_registers[k_crtc_reg_cursor_low];
+
+    if ((p_video->address_counter == cursor_addr) &&
+        p_video->has_hit_cursor_line_start &&
+        !p_video->has_hit_cursor_line_end &&
+        (!p_video->cursor_flashing || (p_video->crtc_frames &
+                                       p_video->cursor_flash_mask))) {
+      p_video->cursor_skew_counter = p_video->cursor_skew;
+    }
+    if (p_video->cursor_skew_counter >= 0) {
+      p_video->cursor_skew_counter--;
+      if (p_video->cursor_skew_counter == -1) {
+        /* EMU: cursor _does_ display if master display enable is off, but
+         * it's within the horiz / vert border.
+         * Also note, the horiz / vert enable must be checked at the time
+         * the skew counter expires and not the time we trigger the cursor
+         * address match.
+         */
+        if (p_video->dispen_shifts[p_video->cursor_skew]) {
+          render_cursor(p_video->p_render);
+        }
+      }
+    }
+  }
+
+  external_RA = p_video->scanline_counter;
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+
+  address_counter = p_video->address_counter;
+  data = video_read_data_byte(p_video,
+                              is_odd_tick,
+                              address_counter,
+                              external_RA,
+                              p_video->screen_wrap_add);
+  if (!is_odd_tick) {
+    uint8_t data_teletext = data;
+    int dispen_teletext = this_external_dispen;
+    /* Always crank the teletext data pipeline, because we can flip bitmap ->
+     * teletext at any time, including in the middle of a scanline.
+     */
+    /* The IC15 latch only lets DISPEN and data through if teletext linear
+     * addressing is in effect.
+     */
+    if (!(address_counter & 0x2000)) {
+      data_teletext = 0;
+      dispen_teletext = 0;
+    }
+    teletext_data(p_video->p_teletext, data_teletext, dispen_teletext);
+  }
+
+  address_counter++;
+  address_counter &= 0x3FFF;
+  p_video->address_counter = address_counter;
+
+  return data;
+}
+
+/* One character's step of the chain of checks at the start of each line. */
+static inline uint32_t
+video_step_start_of_line_checks(struct video_struct* p_video,
+                                uint32_t start_of_line_state_checks,
+                                int r4_hit,
+                                int r5_hit,
+                                int r9_hit) {
+  if (start_of_line_state_checks & 8) {
+    /* It's unclear what exactly goes on here. Currently it's just here to
+     * delay end of frame so that end of frame can only fire in a single
+     * scanline if R0>=3 (4 clocks). This matches testing against a real
+     * Hitachi 6845 in a beeb.
+     */
+    if (p_video->is_end_of_vert_adjust_latched) {
+      p_video->is_end_of_frame_latched = 1;
+    }
+    start_of_line_state_checks &= ~8;
+  }
+  if (start_of_line_state_checks & 4) {
+    /* One tick after the end-of-main check is the end-of-vert-adjust
+     * check.
+     */
+    if (p_video->is_end_of_main_latched) {
+      if (r5_hit) {
+        p_video->is_end_of_vert_adjust_latched = 1;
+      } else if (!p_video->is_in_vert_adjust && !p_video->in_dummy_raster) {
+        p_video->is_vert_adjust_pending = 1;
+      }
+    }
+    start_of_line_state_checks &= ~4;
+    start_of_line_state_checks |= 8;
+  }
+  if (start_of_line_state_checks & 2) {
+    /* One tick after the new line (typically C0=1), end-of-main is
+     * checked and latched.
+     */
+    if (r4_hit && r9_hit) {
+      p_video->is_end_of_main_latched = 1;
+    }
+    start_of_line_state_checks &= ~2;
+    start_of_line_state_checks |= 4;
+  }
+  if (start_of_line_state_checks & 1) {
+    start_of_line_state_checks &= ~1;
+    start_of_line_state_checks |= 2;
+  }
+  return start_of_line_state_checks;
+}
+
+/* BEEBJIT_VIDEO_FAST_RUNS: step through ordinary stretches of a displayed
+ * bitmap scanline in one go. A stretch qualifies when nothing can happen in
+ * it but fetching and rendering bytes: no R0/R1/R2 match, no hsync, no
+ * half-line vsync check, no cursor, steady display enable, bitmap addressing
+ * within one 4K block, an idle teletext pipeline (fed zeros, it changes
+ * nothing) and a renderer ready to take the bytes. The result is the same as
+ * ticking; it's just cheaper on slow hosts.
+ */
+#ifndef BEEBJIT_VIDEO_FAST_RUNS
+#define BEEBJIT_VIDEO_FAST_RUNS 0
+#endif
+
+enum {
+  k_video_max_fast_run = 128,
+};
+
+static inline uint32_t
+video_min_u32(uint32_t a, uint32_t b) {
+  return (a < b) ? a : b;
+}
+
+/* How many character ticks (horizontal counter steps) from now can be
+ * handled as one run: a run of displayed bitmap bytes (*p_is_blank = 0), or
+ * a run with the display disabled and its pipeline drained (*p_is_blank = 1),
+ * where ticks only move counters and draw black.
+ */
+static uint32_t
+video_get_fast_run_length(struct video_struct* p_video,
+                          uint8_t horiz_counter,
+                          uint8_t r0,
+                          uint64_t ticks_left,
+                          int is_1MHz,
+                          int r7_hit,
+                          int* p_is_blank) {
+  uint32_t n;
+  uint32_t d;
+  uint32_t address_counter = p_video->address_counter;
+  uint8_t* p_regs = &p_video->crtc_registers[0];
+  int is_blank;
+
+  /* Cheapest and most often failing first: this runs every tick. */
+  if (p_video->cursor_skew_counter >= 0) {
+    return 0;
+  }
+  if (p_video->display_enable_bits == k_video_display_enable_all) {
+    if (p_video->in_hsync ||
+        (p_video->skew_dispen_index > 2) ||
+        (p_video->p_shadow_mem != NULL)) {
+      return 0;
+    }
+    is_blank = 0;
+  } else {
+    is_blank = 1;
+  }
+  /* The DISPEN the renderer sees each tick is the display enable from
+   * skew_dispen_index ticks ago (or always 0 for index 3). It must be the
+   * same for the whole run: the ticks before the run that it still reaches
+   * back to must match.
+   */
+  if (p_video->skew_dispen_index <= 2) {
+    uint32_t k;
+    for (k = 0; k < p_video->skew_dispen_index; ++k) {
+      if (p_video->dispen_shifts[k] != !is_blank) {
+        return 0;
+      }
+    }
+  }
+  if (!teletext_is_idle(p_video->p_teletext)) {
+    return 0;
+  }
+  *p_is_blank = is_blank;
+
+  if (is_1MHz) {
+    ticks_left /= 2;
+  }
+  n = (uint32_t) video_min_u32((ticks_left > k_video_max_fast_run) ?
+                                   k_video_max_fast_run : (uint32_t) ticks_left,
+                               k_video_max_fast_run);
+  /* Stop short of R0 (end of line), R1 (end of display) and R2 (hsync). */
+  n = video_min_u32(n, (uint8_t) (r0 - horiz_counter));
+  n = video_min_u32(n,
+                    (uint8_t) (p_regs[k_crtc_reg_horiz_displayed] -
+                               horiz_counter));
+  if (p_video->in_hsync) {
+    /* Only blank runs get here: the hsync count goes down a tick at a time;
+     * R2 isn't looked at until it ends.
+     */
+    n = video_min_u32(n, p_video->hsync_tick_counter);
+  } else if (p_video->hsync_pulse_width > 0) {
+    if (is_blank && (horiz_counter == p_regs[k_crtc_reg_horiz_position])) {
+      /* Hsync starts on this run's first tick (see video_do_blank_run());
+       * the count goes down on the ticks after it.
+       */
+      n = video_min_u32(n, (p_video->hsync_pulse_width + 1));
+    } else {
+      n = video_min_u32(n,
+                        (uint8_t) (p_regs[k_crtc_reg_horiz_position] -
+                                   horiz_counter));
+    }
+  }
+  /* The half-line vsync check happens after each increment. */
+  if (r7_hit || p_video->is_even_vsync) {
+    d = (uint8_t) (p_video->half_r0 - horiz_counter);
+    if (d > 0) {
+      n = video_min_u32(n, (d - 1));
+    }
+  }
+  if (is_blank) {
+    /* Stay out of MODE 7 addressing (it feeds teletext real bytes). */
+    n = video_min_u32(n, (0x2000 - (address_counter & 0x1FFF)));
+  } else {
+    /* Stay inside one 4K block of addresses (MA12 wrap-around). */
+    n = video_min_u32(n, (0x1000 - (address_counter & 0xFFF)));
+  }
+  /* Stop at the cursor. */
+  if (!p_video->cursor_disabled &&
+      p_video->has_hit_cursor_line_start &&
+      !p_video->has_hit_cursor_line_end) {
+    uint32_t cursor_addr = (p_regs[k_crtc_reg_cursor_high] << 8);
+    cursor_addr |= p_regs[k_crtc_reg_cursor_low];
+    n = video_min_u32(n, ((cursor_addr - address_counter) & 0x3FFF));
+  }
+  if (n == 0) {
+    return 0;
+  }
+  /* What this tick would tell the renderer anyway (set once for the run). */
+  render_set_DISPEN(p_video->p_render, !is_blank);
+  if (is_blank) {
+    d = render_get_blank_run_capacity(p_video->p_render);
+  } else {
+    d = render_get_bitmap_run_capacity(p_video->p_render);
+  }
+  if (is_1MHz) {
+    d /= 2;
+  }
+  return video_min_u32(n, d);
+}
+
+/* Teletext: a run of characters where the CRTC can't do anything but count:
+ * no R0/R1/R2 match, no hsync, no half-line vsync check, no cursor, and a
+ * steady display enable with its skew pipeline settled. The teletext chain
+ * and the renderer still see every byte and tick (they do their own
+ * pipelining and blanking); only the CRTC's per-tick bookkeeping goes.
+ * Returns characters (2MHz ticks: 1 each; 1MHz: 2 each).
+ */
+static uint32_t
+video_get_char_run_length(struct video_struct* p_video,
+                          uint8_t horiz_counter,
+                          uint8_t r0,
+                          uint64_t ticks_left,
+                          int is_1MHz,
+                          int r7_hit) {
+  uint32_t n;
+  uint32_t d;
+  int enabled;
+  uint8_t* p_regs = &p_video->crtc_registers[0];
+
+  if (p_video->cursor_skew_counter >= 0) {
+    return 0;
+  }
+  enabled = (p_video->display_enable_bits == k_video_display_enable_all);
+  if ((p_video->dispen_shifts[0] != enabled) ||
+      (p_video->dispen_shifts[1] != enabled) ||
+      (p_video->dispen_shifts[2] != enabled)) {
+    return 0;
+  }
+  if (is_1MHz) {
+    ticks_left /= 2;
+  }
+  n = (ticks_left > k_video_max_fast_run) ? k_video_max_fast_run :
+                                             (uint32_t) ticks_left;
+  n = video_min_u32(n, (uint8_t) (r0 - horiz_counter));
+  n = video_min_u32(n,
+                    (uint8_t) (p_regs[k_crtc_reg_horiz_displayed] -
+                               horiz_counter));
+  if (p_video->in_hsync) {
+    n = video_min_u32(n, p_video->hsync_tick_counter);
+  } else if (p_video->hsync_pulse_width > 0) {
+    n = video_min_u32(n,
+                      (uint8_t) (p_regs[k_crtc_reg_horiz_position] -
+                                 horiz_counter));
+  }
+  if (r7_hit || p_video->is_even_vsync) {
+    d = (uint8_t) (p_video->half_r0 - horiz_counter);
+    if (d > 0) {
+      n = video_min_u32(n, (d - 1));
+    }
+  }
+  if (!p_video->cursor_disabled &&
+      p_video->has_hit_cursor_line_start &&
+      !p_video->has_hit_cursor_line_end) {
+    uint32_t cursor_addr = (p_regs[k_crtc_reg_cursor_high] << 8);
+    cursor_addr |= p_regs[k_crtc_reg_cursor_low];
+    n = video_min_u32(n,
+                      ((cursor_addr - p_video->address_counter) & 0x3FFF));
+  }
+  return n;
+}
+
+/* The DISPEN history over a run of n ticks with a steady display enable. */
+static inline void
+video_run_dispen_shifts(struct video_struct* p_video, uint32_t n) {
+  int enabled = (p_video->display_enable_bits == k_video_display_enable_all);
+  if (n >= 3) {
+    p_video->dispen_shifts[2] = enabled;
+    p_video->dispen_shifts[1] = enabled;
+    p_video->dispen_shifts[0] = enabled;
+  } else {
+    while (n--) {
+      p_video->dispen_shifts[2] = p_video->dispen_shifts[1];
+      p_video->dispen_shifts[1] = p_video->dispen_shifts[0];
+      p_video->dispen_shifts[0] = enabled;
+    }
+  }
+}
+
+/* The hsync count over a run of n rendering ticks (n <= the count). */
+static inline void
+video_run_hsync(struct video_struct* p_video, uint32_t n) {
+  if (p_video->in_hsync) {
+    p_video->hsync_tick_counter -= n;
+    if (p_video->hsync_tick_counter == 0) {
+      p_video->in_hsync = 0;
+    }
+  }
+}
+
+static void
+video_do_char_run(struct video_struct* p_video,
+                  uint32_t n,
+                  int is_1MHz,
+                  uint64_t ticks) {
+  uint32_t i;
+  struct render_struct* p_render = p_video->p_render;
+  struct teletext_struct* p_teletext = p_video->p_teletext;
+  uint32_t address_counter = p_video->address_counter;
+  uint32_t screen_wrap_add = p_video->screen_wrap_add;
+  int dispen = p_video->dispen_shifts[p_video->skew_dispen_index];
+  uint8_t external_RA = p_video->scanline_counter;
+  uint8_t data = p_video->data_byte;
+
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+#if BEEBJIT_RENDER_WIRE
+  (void) p_render;
+  (void) p_teletext;
+  i = 0;
+  while (i < n) {
+    /* The renderer does the teletext and render calls (beebjit_wire.c);
+     * each command has one kind of addressing.
+     */
+    uint32_t is_teletext_addressed = !!(address_counter & 0x2000);
+    uint32_t m = (0x2000 - (address_counter & 0x1FFF));
+    uint32_t j;
+    uint8_t* p_bytes;
+    if (m > (n - i)) {
+      m = (n - i);
+    }
+    p_bytes = beebjit_wire_reserve_bytes(
+        k_wire_char_run,
+        (m | ((uint32_t) (ticks & 1) << 8) | ((uint32_t) !!is_1MHz << 9) |
+         (is_teletext_addressed << 10) | ((uint32_t) !!dispen << 11)),
+        m);
+    if (is_teletext_addressed &&
+        is_1MHz &&
+        !(ticks & 1) &&
+        (p_video->p_shadow_mem == NULL) &&
+        ((p_video->video_ula_control & k_ula_teletext) ||
+         !p_video->is_ula_clock_fast)) {
+      /* Teletext addressing on a model B, every tick even: the bytes come
+       * from a 1KB window (&7C00, or &3C00 with MA11 clear), which can only
+       * change where MA crosses a 1KB boundary, so copy them a window at a
+       * time; then the teletext pipeline's note of the run.
+       */
+      j = 0;
+      while (j < m) {
+        uint32_t offset = (address_counter & 0x3FF);
+        uint32_t k = (0x400 - offset);
+        uint32_t base = ((address_counter & 0x800) ? 0x7C00 : 0x3C00);
+        if (k > (m - j)) {
+          k = (m - j);
+        }
+        (void) memcpy(&p_bytes[j], &p_video->p_bbc_mem[base | offset], k);
+        address_counter = ((address_counter + k) & 0x3FFF);
+        j += k;
+      }
+      for (j = 0; j < m; ++j) {
+        beebjit_wire_teletext_note(p_bytes[j], dispen);
+      }
+      data = p_bytes[m - 1];
+      ticks += (m * 2);
+      beebjit_wire_commit_bytes(m);
+      i += m;
+      continue;
+    }
+    for (j = 0; j < m; ++j) {
+      int is_odd_tick = (int) (ticks & 1);
+      data = video_read_data_byte(p_video,
+                                  is_odd_tick,
+                                  address_counter,
+                                  external_RA,
+                                  screen_wrap_add);
+      p_bytes[j] = data;
+      if (!is_odd_tick) {
+        if (is_teletext_addressed) {
+          beebjit_wire_teletext_note(data, dispen);
+        } else {
+          beebjit_wire_teletext_note(0, 0);
+        }
+      }
+      address_counter = ((address_counter + 1) & 0x3FFF);
+      ticks += (is_1MHz ? 2 : 1);
+    }
+    beebjit_wire_commit_bytes(m);
+    i += m;
+  }
+#else
+  for (i = 0; i < n; ++i) {
+    /* As video_do_rendering_tick(), for a tick with nothing else going on. */
+    int is_odd_tick = (int) (ticks & 1);
+    data = video_read_data_byte(p_video,
+                                is_odd_tick,
+                                address_counter,
+                                external_RA,
+                                screen_wrap_add);
+    if (!is_odd_tick) {
+      if (address_counter & 0x2000) {
+        teletext_data(p_teletext, data, dispen);
+      } else {
+        teletext_data(p_teletext, 0, 0);
+      }
+    }
+    address_counter = ((address_counter + 1) & 0x3FFF);
+    render_render(p_render, data, is_odd_tick);
+    ticks++;
+    if (is_1MHz) {
+      render_render(p_render, data, 1);
+      ticks++;
+    }
+  }
+#endif
+  p_video->data_byte = data;
+  p_video->address_counter = address_counter;
+  video_run_hsync(p_video, n);
+}
+
+/* A blank run: see video_get_fast_run_length(). Only the last byte fetched
+ * matters (it's kept as data_byte).
+ */
+static void
+video_do_blank_run(struct video_struct* p_video,
+                   uint32_t n,
+                   int is_1MHz,
+                   uint8_t horiz_counter) {
+  uint32_t address_counter = p_video->address_counter;
+  uint32_t last = ((address_counter + n - 1) & 0x3FFF);
+  uint8_t external_RA = p_video->scanline_counter;
+  int hsync_starts = (!p_video->in_hsync &&
+                      (p_video->hsync_pulse_width > 0) &&
+                      (horiz_counter ==
+                       p_video->crtc_registers[k_crtc_reg_horiz_position]));
+
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+  p_video->data_byte = video_read_data_byte(p_video,
+                                            0,
+                                            last,
+                                            external_RA,
+                                            p_video->screen_wrap_add);
+  if (hsync_starts) {
+    /* As the first tick would: hsync starts, counting down from the next. */
+    render_hsync(p_video->p_render,
+                 (p_video->hsync_pulse_width << p_video->clock_tick_shift));
+    p_video->in_hsync = 1;
+    p_video->hsync_tick_counter = p_video->hsync_pulse_width;
+  }
+  render_render_blank_run(p_video->p_render, (is_1MHz ? (2 * n) : n));
+  p_video->address_counter = ((address_counter + n) & 0x3FFF);
+  video_run_dispen_shifts(p_video, n);
+  video_run_hsync(p_video, (hsync_starts ? (n - 1) : n));
+}
+
+/* Fetch and render a run of n bytes; see video_get_fast_run_length(). */
+static void
+video_do_fast_run(struct video_struct* p_video, uint32_t n) {
+  uint32_t i;
+  uint8_t data[k_video_max_fast_run];
+  uint32_t address_counter = p_video->address_counter;
+  uint8_t external_RA = p_video->scanline_counter;
+  uint32_t address;
+  uint8_t* p_mem = p_video->p_bbc_mem;
+
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+  address = ((address_counter * 8) + (external_RA & 0x7));
+  if (address_counter & 0x1000) {
+    address -= p_video->screen_wrap_add;
+  }
+  for (i = 0; i < n; ++i) {
+    data[i] = p_mem[address & 0x7FFF];
+    address += 8;
+  }
+  render_render_bitmap_run(p_video->p_render, &data[0], n);
+  p_video->data_byte = data[n - 1];
+  p_video->address_counter = ((address_counter + n) & 0x3FFF);
+  video_run_dispen_shifts(p_video, n);
+}
+
+/* Fetch n bitmap bytes from address counter value address_counter on. */
+static void
+video_fetch_bitmap(struct video_struct* p_video,
+                   uint8_t* p_data,
+                   uint32_t address_counter,
+                   uint32_t n) {
+  uint8_t external_RA = p_video->scanline_counter;
+  uint8_t* p_mem = p_video->p_bbc_mem;
+  uint32_t i;
+
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+  while (n > 0) {
+    /* Pieces that don't cross MA12 (the screen wrap-around). */
+    uint32_t address = ((address_counter * 8) + (external_RA & 0x7));
+    uint32_t piece = (0x1000 - (address_counter & 0xFFF));
+    if (piece > n) {
+      piece = n;
+    }
+    if (address_counter & 0x1000) {
+      address -= p_video->screen_wrap_add;
+    }
+    address &= 0x7FFF;
+    i = 0;
+    if ((address + (piece * 8)) <= 0x8000) {
+      /* No wrap at 32K: 4 bytes at a time (they're 8 apart). */
+      const uint8_t* p_src = &p_mem[address];
+      for (; (i + 4) <= piece; i += 4) {
+        uint32_t w = ((uint32_t) p_src[0] |
+                      ((uint32_t) p_src[8] << 8) |
+                      ((uint32_t) p_src[16] << 16) |
+                      ((uint32_t) p_src[24] << 24));
+        (void) memcpy(&p_data[i], &w, 4);
+        p_src += 32;
+      }
+      address += (i * 8);
+    }
+    for (; i < piece; ++i) {
+      p_data[i] = p_mem[address & 0x7FFF];
+      address += 8;
+    }
+    p_data += piece;
+    address_counter = ((address_counter + piece) & 0x3FFF);
+    n -= piece;
+  }
+}
+
+/* An ordinary bitmap scanline, from its first tick to its last (R0, whose
+ * rendering is done here; the caller does the rest of that tick, ending the
+ * line): the shown bytes as one bitmap run, the rest as blank runs either
+ * side of the hsync start. Returns the number of characters rendered: r0 + 1
+ * for the whole line, 0 if the line isn't ordinary, or (rendering directly)
+ * short, with everything up to date, if the renderer can't take the shown
+ * bytes in one go. The result is the same as ticking.
+ */
+static uint32_t
+video_do_fast_line(struct video_struct* p_video,
+                   uint8_t r0,
+                   int is_1MHz,
+                   int r7_hit,
+                   int r9_hit) {
+  uint8_t* p_regs = &p_video->crtc_registers[0];
+  uint32_t r1 = p_regs[k_crtc_reg_horiz_displayed];
+  uint32_t r2 = p_regs[k_crtc_reg_horiz_position];
+  uint32_t width = p_video->hsync_pulse_width;
+  uint32_t skew = p_video->skew_dispen_index;
+  uint32_t start = p_video->address_counter;
+  uint8_t external_RA = p_video->scanline_counter;
+  int is_enabled =
+      (p_video->display_enable_bits == k_video_display_enable_all);
+  int is_shown = (is_enabled && (skew != 3));
+  int has_hsync = ((width > 0) && (r2 < r0));
+  uint32_t hsync_ticks = (width << p_video->clock_tick_shift);
+  uint32_t shown_start = 0;
+  uint32_t shown_end = 0;
+  uint32_t n = 0;
+  uint32_t blank_end;
+  int new_shifts[3];
+  uint32_t i;
+#if !BEEBJIT_RENDER_WIRE
+  uint8_t data[256];
+  struct render_struct* p_render = p_video->p_render;
+  uint32_t mul = (is_1MHz ? 2 : 1);
+  uint32_t done = 0;
+#endif
+
+  if (p_video->in_hsync ||
+      (p_video->cursor_skew_counter >= 0) ||
+      (p_video->p_shadow_mem != NULL) ||
+      r7_hit ||
+      p_video->is_even_vsync ||
+      (r1 == 0) ||
+      (r1 >= r0) ||
+      (r0 == 255) ||
+      ((width > 0) && (r2 == r0)) ||
+      ((start + r0 + 1) > 0x2000)) {
+    return 0;
+  }
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+  /* The pipeline reaching back before the line must be low. */
+  if (skew <= 2) {
+    for (i = 0; i < skew; ++i) {
+      if (p_video->dispen_shifts[i]) {
+        return 0;
+      }
+    }
+  }
+  if (is_shown) {
+    shown_start = skew;
+    shown_end = (r1 + skew);
+    n = (shown_end - shown_start);
+    /* (Shown up to R0 at most, so R0's own tick is blank.) */
+    if ((r1 <= skew) || (shown_end > r0)) {
+      return 0;
+    }
+    if (has_hsync && (r2 < shown_end)) {
+      return 0;
+    }
+  }
+  if (!p_video->cursor_disabled &&
+      p_video->has_hit_cursor_line_start &&
+      !p_video->has_hit_cursor_line_end) {
+    uint32_t cursor_addr = (p_regs[k_crtc_reg_cursor_high] << 8);
+    cursor_addr |= p_regs[k_crtc_reg_cursor_low];
+    if (((cursor_addr - start) & 0x3FFF) <= r0) {
+      return 0;
+    }
+  }
+  if (!teletext_is_idle(p_video->p_teletext)) {
+    return 0;
+  }
+  /* The display enable history at the end: ticks r0, r0 - 1, r0 - 2. */
+  for (i = 0; i < 3; ++i) {
+    int32_t t = ((int32_t) r0 - (int32_t) i);
+    if (t >= 0) {
+      new_shifts[i] = (is_enabled && ((uint32_t) t < r1));
+    } else {
+      new_shifts[i] = p_video->dispen_shifts[i - r0 - 1];
+    }
+  }
+  blank_end = (has_hsync ? r2 : (uint32_t) (r0 + 1));
+
+#if BEEBJIT_RENDER_WIRE
+  {
+    /* One command for the line; beebjit_wire.c draws it as below. */
+    uint8_t* p_bytes = beebjit_wire_reserve_bytes(
+        k_wire_fast_line,
+        (n | ((uint32_t) !!is_1MHz << 8) | ((uint32_t) has_hsync << 9)),
+        (4 + n));
+    uint32_t w1 = (shown_start |
+                   ((blank_end - (is_shown ? shown_end : 0)) << 8) |
+                   ((has_hsync ? (r0 + 1 - r2) : 0) << 16) |
+                   (hsync_ticks << 24));
+    (void) memcpy(p_bytes, &w1, 4);
+    if (n > 0) {
+      video_fetch_bitmap(p_video, (p_bytes + 4), (start + shown_start), n);
+    }
+    beebjit_wire_commit_bytes(4 + n);
+    p_video->fast_arg = (n | ((uint32_t) !!is_1MHz << 8) |
+                         ((uint32_t) has_hsync << 9));
+    p_video->fast_w1 = w1;
+    p_video->fast_n = n;
+    p_video->fast_fetch_start = (start + shown_start);
+    p_video->fast_shifts[0] = new_shifts[0];
+    p_video->fast_shifts[1] = new_shifts[1];
+    p_video->fast_shifts[2] = new_shifts[2];
+  }
+#else
+  if (is_shown) {
+    uint32_t capacity;
+    if (shown_start > 0) {
+      /* Skew: the first ticks still see the low DISPEN from before. */
+      render_set_DISPEN(p_render, 0);
+      if (render_get_blank_run_capacity(p_render) == 0) {
+        return 0;
+      }
+      render_render_blank_run(p_render, (shown_start * mul));
+      done = shown_start;
+      p_video->address_counter = ((start + done) & 0x3FFF);
+      p_video->data_byte = video_read_data_byte(p_video,
+                                                0,
+                                                (start + done - 1),
+                                                external_RA,
+                                                p_video->screen_wrap_add);
+      video_run_dispen_shifts(p_video, done);
+    }
+    render_set_DISPEN(p_render, 1);
+    capacity = render_get_bitmap_run_capacity(p_render);
+    if (is_1MHz) {
+      capacity /= 2;
+    }
+    if (capacity >= n) {
+      video_fetch_bitmap(p_video, &data[0], (start + shown_start), n);
+      render_render_bitmap_run(p_render, &data[0], n);
+    } else if (render_get_blank_run_capacity(p_render) > 0) {
+      /* Shown but blanked (RA >= 8 in a bitmap mode). */
+      render_render_blank_run(p_render, (n * mul));
+    } else {
+      return done;
+    }
+    done = shown_end;
+  }
+  render_set_DISPEN(p_render, 0);
+  render_render_blank_run(p_render, ((blank_end - done) * mul));
+  if (has_hsync) {
+    render_hsync(p_render, hsync_ticks);
+    render_render_blank_run(p_render, ((r0 + 1 - r2) * mul));
+  }
+#endif
+
+  /* The R1 tick. */
+  if (r9_hit) {
+    p_video->address_counter_saved = ((start + r1) & 0x3FFF);
+  }
+  p_video->display_enable_bits &= ~k_video_display_enable_horiz;
+  /* Hsync: started at R2, counting down from the tick after, R0 included. */
+  if (has_hsync && ((r0 - r2) < width)) {
+    p_video->in_hsync = 1;
+    p_video->hsync_tick_counter = (width - (r0 - r2));
+  }
+  p_video->address_counter = ((start + r0 + 1) & 0x3FFF);
+  p_video->data_byte = video_read_data_byte(p_video,
+                                            0,
+                                            (start + r0),
+                                            external_RA,
+                                            p_video->screen_wrap_add);
+  p_video->dispen_shifts[0] = new_shifts[0];
+  p_video->dispen_shifts[1] = new_shifts[1];
+  p_video->dispen_shifts[2] = new_shifts[2];
+  return (r0 + 1);
+}
+
+#if BEEBJIT_RENDER_WIRE
+/* The next line of a steady character row, after an ordinary line: the same
+ * command as that line's, with this line's bytes, and the same state changes
+ * (it starts at the same address, with the same registers, display enable
+ * and pipeline; no hsync carried over). Unless the cursor might be on it:
+ * then video_do_fast_line() decides.
+ */
+static inline int
+video_can_redo_fast_line(struct video_struct* p_video) {
+  return (!p_video->in_hsync &&
+          (p_video->cursor_skew_counter < 0) &&
+          (p_video->cursor_disabled ||
+           !p_video->has_hit_cursor_line_start ||
+           p_video->has_hit_cursor_line_end));
+}
+
+/* (video_can_redo_fast_line() true.) The line's new RA goes in the command
+ * too: ra_bits is its k_wire_fast_line_ra arg bits.
+ */
+static uint32_t
+video_redo_fast_line(struct video_struct* p_video,
+                     uint8_t r0,
+                     int r9_hit,
+                     uint32_t ra_bits) {
+  uint32_t start = p_video->address_counter;
+  uint8_t external_RA = p_video->scanline_counter;
+  uint32_t n = p_video->fast_n;
+  uint8_t* p_bytes;
+
+  if (p_video->is_interlace_sync_and_video) {
+    external_RA |= p_video->is_odd_frame;
+  }
+  p_bytes = beebjit_wire_reserve_bytes(k_wire_fast_line_ra,
+                                       (p_video->fast_arg | ra_bits),
+                                       (4 + n));
+  (void) memcpy(p_bytes, &p_video->fast_w1, 4);
+  if (n > 0) {
+    video_fetch_bitmap(p_video, (p_bytes + 4), p_video->fast_fetch_start, n);
+  }
+  beebjit_wire_commit_bytes(4 + n);
+  /* The R1 tick, and the line's end (as video_do_fast_line()). */
+  if (r9_hit) {
+    p_video->address_counter_saved =
+        ((start + p_video->crtc_registers[k_crtc_reg_horiz_displayed]) &
+         0x3FFF);
+  }
+  p_video->display_enable_bits &= ~k_video_display_enable_horiz;
+  p_video->address_counter = ((start + r0 + 1) & 0x3FFF);
+  p_video->data_byte = video_read_data_byte(p_video,
+                                            0,
+                                            (start + r0),
+                                            external_RA,
+                                            p_video->screen_wrap_add);
+  p_video->dispen_shifts[0] = p_video->fast_shifts[0];
+  p_video->dispen_shifts[1] = p_video->fast_shifts[1];
+  p_video->dispen_shifts[2] = p_video->fast_shifts[2];
+  return (r0 + 1);
+}
+#endif
+
+void
+video_advance_crtc_timing(struct video_struct* p_video) {
+  uint64_t ticks;
+  uint64_t ticks_target;
+  uint8_t r0;
+  uint8_t horiz_counter;
+  uint32_t start_of_line_state_checks;
+  int is_1MHz;
+
+  int r4_hit;
+  int r5_hit;
+  int r6_hit;
+  int r7_hit;
+  int r9_hit;
+
+  uint64_t curr_system_ticks =
+      timing_get_scaled_total_timer_ticks(p_video->p_timing);
+
+  uint32_t effective_r9 =
+      (p_video->crtc_registers[k_crtc_reg_lines_per_character] &
+       p_video->scanline_mask);
+  int is_render_prepared = 0;
+
+  if (p_video->externally_clocked) {
+    return;
+  }
+
+#if BEEBJIT_RENDER_WIRE
+  /* Paint for frames the renderer has finished. */
+  beebjit_wire_poll_flybacks();
+#endif
+
+  /* Bounce out of state jumping mode if appropriate. */
+  if (p_video->timer_fire_mode >= k_video_timer_jump_to_vsync_raise) {
+    assert(!p_video->is_rendering_active);
+    if (p_video->timer_fire_mode == k_video_timer_jump_to_vsync_raise) {
+      p_video->timer_fire_mode = k_video_timer_expect_vsync_raise;
+    } else if (p_video->timer_fire_mode == k_video_timer_jump_to_vsync_lower) {
+      p_video->timer_fire_mode = k_video_timer_expect_vsync_lower;
+    } else {
+      assert(p_video->timer_fire_mode == k_video_timer_jump_full_frame);
+      p_video->timer_fire_mode = k_video_timer_expect_vsync_lower;
+    }
+  }
+
+  ticks = p_video->prev_system_ticks;
+  ticks_target = curr_system_ticks;
+
+  assert((ticks_target - ticks) < INT_MAX);
+
+  is_1MHz = !p_video->is_ula_clock_fast;
+
+  start_of_line_state_checks = p_video->start_of_line_state_checks;
+  r0 = p_video->crtc_registers[k_crtc_reg_horiz_total];
+  horiz_counter = p_video->horiz_counter;
+
+  goto check_r6;
+
+  while (ticks < ticks_target) {
+    int r0_hit;
+    int is_odd_tick = (ticks & 1);
+
+#if BEEBJIT_VIDEO_FAST_RUNS
+    if (p_video->is_rendering_active &&
+        (p_video->video_ula_control & k_ula_teletext) &&
+        !(is_1MHz && is_odd_tick)) {
+      uint32_t run;
+      if (!is_render_prepared) {
+        render_prepare(p_video->p_render);
+        is_render_prepared = 1;
+      }
+      run = video_get_char_run_length(p_video,
+                                      horiz_counter,
+                                      r0,
+                                      (ticks_target - ticks),
+                                      is_1MHz,
+                                      r7_hit);
+      if (run > 0) {
+        uint32_t i;
+        video_do_char_run(p_video, run, is_1MHz, ticks);
+        for (i = 0; (i < run) && start_of_line_state_checks; ++i) {
+          start_of_line_state_checks =
+              video_step_start_of_line_checks(p_video,
+                                              start_of_line_state_checks,
+                                              r4_hit,
+                                              r5_hit,
+                                              r9_hit);
+        }
+        horiz_counter += run;
+        ticks += (is_1MHz ? (2 * run) : run);
+        continue;
+      }
+    } else if (p_video->is_rendering_active &&
+        !(p_video->address_counter & 0x2000) &&
+        !(is_1MHz && is_odd_tick)) {
+      uint32_t run;
+      int is_blank_run;
+      if (!is_render_prepared) {
+        render_prepare(p_video->p_render);
+        is_render_prepared = 1;
+      }
+      if ((horiz_counter == 0) &&
+          ((ticks_target - ticks) >= ((uint64_t) (r0 + 1) << is_1MHz))) {
+        run = video_do_fast_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
+        if (run == (uint32_t) (r0 + 1)) {
+          /* Rendered through R0: on to the rest of R0's (last) tick. */
+          uint32_t i;
+          for (i = 0; (i < r0) && start_of_line_state_checks; ++i) {
+            start_of_line_state_checks =
+                video_step_start_of_line_checks(p_video,
+                                                start_of_line_state_checks,
+                                                r4_hit,
+                                                r5_hit,
+                                                r9_hit);
+          }
+          horiz_counter = r0;
+          ticks += (is_1MHz ? ((2 * (uint32_t) r0) + 1) : r0);
+          r0_hit = 1;
+#if BEEBJIT_VIDEO_FAST_RUNS
+          /* Steady lines within a character row: whole lines in a row, with
+           * just the end-of-line work that can happen mid-row (the rest of
+           * the loop, ticking, would do the same). Anything else (the row's
+           * last line, vsync, R6 / R7 / frame end, vertical adjust...) goes
+           * on through rendered_tick as before.
+           */
+          while ((r0 >= 4) &&
+                 !r9_hit &&
+                 !r7_hit &&
+                 !p_video->is_even_vsync &&
+                 !p_video->in_vsync &&
+                 !p_video->in_dummy_raster &&
+                 !p_video->is_vert_adjust_pending &&
+                 !p_video->is_end_of_frame_latched &&
+                 !p_video->is_in_vert_adjust &&
+                 !p_video->is_end_of_main_latched &&
+                 !p_video->is_end_of_vert_adjust_latched &&
+                 !(r6_hit &&
+                   (p_video->display_enable_bits &
+                    k_video_display_enable_vert)) &&
+                 ((ticks_target - (ticks + 1)) >=
+                  ((uint64_t) (r0 + 1) << is_1MHz))) {
+            uint8_t external_RA;
+            int do_teletext_deinterlace = 0;
+            /* The rest of R0's tick (rendered_tick). */
+            if (start_of_line_state_checks) {
+              start_of_line_state_checks =
+                  video_step_start_of_line_checks(p_video,
+                                                  start_of_line_state_checks,
+                                                  r4_hit,
+                                                  r5_hit,
+                                                  r9_hit);
+            }
+            ticks++;
+            /* End of line: as below, for a line that isn't the row's last. */
+            horiz_counter = 0;
+            p_video->display_enable_bits |= k_video_display_enable_horiz;
+            start_of_line_state_checks |= 1;
+            p_video->is_first_frame_scanline = 0;
+            if (p_video->scanline_counter ==
+                p_video->crtc_registers[k_crtc_reg_cursor_end]) {
+              p_video->has_hit_cursor_line_end = 1;
+            }
+            p_video->scanline_counter += p_video->scanline_stride;
+            p_video->scanline_counter &= p_video->scanline_mask;
+            p_video->address_counter = p_video->address_counter_saved;
+            external_RA = p_video->scanline_counter;
+            if (p_video->is_interlace_sync_and_video) {
+              external_RA |= p_video->is_odd_frame;
+              do_teletext_deinterlace =
+                  (p_video->crtc_registers[k_crtc_reg_vert_total] >=
+                   p_video->crtc_registers[k_crtc_reg_vert_displayed]);
+            }
+            if (p_video->scanline_counter == p_video->cursor_start_line) {
+              p_video->has_hit_cursor_line_start = 1;
+            }
+            r9_hit = (p_video->scanline_counter == effective_r9);
+            /* The next line, if it's ordinary too. */
+#if BEEBJIT_RENDER_WIRE
+            if (video_can_redo_fast_line(p_video)) {
+              /* The RA goes with the line's command. */
+              run = video_redo_fast_line(
+                  p_video,
+                  r0,
+                  r9_hit,
+                  (((uint32_t) (external_RA & 0x1F) << 10) |
+                   ((uint32_t) !!do_teletext_deinterlace << 15)));
+            } else
+#endif
+            {
+              teletext_RA_ISV_changed(p_video->p_teletext,
+                                      external_RA,
+                                      do_teletext_deinterlace);
+              render_set_RA(p_video->p_render, external_RA);
+              run = video_do_fast_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
+            }
+            if (run != (uint32_t) (r0 + 1)) {
+              /* On from where it got to (the line's start, or part way when
+               * rendering directly), ticking: as the fast path above.
+               */
+              for (i = 0; (i < run) && start_of_line_state_checks; ++i) {
+                start_of_line_state_checks =
+                    video_step_start_of_line_checks(p_video,
+                                                    start_of_line_state_checks,
+                                                    r4_hit,
+                                                    r5_hit,
+                                                    r9_hit);
+              }
+              horiz_counter += run;
+              ticks += (is_1MHz ? (2 * run) : run);
+              r0_hit = 0;
+              break;
+            }
+            if (r4_hit && r9_hit) {
+              for (i = 0; (i < r0) && start_of_line_state_checks; ++i) {
+                start_of_line_state_checks =
+                    video_step_start_of_line_checks(p_video,
+                                                    start_of_line_state_checks,
+                                                    r4_hit,
+                                                    r5_hit,
+                                                    r9_hit);
+              }
+            } else {
+              /* The chain's 4 steps (R0 >= 4) find nothing to latch here. */
+              start_of_line_state_checks = 0;
+            }
+            horiz_counter = r0;
+            ticks += (is_1MHz ? ((2 * (uint32_t) r0) + 1) : r0);
+          }
+          if (!r0_hit) {
+            continue;
+          }
+#endif
+          goto rendered_tick;
+        }
+        if (run > 0) {
+          uint32_t i;
+          for (i = 0; (i < run) && start_of_line_state_checks; ++i) {
+            start_of_line_state_checks =
+                video_step_start_of_line_checks(p_video,
+                                                start_of_line_state_checks,
+                                                r4_hit,
+                                                r5_hit,
+                                                r9_hit);
+          }
+          horiz_counter += run;
+          ticks += (is_1MHz ? (2 * run) : run);
+          continue;
+        }
+      }
+      run = video_get_fast_run_length(p_video,
+                                      horiz_counter,
+                                      r0,
+                                      (ticks_target - ticks),
+                                      is_1MHz,
+                                      r7_hit,
+                                      &is_blank_run);
+      if (run > 0) {
+        uint32_t i;
+        if (is_blank_run) {
+          video_do_blank_run(p_video, run, is_1MHz, horiz_counter);
+        } else {
+          video_do_fast_run(p_video, run);
+        }
+        for (i = 0; (i < run) && start_of_line_state_checks; ++i) {
+          start_of_line_state_checks =
+              video_step_start_of_line_checks(p_video,
+                                              start_of_line_state_checks,
+                                              r4_hit,
+                                              r5_hit,
+                                              r9_hit);
+        }
+        horiz_counter += run;
+        ticks += (is_1MHz ? (2 * run) : run);
+        continue;
+      }
+    }
+#endif
+
+    r0_hit = (horiz_counter == r0);
+
+    if (p_video->is_rendering_active) {
+      struct render_struct* p_render = p_video->p_render;
+
+      if (!is_render_prepared) {
+        render_prepare(p_render);
+        is_render_prepared = 1;
+      }
+
+      if (!is_1MHz || !is_odd_tick) {
+        p_video->data_byte  = video_do_rendering_tick(p_video,
+                                                      horiz_counter,
+                                                      r0_hit,
+                                                      r9_hit,
+                                                      is_odd_tick);
+      }
+
+      render_render(p_render, p_video->data_byte, is_odd_tick);
+    }
+
+    if (is_1MHz && !is_odd_tick) {
+      ticks++;
+      continue;
+    }
+
+#if BEEBJIT_VIDEO_FAST_RUNS
+rendered_tick:
+#endif
+    if (start_of_line_state_checks) {
+      start_of_line_state_checks =
+          video_step_start_of_line_checks(p_video,
+                                          start_of_line_state_checks,
+                                          r4_hit,
+                                          r5_hit,
+                                          r9_hit);
+    }
+
+    /* Wraps 0xFF -> 0; uint8_t type. */
+    horiz_counter++;
+
+    ticks++;
+
+    if (r7_hit || p_video->is_even_vsync) {
+      if (horiz_counter == p_video->half_r0) {
+        if (!p_video->had_even_vsync_this_row) {
+          p_video->had_even_vsync_this_row = 1;
+          p_video->is_even_vsync = 1;
+        } else if (p_video->vsync_scanline_counter == 0) {
+          p_video->is_even_vsync = 0;
+        }
+        video_update_VSYNC(p_video, ticks);
+      }
+    }
+
+    if (!r0_hit) {
+      continue;
+    }
+
+    /* End of horizontal line. */
+    horiz_counter = 0;
+    p_video->display_enable_bits |= k_video_display_enable_horiz;
+    /* Start the new line state check chain. */
+    start_of_line_state_checks |= 1;
+
+    p_video->is_first_frame_scanline = 0;
+    if (p_video->scanline_counter ==
+        p_video->crtc_registers[k_crtc_reg_cursor_end]) {
+      p_video->has_hit_cursor_line_end = 1;
+    }
+
+    if (p_video->in_vsync) {
+      if (p_video->vsync_scanline_counter > 0) {
+        p_video->vsync_scanline_counter--;
+      }
+      if (p_video->vsync_scanline_counter == 0) {
+        p_video->is_odd_vsync = 0;
+        video_update_VSYNC(p_video, ticks);
+      }
+    }
+
+    /* Empirical testing suggests the scanline counter is not incremented in
+     * the extreme case of R0=0, although not yet clear exactly why this is.
+     */
+    if (r0 != 0) {
+      p_video->scanline_counter += p_video->scanline_stride;
+      p_video->scanline_counter &= p_video->scanline_mask;
+    }
+    /* The saved counter will have been advanced at r1 hit if r9 was hit. */
+    p_video->address_counter = p_video->address_counter_saved;
+
+    if (r9_hit && !p_video->is_in_vert_adjust) {
+      p_video->has_hit_cursor_line_start = 0;
+      p_video->has_hit_cursor_line_end = 0;
+      p_video->had_odd_vsync_this_row = 0;
+      p_video->had_even_vsync_this_row = 0;
+
+      p_video->scanline_counter = 0;
+      p_video->vert_counter = ((p_video->vert_counter + 1) & 0x7F);
+    }
+
+    /* End-of-line state transitions. */
+    if (p_video->in_dummy_raster) {
+      p_video->horiz_counter = horiz_counter;
+      p_video->start_of_line_state_checks = start_of_line_state_checks;
+      video_start_new_frame(p_video);
+      goto check_r7;
+    } else if (p_video->is_vert_adjust_pending) {
+      p_video->is_vert_adjust_pending = 0;
+      p_video->is_in_vert_adjust = 1;
+    } else if (p_video->is_end_of_frame_latched) {
+      if (p_video->is_interlace && (p_video->crtc_frames & 1)) {
+        p_video->in_dummy_raster = 1;
+      } else {
+        p_video->horiz_counter = horiz_counter;
+        p_video->start_of_line_state_checks = start_of_line_state_checks;
+        video_start_new_frame(p_video);
+        goto check_r7;
+      }
+    }
+
+    if (p_video->is_in_vert_adjust) {
+      p_video->vert_adjust_counter++;
+      p_video->vert_adjust_counter &= 0x1F;
+    }
+
+check_r6:
+    r6_hit = (p_video->vert_counter ==
+              p_video->crtc_registers[k_crtc_reg_vert_displayed]);
+    if (r6_hit &&
+        (p_video->display_enable_bits & k_video_display_enable_vert) &&
+        !p_video->is_first_frame_scanline) {
+      p_video->display_enable_bits &= ~k_video_display_enable_vert;
+      /* On the Hitachi 6845, frame counting is done on R6 hit. */
+      p_video->crtc_frames++;
+    }
+
+check_r7:
+    r7_hit = (p_video->vert_counter ==
+              p_video->crtc_registers[k_crtc_reg_vert_sync_position]);
+    if (r7_hit && !p_video->had_odd_vsync_this_row) {
+      p_video->had_odd_vsync_this_row = 1;
+      p_video->is_odd_vsync = 1;
+      if (!p_video->in_vsync) {
+        p_video->vsync_scanline_counter = p_video->vsync_pulse_width;
+      }
+      video_update_VSYNC(p_video, ticks);
+    }
+
+    if (p_video->is_rendering_active) {
+      /* NOTE: we don't quite model correctly here. We increment the scanline
+       * counter by 2 in ISV mode, but the chip increments the scanline counter
+       * by 1 always, and shifts the counter left to form the external RA when
+       * in ISV mode.
+       */
+      uint8_t external_RA = p_video->scanline_counter;
+      int do_teletext_deinterlace = 0;
+      if (p_video->is_interlace_sync_and_video) {
+        external_RA |= p_video->is_odd_frame;
+        do_teletext_deinterlace =
+            (p_video->crtc_registers[k_crtc_reg_vert_total] >=
+             p_video->crtc_registers[k_crtc_reg_vert_displayed]);
+      }
+
+      if (p_video->scanline_counter == p_video->cursor_start_line) {
+        p_video->has_hit_cursor_line_start = 1;
+      }
+
+      teletext_RA_ISV_changed( p_video->p_teletext,
+          external_RA,
+          do_teletext_deinterlace);
+      render_set_RA(p_video->p_render, external_RA);
+    }
+
+    r4_hit = (p_video->vert_counter ==
+              p_video->crtc_registers[k_crtc_reg_vert_total]);
+    r5_hit = (p_video->vert_adjust_counter ==
+              p_video->crtc_registers[k_crtc_reg_vert_adjust]);
+    r9_hit = (p_video->scanline_counter == effective_r9);
+  }
+
+  p_video->horiz_counter = horiz_counter;
+  p_video->start_of_line_state_checks = start_of_line_state_checks;
+  p_video->prev_system_ticks = curr_system_ticks;
+  p_video->num_crtc_advances++;
+}
+
+void
+video_advance_for_memory_sync(void* p) {
+  struct video_struct* p_video = (struct video_struct*) p;
+  /* We could have had a fast -> slow transition but video rendering hasn't yet
+   * activated. We need to wait for it to activate.
+   */
+  if (!p_video->is_rendering_active) {
+    return;
+  }
+  video_advance_crtc_timing(p_video);
+}
+
+static void
+video_init_timer(struct video_struct* p_video) {
+  if (p_video->externally_clocked) {
+    return;
+  }
+  (void) timing_start_timer_with_value(p_video->p_timing, p_video->timer_id, 0);
+}
+
+static inline int
+video_get_flash(struct video_struct* p_video) {
+  return !!(p_video->video_ula_control & k_ula_flash);
+}
+
+static int
+video_is_full_vsync_state_match(struct video_struct* p_video, int is_raise) {
+  int is_even_field = (p_video->is_interlace && (p_video->crtc_frames & 1));
+  assert(p_video->in_vsync == is_raise);
+  assert(p_video->has_sane_framing_parameters);
+  if (p_video->vert_counter !=
+      p_video->crtc_registers[k_crtc_reg_vert_sync_position]) {
+    return 0;
+  }
+  if (p_video->scanline_counter !=
+      (!is_raise * p_video->vsync_pulse_width * p_video->scanline_stride)) {
+    return 0;
+  }
+  if (p_video->vsync_scanline_counter !=
+      (is_raise * p_video->vsync_pulse_width)) {
+    return 0;
+  }
+  if (p_video->horiz_counter != (is_even_field * p_video->half_r0)) {
+    return 0;
+  }
+  if (p_video->is_end_of_main_latched) {
+    return 0;
+  }
+  assert(!p_video->is_end_of_vert_adjust_latched);
+  assert(!p_video->is_end_of_frame_latched);
+  assert(!p_video->is_vert_adjust_pending);
+  assert(!p_video->is_in_vert_adjust);
+  assert(!p_video->in_dummy_raster);
+
+  return 1;
+}
+
+static inline uint32_t
+video_get_scanlines_per_row(struct video_struct* p_video) {
+  uint32_t r9 = p_video->crtc_registers[k_crtc_reg_lines_per_character];
+  uint32_t scanlines_per_row = r9;
+  scanlines_per_row &= p_video->scanline_mask;
+  scanlines_per_row /= p_video->scanline_stride;
+  scanlines_per_row++;
+  return scanlines_per_row;
+}
+
+static uint64_t
+video_calculate_timer(struct video_struct* p_video, int clock_speed) {
+  uint32_t r0;
+  uint32_t horiz_counter;
+  uint32_t scanline_ticks;
+  uint32_t scanlines_per_row;
+  uint32_t row_ticks;
+  uint32_t r7;
+  uint32_t r4;
+
+  uint32_t tick_shift = p_video->clock_tick_shift;
+
+  p_video->timer_fire_mode = k_video_timer_null;
+
+  /* If we switched to 1MHz on an odd cycle, the first CRTC tick will only take    * half the time, to re-catch the 1MHz train.
+   */
+  if ((clock_speed == 0) &&
+      (timing_get_scaled_total_timer_ticks(p_video->p_timing) & 1)) {
+    return 1;
+  }
+
+  r0 = p_video->crtc_registers[k_crtc_reg_horiz_total];
+
+  /* If we're at one of the vsync points of significance, and sanely framed,
+   * we can easily time to the next point.
+   */
+  if (p_video->has_sane_framing_parameters &&
+      video_is_at_vsync_raise(p_video) &&
+      video_is_full_vsync_state_match(p_video, 1)) {
+    /* Enter fast render skipping mode if appropriate. */
+    if (!p_video->is_rendering_active) {
+      p_video->timer_fire_mode = k_video_timer_jump_to_vsync_lower;
+    } else {
+      p_video->timer_fire_mode = k_video_timer_expect_vsync_lower;
+    }
+    return (p_video->vsync_pulse_width * (r0 + 1) << tick_shift);
+  }
+  if (p_video->has_sane_framing_parameters &&
+      video_is_at_vsync_lower(p_video) &&
+      video_is_full_vsync_state_match(p_video, 0)) {
+    uint32_t ret;
+    /* Enter fast render skipping mode if appropriate. */
+    if (!p_video->is_rendering_active) {
+      p_video->timer_fire_mode = k_video_timer_jump_to_vsync_raise;
+    } else {
+      p_video->timer_fire_mode = k_video_timer_expect_vsync_raise;
+    }
+    ret = p_video->frame_crtc_ticks;
+    ret -= (p_video->vsync_pulse_width * (r0 + 1));
+    ret <<= tick_shift;
+    return ret;
+  }
+
+  horiz_counter = p_video->horiz_counter;
+
+  /* If we're past R0, realign to C0=0. */
+  if (horiz_counter > r0) {
+    return ((256 - horiz_counter) << tick_shift);
+  }
+
+  /* Tread carefully around vsync so as not to miss it. */
+  r7 = p_video->crtc_registers[k_crtc_reg_vert_sync_position];
+  if (p_video->in_vsync ||
+          (p_video->is_interlace &&
+           (r7 == p_video->vert_counter) &&
+           (p_video->scanline_counter == 0))) {
+    /* In interlace mode, stop at half R0. */
+    if (p_video->is_interlace && (horiz_counter < p_video->half_r0)) {
+      return ((p_video->half_r0 - horiz_counter) << tick_shift);
+    }
+    /* Stop at C0=0. */
+    return (((r0 + 1) - horiz_counter) << tick_shift);
+  }
+
+  /* Get to C0=0. */
+  if (horiz_counter != 0) {
+    return (((r0 + 1) - horiz_counter) << tick_shift);
+  }
+
+  /* Get to a normal C9=0. */
+  scanline_ticks = ((r0 + 1) << tick_shift);
+  if (p_video->is_end_of_main_latched || (p_video->scanline_counter != 0)) {
+    return scanline_ticks;
+  }
+  assert(!p_video->is_vert_adjust_pending);
+  assert(!p_video->is_in_vert_adjust);
+  assert(!p_video->in_dummy_raster);
+
+  /* Time a full row. */
+  scanlines_per_row = video_get_scanlines_per_row(p_video);
+  row_ticks = (scanlines_per_row * scanline_ticks);
+
+  /* Time rows to R7 if we're due to hit it. */
+  r4 = p_video->crtc_registers[k_crtc_reg_vert_total];
+  if ((p_video->vert_counter < r7) && (r7 <= r4)) {
+    return ((r7 - p_video->vert_counter) * row_ticks);
+  }
+
+  /* Some arbitrarily larger timer value if we're never due to hit R7. */
+  if (r7 > (r4 + 1)) {
+    if ((p_video->vert_counter < r4) ||
+        ((p_video->vert_counter == r4) &&
+             (p_video->scanline_counter <
+                  p_video->crtc_registers[k_crtc_reg_lines_per_character]))) {
+      return 40000;
+    }
+  }
+
+  /* Advance one full row. */
+  return row_ticks;
+}
+
+static void
+video_update_timer(struct video_struct* p_video) {
+  int clock_speed;
+  uint64_t timer_value;
+
+  if (p_video->externally_clocked) {
+    return;
+  }
+
+  clock_speed = p_video->is_ula_clock_fast;
+
+  timer_value = video_calculate_timer(p_video, clock_speed);
+  if (p_video->log_timer) {
+    log_do_log(k_log_video,
+               k_log_info,
+               "timer update, now %"PRId64" hc %d sc %d vc %d",
+               timer_value,
+               p_video->horiz_counter,
+               p_video->scanline_counter,
+               p_video->vert_counter);
+  }
+  assert(timer_value < (4 * 1024 * 1024));
+
+  (void) timing_set_timer_value(p_video->p_timing,
+                                p_video->timer_id,
+                                timer_value);
+}
+
+static uint32_t
+video_jump_to_vsync_start(struct video_struct* p_video) {
+  uint32_t crtc_ticks;
+  uint32_t r0;
+
+  /* Jump from previous state (vsync end) to new state (vsync start). */
+  p_video->is_odd_frame = (p_video->crtc_frames & 1);
+  p_video->crtc_frames++;
+  assert(!p_video->is_odd_vsync);
+  assert(p_video->had_odd_vsync_this_row);
+  assert(p_video->had_even_vsync_this_row);
+  p_video->is_odd_vsync = 1;
+  if (p_video->is_interlace) {
+    if (p_video->crtc_frames & 1) {
+      /* Jump to interlace even frame. */
+      assert(p_video->horiz_counter == 0);
+      assert(p_video->is_even_vsync);
+      p_video->horiz_counter = p_video->half_r0;
+    } else {
+      /* Jump to interlace odd frame. */
+      assert(p_video->horiz_counter == p_video->half_r0);
+      assert(!p_video->is_even_vsync);
+      p_video->horiz_counter = 0;
+      p_video->had_even_vsync_this_row = 0;
+    }
+  } else {
+    /* Non-interlace. */
+    assert(p_video->horiz_counter == 0);
+    assert(p_video->is_even_vsync);
+    p_video->is_even_vsync = 0;
+    p_video->had_even_vsync_this_row = 0;
+  }
+  p_video->vsync_scanline_counter = p_video->vsync_pulse_width;
+  p_video->scanline_counter = 0;
+
+  r0 = p_video->crtc_registers[k_crtc_reg_horiz_total];
+  crtc_ticks = (p_video->vsync_pulse_width * (r0 + 1));
+  return crtc_ticks;
+}
+
+static uint32_t
+video_jump_to_vsync_end(struct video_struct* p_video) {
+  uint32_t crtc_ticks;
+  uint32_t r0;
+
+  assert(p_video->had_odd_vsync_this_row);
+  assert(p_video->scanline_counter == 0);
+  assert(p_video->vsync_scanline_counter == p_video->vsync_pulse_width);
+  assert(p_video->vert_counter ==
+         p_video->crtc_registers[k_crtc_reg_vert_sync_position]);
+  /* Jump from previous state (vsync start) to new state (vsync end). */
+  p_video->scanline_counter = (p_video->vsync_pulse_width *
+                               p_video->scanline_stride);
+  p_video->vsync_scanline_counter = 0;
+  p_video->is_odd_vsync = 0;
+  if (p_video->is_interlace && (p_video->crtc_frames & 1)) {
+    assert(p_video->horiz_counter == p_video->half_r0);
+    assert(p_video->had_even_vsync_this_row);
+    p_video->is_even_vsync = 0;
+  } else {
+    assert(p_video->horiz_counter == 0);
+    p_video->had_even_vsync_this_row = 1;
+    p_video->is_even_vsync = 1;
+  }
+
+  r0 = p_video->crtc_registers[k_crtc_reg_horiz_total];
+  crtc_ticks = p_video->frame_crtc_ticks;
+  crtc_ticks -= (p_video->vsync_pulse_width * (r0 + 1));
+  return crtc_ticks;
+}
+
+static void
+video_timer_fired(void* p) {
+  struct video_struct* p_video = (struct video_struct*) p;
+  int timer_fire_mode = p_video->timer_fire_mode;
+
+  assert(!p_video->externally_clocked);
+
+  if (p_video->log_timer) {
+    log_do_log(k_log_video,
+               k_log_info,
+               "timer fired #1, ticks %"PRId64,
+               timing_get_total_timer_ticks(p_video->p_timing));
+  }
+
+#if BEEBJIT_RENDER_WIRE
+  /* Paint for frames the renderer has finished (whether or not the CRTC is
+   * run tick by tick below, which also polls).
+   */
+  beebjit_wire_poll_flybacks();
+#endif
+
+  /* Performance shortcut. If rendering is inactive and we're using
+   * frame-to-frame timers, we can set the state directly instead of manually
+   * running the CRTC tick by tick.
+   */
+  if (timer_fire_mode >= k_video_timer_jump_to_vsync_raise) {
+    uint32_t crtc_ticks;
+    uint64_t ticks = timing_get_scaled_total_timer_ticks(p_video->p_timing);
+    assert(!p_video->is_rendering_active);
+    assert(p_video->has_sane_framing_parameters);
+
+    if (timer_fire_mode == k_video_timer_jump_to_vsync_raise) {
+      crtc_ticks = video_jump_to_vsync_start(p_video);
+      p_video->timer_fire_mode = k_video_timer_jump_to_vsync_lower;
+      video_update_VSYNC(p_video, ticks);
+    } else if (timer_fire_mode == k_video_timer_jump_to_vsync_lower) {
+      crtc_ticks = video_jump_to_vsync_end(p_video);
+      /* (Frame skip keeps the vsync raise at its own instant, for its frame
+       * tick and the VIA's CA1 flag.)
+       */
+      if ((p_video->via_ca1_irq_level == 0) && !p_video->opt_frame_skip) {
+        crtc_ticks = p_video->frame_crtc_ticks;
+        p_video->timer_fire_mode = k_video_timer_jump_full_frame;
+      } else {
+        p_video->timer_fire_mode = k_video_timer_jump_to_vsync_raise;
+      }
+      video_update_VSYNC(p_video, ticks);
+    } else {
+      uint32_t vsync_ticks;
+      assert(p_video->timer_fire_mode == k_video_timer_jump_full_frame);
+
+      (void) video_jump_to_vsync_start(p_video);
+      video_update_VSYNC(p_video, ticks);
+      (void) video_jump_to_vsync_end(p_video);
+      assert(p_video->in_vsync == 1);
+      video_update_VSYNC(p_video, ticks);
+      assert(p_video->in_vsync == 0);
+
+      /* We're jumping full frames, vsync end -> vsync end. So we have to fix
+       * up the ticks at which vsync start will have occurred.
+       */
+      vsync_ticks = (p_video->crtc_registers[k_crtc_reg_horiz_total] + 1);
+      vsync_ticks *= p_video->vsync_pulse_width;
+      vsync_ticks <<= p_video->clock_tick_shift;
+      p_video->last_vsync_raise_ticks = (ticks - vsync_ticks);
+
+      crtc_ticks = p_video->frame_crtc_ticks;
+    }
+
+    p_video->prev_system_ticks = ticks;
+
+    (void) timing_set_timer_value(p_video->p_timing,
+                                  p_video->timer_id,
+                                  (crtc_ticks << p_video->clock_tick_shift));
+  } else {
+    video_advance_crtc_timing(p_video);
+    if (p_video->timer_fire_mode == k_video_timer_expect_vsync_raise) {
+      assert(video_is_at_vsync_raise(p_video));
+    } else if (p_video->timer_fire_mode == k_video_timer_expect_vsync_lower) {
+      assert(video_is_at_vsync_lower(p_video));
+    }
+    video_update_timer(p_video);
+  }
+
+  if (p_video->log_timer) {
+    log_do_log(k_log_video,
+               k_log_info,
+               "timer fired #2, hc %d sc %d vc %d",
+               p_video->horiz_counter,
+               p_video->scanline_counter,
+               p_video->vert_counter);
+  }
+
+  video_check_go_active(p_video);
+}
+
+static void
+video_mode_updated(struct video_struct* p_video) {
+  /* Let the renderer know about the new mode. */
+  int is_teletext = (p_video->video_ula_control & k_ula_teletext);
+  int chars_per_line = (p_video->video_ula_control & k_ula_chars_per_line);
+  int clock_speed = p_video->is_ula_clock_fast;
+  chars_per_line >>= k_ula_chars_per_line_shift;
+
+  render_set_mode(p_video->p_render, clock_speed, chars_per_line, is_teletext);
+}
+
+static void
+video_CB2_changed_callback(void* p, int level, int output) {
+  uint32_t address_counter;
+  struct video_struct* p_video;
+
+  if (!level || !output) {
+    return;
+  }
+
+  p_video = (struct video_struct*) p;
+  address_counter = p_video->address_counter;
+
+  /* If the system VIA configures CB2 to an output and flips it low -> high,
+   * the CRTC thinks it sees a real light pen pulse.
+   * Needed by Pharoah's Curse to start.
+   */
+  video_advance_crtc_timing(p_video);
+
+  p_video->crtc_registers[k_crtc_reg_light_pen_high] = (address_counter >> 8);
+  p_video->crtc_registers[k_crtc_reg_light_pen_low] = (address_counter & 0xFF);
+}
+
+static void
+video_PCR_changed_callback(void* p, uint8_t pcr) {
+  struct video_struct* p_video = (struct video_struct*) p;
+
+  video_advance_crtc_timing(p_video);
+
+  p_video->via_ca1_irq_level = (pcr & 0x01);
+}
+
+static void
+video_recalculate_framing_sanity(struct video_struct* p_video) {
+  uint32_t sane_r9;
+  int32_t frame_crtc_ticks = -1;
+  int sane = 1;
+
+  uint32_t r0 = p_video->crtc_registers[k_crtc_reg_horiz_total];
+  uint32_t r4 = p_video->crtc_registers[k_crtc_reg_vert_total];
+  uint32_t r7 = p_video->crtc_registers[k_crtc_reg_vert_sync_position];
+  uint32_t r9 = p_video->crtc_registers[k_crtc_reg_lines_per_character];
+
+  if (r0 < 3) {
+    sane = 0;
+  }
+  /* Make sure vsync pulse width fits within one character row (which is
+   * restricted to being 4 lines or more below.
+   */
+  assert(p_video->vsync_pulse_width != 0);
+  if (p_video->vsync_pulse_width > 3) {
+    sane = 0;
+  }
+  /* R4 > R7 > R6. */
+  if (r4 <= r7) {
+    sane = 0;
+  }
+  if (r7 <= p_video->crtc_registers[k_crtc_reg_vert_displayed]) {
+    sane = 0;
+  }
+  sane_r9 = 3;
+  if (p_video->is_interlace_sync_and_video) {
+    sane_r9 *= 2;
+  }
+  if (r9 < sane_r9) {
+    sane = 0;
+  }
+
+  if (sane) {
+    uint32_t scanlines = video_get_scanlines_per_row(p_video);
+
+    frame_crtc_ticks = (r0 + 1);
+    frame_crtc_ticks *= scanlines;
+    frame_crtc_ticks *= (r4 + 1);
+
+    frame_crtc_ticks += ((r0 + 1) *
+                         p_video->crtc_registers[k_crtc_reg_vert_adjust]);
+    if (p_video->is_interlace) {
+      frame_crtc_ticks += ((r0 + 1) / 2);
+    }
+  }
+
+  p_video->has_sane_framing_parameters = sane;
+  p_video->frame_crtc_ticks = frame_crtc_ticks;
+}
+
+static void
+video_wall_time_vsync_hit(struct video_struct* p_video) {
+  p_video->is_wall_time_vsync_hit = 1;
+  p_video->last_wall_time_vsync_hit_cycles =
+      timing_get_total_timer_ticks(p_video->p_timing);
+}
+
+static void
+video_paint_timer_fired(void* p) {
+  /* The dance for when we render (draw pixels), paint (blast render buffer to
+   * screen), etc. is getting complicated.
+   * This paint timer here is not part of the default path. It is only used
+   * when some unusual custom options are used.
+   */
+  struct video_struct* p_video = (struct video_struct*) p;
+  struct timing_struct* p_timing = p_video->p_timing;
+  uint32_t timer_id = p_video->paint_timer_id;
+
+  assert(render_has_buffer(p_video->p_render));
+
+  if (p_video->log_timer) {
+    log_do_log(k_log_video,
+               k_log_info,
+               "paint timer fired, ticks %"PRId64,
+               timing_get_total_timer_ticks(p_video->p_timing));
+  }
+
+  if (!p_video->externally_clocked) {
+    /* For accurate mode, this triggers the start of painting, and paint will
+     * occur at the usual 50Hz virtual time.
+     */
+    if (timing_timer_is_running(p_timing, timer_id)) {
+      p_video->has_paint_timer_triggered = 1;
+      video_wall_time_vsync_hit(p_video);
+      /* A bunch of unconsumed framing changes will have built up. Clear the
+       * the flag so the screen isn't immediately cleared after the first paint.
+       * This avoids the second frame being bad with interlaced rendering.
+       */
+      p_video->is_framing_changed_for_render = 0;
+      (void) timing_stop_timer(p_timing, timer_id);
+    }
+  } else {
+    /* For fast mode, this paints, and restarts the recurring paint cycles
+     * timer.
+     */
+    video_do_paint(p_video);
+    (void) timing_set_timer_value(p_timing, timer_id, p_video->paint_cycles);
+  }
+}
+
+struct video_struct*
+video_create(uint8_t* p_bbc_mem,
+             uint8_t* p_shadow_mem,
+             int externally_clocked,
+             struct timing_struct* p_timing,
+             struct render_struct* p_render,
+             struct teletext_struct* p_teletext,
+             struct via_struct* p_system_via,
+             void (*p_framebuffer_ready_callback)(void* p,
+                                                  int do_full_paint,
+                                                  int framing_changed,
+                                                  int do_wait_for_paint),
+             void* p_framebuffer_ready_object,
+             int* p_fast_flag,
+             struct bbc_options* p_options) {
+  struct video_struct* p_video = util_mallocz(sizeof(struct video_struct));
+
+  p_video->p_bbc_mem = p_bbc_mem;
+  p_video->p_shadow_mem = p_shadow_mem;
+  p_video->externally_clocked = externally_clocked;
+  p_video->p_timing = p_timing;
+  p_video->p_render = p_render;
+  p_video->p_teletext = p_teletext;
+  p_video->p_system_via = p_system_via;
+  p_video->p_framebuffer_ready_callback = p_framebuffer_ready_callback;
+  p_video->p_framebuffer_ready_object = p_framebuffer_ready_object;
+  p_video->p_fast_flag = p_fast_flag;
+
+  p_video->log_count_horiz_total = 16;
+  p_video->log_count_hsync_width = 16;
+  p_video->log_count_vsync_width = 16;
+
+  p_video->wall_time = 0;
+  p_video->vsync_next_time = 0;
+  p_video->num_vsyncs = 0;
+  p_video->num_crtc_advances = 0;
+  p_video->has_paint_timer_triggered = 0;
+
+  p_video->timer_id = timing_register_timer(p_timing,
+                                            "video",
+                                            video_timer_fired,
+                                            p_video);
+
+  p_video->crtc_address_register = 0;
+
+  p_video->log_timer = util_has_option(p_options->p_log_flags, "video:timer");
+  p_video->opt_is_show_frame_boundaries = util_has_option(
+      p_options->p_opt_flags, "video:frame-boundaries");
+  p_video->opt_is_hack_legacy_quest_cap = util_has_option(
+      p_options->p_opt_flags, "video:hack-legacy-quest-cap");
+  p_video->opt_is_hack_legacy_shift_mode7 = util_has_option(
+      p_options->p_opt_flags, "video:hack-legacy-shift-mode7");
+  p_video->opt_is_always_render = util_has_option(
+      p_options->p_opt_flags, "video:always-render");
+  p_video->opt_frame_skip = (util_has_option(p_options->p_opt_flags,
+                                             "video:frame-skip") &&
+                             !externally_clocked &&
+                             !p_video->opt_is_always_render);
+
+  p_video->frames_skip = 0;
+  p_video->frame_skip_counter = 0;
+  (void) util_get_u32_option(&p_video->frames_skip,
+                             p_options->p_opt_flags,
+                             "video:frames-skip=");
+  p_video->paint_start_cycles = 0;
+  (void) util_get_u64_option(&p_video->paint_start_cycles,
+                             p_options->p_opt_flags,
+                             "video:paint-start-cycles=");
+  if (p_video->paint_start_cycles > 0) {
+    p_video->paint_timer_id = timing_register_timer(p_timing,
+                                                    "video_paint",
+                                                    video_paint_timer_fired,
+                                                    p_video);
+    (void) timing_start_timer_with_value(p_timing,
+                                         p_video->paint_timer_id,
+                                         p_video->paint_start_cycles);
+  }
+  /* If paint cycle counting is active (default: no), then after the start
+   * threshold is crossed, paint at a perfect virtual 50Hz.
+   */
+  p_video->paint_cycles = 40000;
+  (void) util_get_u64_option(&p_video->paint_cycles,
+                             p_options->p_opt_flags,
+                             "video:paint-cycles=");
+  p_video->opt_is_always_clear_frame_buffer = util_has_option(
+      p_options->p_opt_flags, "video:always-clear");
+
+  if (p_system_via) {
+    via_set_CB2_changed_callback(p_system_via,
+                                 video_CB2_changed_callback,
+                                 p_video);
+    via_set_PCR_changed_callback(p_system_via,
+                                 video_PCR_changed_callback,
+                                 p_video);
+  }
+
+  if (!externally_clocked) {
+    render_set_flyback_callback(p_render, video_flyback_callback, p_video);
+  }
+
+  video_init_timer(p_video);
+
+  return p_video;
+}
+
+void
+video_destroy(struct video_struct* p_video) {
+  render_set_flyback_callback(p_video->p_render, NULL, NULL);
+  util_free(p_video);
+}
+
+void
+video_set_nula(struct video_struct* p_video, int is_nula) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->is_nula = is_nula;
+}
+
+void
+video_IC32_updated(struct video_struct* p_video, uint8_t IC32) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->num_hw_writes++;
+  uint32_t screen_wrap_add;
+
+  uint32_t size_id = ((IC32 >> 4) & 0x3);
+
+  /* Note: doesn't seem to match the BBC Microcomputer Advanced User Guide, but
+   * does work and does match b-em.
+   */
+  switch (size_id) {
+  case 0:
+    screen_wrap_add = 0x4000;
+    break;
+  case 1:
+    screen_wrap_add = 0x2000;
+    break;
+  case 2:
+    screen_wrap_add = 0x5000;
+    break;
+  case 3:
+    screen_wrap_add = 0x2800;
+    break;
+  default:
+    screen_wrap_add = 0;
+    assert(0);
+    break;
+  }
+
+  if (p_video->screen_wrap_add == screen_wrap_add) {
+    return;
+  }
+
+  /* Changing the screen wrap addition could affect rendering, so catch up. */
+  if (p_video->is_rendering_active) {
+    video_advance_crtc_timing(p_video);
+  }
+
+  p_video->screen_wrap_add = screen_wrap_add;
+}
+
+void
+video_mem_mode_updated(struct video_struct* p_video,
+                       uint8_t romsel,
+                       uint8_t acccon) {
+  if (p_video->is_rendering_active) {
+    video_advance_crtc_timing(p_video);
+  }
+  if ((acccon & 0x01) ^ ((acccon & 0x04) >> 2)) {
+    p_video->p_mem_base = p_video->p_shadow_mem;
+  } else {
+    p_video->p_mem_base = p_video->p_bbc_mem;
+  }
+  p_video->romsel = romsel;
+  p_video->acccon = acccon;
+}
+
+static void
+video_ula_set_control(struct video_struct* p_video, uint8_t val) {
+  p_video->video_ula_control = val;
+  p_video->is_ula_clock_fast = !!(val & k_ula_clock_speed);
+}
+
+static void
+video_ula_power_on_reset(struct video_struct* p_video) {
+  /* Teletext mode, 1MHz operation. */
+  video_ula_set_control(p_video, k_ula_teletext);
+  (void) memset(&p_video->ula_palette, '\0', sizeof(p_video->ula_palette));
+  p_video->screen_wrap_add = 0;
+  p_video->clock_tick_shift = 1;
+  p_video->p_mem_base = p_video->p_bbc_mem;
+  p_video->romsel = 0;
+  p_video->acccon = 0;
+  p_video->nula_pending_palette = -1;
+}
+
+static void
+video_crtc_power_on_reset(struct video_struct* p_video) {
+  /* What initial state should we use for 6845 and Video ULA registers?
+   * The 6845 data sheets (all variations?) aren't much help, quoting:
+   * http://bitsavers.trailing-edge.com/components/motorola/_dataSheets/6845.pdf
+   * "The CRTC registers will have an initial value at power up. When using
+   * a direct drive monitor (sans horizontal oscillator) these initial values
+   * may result in out-of-tolerance operation."
+   * It isn't specified whether those initial values are random or
+   * deterministic, or what they may be.
+   * Custom MOS ROM tests by Tom Seddon indicate fairly random values from boot
+   * to boot; sometimes the register values result in VSYNCs, sometimes not.
+   * We could argue it's not a huge deal because the MOS ROM sets values for
+   * the registers as part of selecting MODE7 at boot up. But we do want to
+   * avoid exotic 6845 setups (such as registers all zero) because the timing
+   * of exotic setups is more likely to change as bugs are fixed. And stable
+   * timing is desirable on account of record / playback support.
+   * So TL;DR: we'll set up MODE7.
+   */
+  p_video->crtc_registers[k_crtc_reg_horiz_total] = 63;
+  p_video->crtc_registers[k_crtc_reg_horiz_displayed] = 40;
+  p_video->crtc_registers[k_crtc_reg_horiz_position] = 51;
+  /* Horiz sync pulse width 4, vertical sync pulse width 2. */
+  p_video->crtc_registers[k_crtc_reg_sync_width] = 0x24;
+  p_video->crtc_registers[k_crtc_reg_vert_total] = 30;
+  p_video->crtc_registers[k_crtc_reg_vert_adjust] = 2;
+  p_video->crtc_registers[k_crtc_reg_vert_displayed] = 25;
+  /* NOTE: a real model B sets 28, even though AUG claims 27. */
+  p_video->crtc_registers[k_crtc_reg_vert_sync_position] = 28;
+  /* Interlace sync and video, 1 character display delay, 2 character cursor
+   * delay.
+   */
+  p_video->crtc_registers[k_crtc_reg_interlace] = (3 | (1 << 4) | (2 << 6));
+  p_video->crtc_registers[k_crtc_reg_lines_per_character] = 18;
+  /* Flashing cursor, scanlines 18 - 19. */
+  p_video->crtc_registers[k_crtc_reg_cursor_start] = 0x72;
+  p_video->crtc_registers[k_crtc_reg_cursor_end] = 0x13;
+  p_video->crtc_registers[k_crtc_reg_mem_addr_high] = 0;
+  p_video->crtc_registers[k_crtc_reg_mem_addr_low] = 0;
+  p_video->crtc_registers[k_crtc_reg_cursor_high] = 0;
+  p_video->crtc_registers[k_crtc_reg_cursor_low] = 0;
+  p_video->crtc_registers[k_crtc_reg_light_pen_high] = 0;
+  p_video->crtc_registers[k_crtc_reg_light_pen_low] = 0;
+
+  p_video->crtc_address_register = 0;
+
+  /* Set correctly as per above register values. */
+  p_video->is_interlace = 1;
+  p_video->is_interlace_sync_and_video = 1;
+  p_video->scanline_stride = 2;
+  p_video->scanline_mask = 0x1E;
+  p_video->hsync_pulse_width = 4;
+  p_video->vsync_pulse_width = 2;
+  p_video->half_r0 = 32;
+  p_video->cursor_disabled = 0;
+  p_video->cursor_flashing = 1;
+  p_video->cursor_flash_mask = 0x10;
+  p_video->cursor_start_line = 18;
+  p_video->skew_dispen_index = 1;
+  p_video->cursor_skew = 2;
+
+  video_recalculate_framing_sanity(p_video);
+  assert(p_video->has_sane_framing_parameters);
+
+  /* CRTC non-register state. */
+  p_video->crtc_frames = 0;
+  p_video->is_odd_frame = 0;
+  p_video->horiz_counter = 0;
+  p_video->scanline_counter = 0;
+  p_video->vert_counter = 0;
+  p_video->vert_adjust_counter = 0;
+  p_video->vsync_scanline_counter = 0;
+  p_video->hsync_tick_counter = 0;
+  p_video->address_counter = 0;
+  p_video->address_counter_saved = 0;
+  p_video->is_vert_adjust_pending = 0;
+  p_video->is_in_vert_adjust = 0;
+  p_video->in_vsync = 0;
+  p_video->is_even_vsync = 0;
+  p_video->is_odd_vsync = 0;
+  p_video->in_hsync = 0;
+  p_video->in_dummy_raster = 0;
+  p_video->had_odd_vsync_this_row = 0;
+  p_video->had_even_vsync_this_row = 0;
+  p_video->display_enable_bits = k_video_display_enable_vert;
+  p_video->has_hit_cursor_line_start = 0;
+  p_video->has_hit_cursor_line_end = 0;
+  p_video->is_end_of_main_latched = 0;
+  p_video->is_end_of_vert_adjust_latched = 0;
+  p_video->is_end_of_frame_latched = 0;
+  p_video->start_of_line_state_checks = 1;
+  p_video->is_first_frame_scanline = 1;
+  p_video->last_vsync_raise_ticks = -1;
+  p_video->last_vsync_lower_ticks = -1;
+  p_video->cursor_skew_counter = -1;
+  p_video->dispen_shifts[0] = 0;
+  p_video->dispen_shifts[1] = 0;
+  p_video->dispen_shifts[2] = 0;
+}
+
+void
+video_power_on_reset(struct video_struct* p_video) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  if (p_video->is_frame_skipping) {
+    p_video->frame_skip_wanted = 1;
+  }
+  /* teletext_power_on_reset() zeroed its flash count; the vsync sent below
+   * makes it 1 (as the mirror).
+   */
+  p_video->fs_flash_count = 1;
+  video_crtc_power_on_reset(p_video);
+  video_ula_power_on_reset(p_video);
+  render_power_on_reset(p_video->p_render);
+
+  /* Other state that needs resetting. */
+  p_video->is_framing_changed_for_render = 1;
+  p_video->is_wall_time_vsync_hit = 0;
+  p_video->is_rendering_active = 0;
+  p_video->frame_skip_counter = 0;
+  p_video->prev_system_ticks = 0;
+  /* Unknown until the PCR change callback is called. */
+  p_video->via_ca1_irq_level = -1;
+
+  /* Deliberately don't reset the counters. */
+
+  video_mode_updated(p_video);
+  /* This takes care of timer_fire_mode. */
+  video_update_timer(p_video);
+
+  /* This is checking for bad state, particularly if power-on resetting for
+   * rewind purposes.
+   */
+  assert(p_video->frame_crtc_ticks == 20000);
+  if (!p_video->externally_clocked) {
+    assert(timing_get_timer_value(p_video->p_timing, p_video->timer_id) ==
+           35840);
+  }
+}
+
+uint64_t
+video_get_num_vsyncs(struct video_struct* p_video) {
+  return p_video->num_vsyncs;
+}
+
+uint64_t
+video_get_num_crtc_advances(struct video_struct* p_video) {
+  return p_video->num_crtc_advances;
+}
+
+struct render_struct*
+video_get_render(struct video_struct* p_video) {
+  return p_video->p_render;
+}
+
+void
+video_apply_wall_time_delta(struct video_struct* p_video, uint64_t delta) {
+  struct via_struct* p_system_via;
+  uint64_t wall_time;
+
+  wall_time = (p_video->wall_time + delta);
+  p_video->wall_time = wall_time;
+
+  if (wall_time < p_video->vsync_next_time) {
+    return;
+  }
+
+  while (p_video->vsync_next_time <= wall_time) {
+    p_video->vsync_next_time += k_video_us_per_vsync;
+  }
+
+  if (!p_video->externally_clocked) {
+    if (!p_video->is_wall_time_vsync_hit) {
+      video_wall_time_vsync_hit(p_video);
+    }
+    return;
+  }
+
+  p_system_via = p_video->p_system_via;
+  via_set_CA1(p_system_via, 0);
+  via_set_CA1(p_system_via, 1);
+  p_video->num_vsyncs++;
+
+  if (!render_has_buffer(p_video->p_render)) {
+    return;
+  }
+
+  if (p_video->paint_start_cycles > 0) {
+    return;
+  }
+
+  video_do_paint(p_video);
+}
+
+void
+video_render_full_frame(struct video_struct* p_video) {
+  uint32_t i_cols;
+  uint32_t i_lines;
+  uint32_t i_rows;
+  uint32_t crtc_line_address;
+
+  struct render_struct* p_render = p_video->p_render;
+
+  /* This render function is typically called on a different thread to the
+   * BBC thread, so make sure to reload register values from memory.
+   */
+  volatile uint8_t* p_regs = (volatile uint8_t*) &p_video->crtc_registers;
+  volatile uint8_t* p_ula_control = &p_video->video_ula_control;
+
+  uint32_t crtc_start_address = ((p_regs[k_crtc_reg_mem_addr_high] << 8) |
+                                 p_regs[k_crtc_reg_mem_addr_low]);
+  uint32_t screen_wrap_add = p_video->screen_wrap_add;
+  uint32_t num_rows = p_regs[k_crtc_reg_vert_displayed];
+  uint32_t num_lines = p_regs[k_crtc_reg_lines_per_character];
+  uint32_t num_cols = p_regs[k_crtc_reg_horiz_displayed];
+  uint32_t vert_total = (p_regs[k_crtc_reg_vert_total] + 1);
+  uint32_t horiz_total = (p_regs[k_crtc_reg_horiz_total] + 1);
+  uint32_t num_pre_lines = 0;
+  uint32_t num_pre_cols = 0;
+  struct teletext_struct* p_teletext = p_video->p_teletext;
+  uint32_t hsync_pulse_ticks = (p_video->hsync_pulse_width <<
+                                p_video->clock_tick_shift);
+  int is_teletext = (*p_ula_control & k_ula_teletext);
+  int is_1MHz = !p_video->is_ula_clock_fast;
+  uint32_t num_cols_2MHz;
+
+  assert(p_video->externally_clocked);
+
+  if ((p_regs[k_crtc_reg_interlace] & 0x03) == 0x03) {
+    num_lines += 2;
+    num_lines /= 2;
+  } else {
+    num_lines += 1;
+  }
+  if (vert_total > p_regs[k_crtc_reg_vert_sync_position]) {
+    num_pre_lines = (vert_total - p_regs[k_crtc_reg_vert_sync_position]);
+    num_pre_lines *= num_lines;
+  }
+  num_pre_lines += p_regs[k_crtc_reg_vert_adjust];
+  if (horiz_total > p_regs[k_crtc_reg_horiz_position]) {
+    num_pre_cols = (horiz_total - p_regs[k_crtc_reg_horiz_position]);
+  }
+
+  num_cols_2MHz = num_cols;
+  if (is_1MHz) {
+    num_pre_cols *= 2;
+    num_cols_2MHz *= 2;
+  }
+
+  render_prepare(p_render);
+  render_vsync(p_render);
+  render_set_DISPEN(p_render, 0);
+  teletext_VSYNC_changed(p_teletext, 0);
+  teletext_RA_ISV_changed(p_teletext, 0, 1);
+
+  for (i_lines = 0; i_lines < num_pre_lines; ++i_lines) {
+    (void) render_hsync(p_render, hsync_pulse_ticks);
+  }
+  for (i_rows = 0; i_rows < num_rows; ++i_rows) {
+    for (i_lines = 0; i_lines < num_lines; ++i_lines) {
+      uint8_t data = 0;
+      render_set_RA(p_render, i_lines);
+      crtc_line_address = (crtc_start_address + (i_rows * num_cols));
+      for (i_cols = 0; i_cols < num_pre_cols; ++i_cols) {
+        render_render(p_render, 0x00, (i_cols & 1));
+      }
+      render_set_DISPEN(p_render, 1);
+      for (i_cols = 0; i_cols < num_cols_2MHz; ++i_cols) {
+        int is_odd_tick = (i_cols & 1);
+        crtc_line_address &= 0x3FFF;
+        if (!is_1MHz || !is_odd_tick) {
+          data = video_read_data_byte(p_video,
+                                      is_odd_tick,
+                                      crtc_line_address,
+                                      i_lines,
+                                      screen_wrap_add);
+          teletext_data(p_teletext, data, 1);
+          crtc_line_address++;
+        }
+        render_render(p_render, data, is_odd_tick);
+      }
+      if (is_teletext) {
+        /* Send along four extra characters, because the teletext display
+         * path is pipelined, and three behind.
+         * DISPEN is set for the first, lowered for the remaining because
+         * the DISPEN pipeline is a different depth.
+         * TODO: I don't quite understand why this is the magic that works!
+         */
+        for (i_cols = 0; i_cols < 8; ++i_cols) {
+          if (!(i_cols & 1)) {
+            teletext_data(p_teletext, 0, (i_cols == 0));
+          }
+          render_render(p_render, 0x00, (i_cols & 1));
+        }
+      }
+      render_set_DISPEN(p_render, 0);
+      (void) render_hsync(p_render, hsync_pulse_ticks);
+    }
+  }
+}
+
+static void
+video_framing_changed(struct video_struct* p_video) {
+  p_video->is_framing_changed_for_render = 1;
+  if (p_video->externally_clocked) {
+    return;
+  }
+
+  if (p_video->log_timer) {
+    log_do_log(k_log_video,
+               k_log_info,
+               "framing changed, ticks %"PRId64,
+               timing_get_total_timer_ticks(p_video->p_timing));
+  }
+
+  video_update_timer(p_video);
+}
+
+static void
+video_check_hack_legacy_shift_mode7(struct video_struct* p_video) {
+  if (!p_video->opt_is_hack_legacy_shift_mode7) {
+    return;
+  }
+
+  /* If's a MODE 7 setup, shift it left to mimic the old beebjit display (which
+   * is centered the same as the other modes).
+   */
+  if (!(p_video->video_ula_control & k_ula_teletext) ||
+      (p_video->skew_dispen_index != 1) ||
+      (p_video->cursor_skew != 2)) {
+    return;
+  }
+
+  p_video->crtc_registers[k_crtc_reg_horiz_position] = 52;
+
+  video_framing_changed(p_video);
+}
+
+static void
+video_ula_write_ctrl(struct video_struct* p_video, uint8_t val) {
+  int new_flash;
+  int new_clock_speed;
+  int old_clock_speed;
+  int new_is_teletext;
+  int old_is_teletext;
+  struct render_struct* p_render = p_video->p_render;
+
+  if (p_video->is_rendering_active) {
+    video_advance_crtc_timing(p_video);
+  }
+
+  old_clock_speed = p_video->is_ula_clock_fast;
+  new_clock_speed = !!(val & k_ula_clock_speed);
+  old_is_teletext = !!(p_video->video_ula_control & k_ula_teletext);
+  new_is_teletext = !!(val & k_ula_teletext);
+
+  if (new_clock_speed != old_clock_speed) {
+    if (!p_video->is_rendering_active) {
+      /* Must be called before updating p_video->video_ula_control. */
+      video_advance_crtc_timing(p_video);
+    }
+    p_video->clock_tick_shift = !new_clock_speed;
+  }
+
+  video_ula_set_control(p_video, val);
+
+  if ((new_clock_speed != old_clock_speed) ||
+      (new_is_teletext != old_is_teletext)) {
+    /* Must be called after updating p_video->video_ula_control. */
+    video_framing_changed(p_video);
+  }
+
+  new_flash = video_get_flash(p_video);
+  render_set_flash(p_render, new_flash);
+
+  /* NOTE: yes, the last two are repeated. */
+  render_set_cursor_segments(p_render,
+                             !!(val & 0x80),
+                             !!(val & 0x40),
+                             !!(val & 0x20),
+                             !!(val & 0x20));
+
+  video_mode_updated(p_video);
+
+  video_check_hack_legacy_shift_mode7(p_video);
+}
+
+static void
+video_ula_write_palette(struct video_struct* p_video, uint8_t val) {
+  uint8_t index = (val >> 4);
+
+  val = (val & 0x0F);
+
+  if (p_video->ula_palette[index] == val) {
+    return;
+  }
+
+  if (p_video->is_rendering_active) {
+    video_advance_crtc_timing(p_video);
+  }
+
+  p_video->ula_palette[index] = val;
+
+  render_set_physical_color(p_video->p_render, index, val);
+}
+
+void
+video_ula_write(struct video_struct* p_video, uint8_t addr, uint8_t val) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->num_hw_writes++;
+  uint8_t index;
+  uint8_t tmp;
+  uint32_t pixel;
+
+  if (!p_video->is_nula) {
+    addr &= 0x1;
+  }
+  switch (addr) {
+  case 0:
+    video_ula_write_ctrl(p_video, val);
+    break;
+  case 1:
+    video_ula_write_palette(p_video, val);
+    break;
+  case 2:
+    /* NuLA control register. Not yet implemented. */
+    break;
+  case 3:
+    /* NuLA palette register. */
+    if (p_video->nula_pending_palette == -1) {
+      p_video->nula_pending_palette = val;
+      break;
+    }
+
+    if (p_video->is_rendering_active) {
+      video_advance_crtc_timing(p_video);
+    }
+
+    index = (p_video->nula_pending_palette >> 4);
+    pixel = 0xff000000;
+    tmp = ((p_video->nula_pending_palette & 0xf) * 0x11);
+    pixel |= (tmp << 16);
+    tmp = ((val >> 4) * 0x11);
+    pixel |= (tmp << 8);
+    tmp = ((val & 0xf) * 0x11);
+    pixel |= tmp;
+    render_set_palette(p_video->p_render, index, pixel);
+    p_video->nula_pending_palette = -1;
+    break;
+  }
+}
+
+uint64_t
+video_ula_write_ctrl_with_countdown(struct video_struct* p_video,
+                                    uint8_t addr,
+                                    uint8_t val,
+                                    uint64_t countdown) {
+  struct timing_struct* p_timing = p_video->p_timing;
+  (void) addr;
+  timing_sync_countdown(p_timing, (countdown + 1));
+  video_ula_write_ctrl(p_video, val);
+  countdown = timing_advance_time_delta(p_timing, 1);
+  return countdown;
+}
+
+void
+video_ula_write_palette_with_countdown(struct video_struct* p_video,
+                                       uint8_t addr,
+                                       uint8_t val,
+                                       uint64_t countdown) {
+  struct timing_struct* p_timing = p_video->p_timing;
+  (void) addr;
+  timing_sync_countdown(p_timing, (countdown + 1));
+  video_ula_write_palette(p_video, val);
+}
+
+uint8_t
+video_crtc_read(struct video_struct* p_video, uint8_t addr) {
+  uint8_t reg;
+
+  assert(addr < 2);
+
+  /* EMU NOTE: read-only registers in CRTC return 0, confirmed on a real BBC
+   * here:
+   * https://stardot.org.uk/forums/viewtopic.php?f=4&t=17509
+   */
+  if (addr == 0) {
+    /* CRTC latched register is write-only. */
+    return 0;
+  }
+
+  /* EMU NOTE: Not all 6845s are identical. The BBC uses the Hitachi one:
+   * https://www.cpcwiki.eu/imgs/c/c0/Hd6845.hitachi.pdf
+   * Of note, the memory address registers are readable, which is not the case
+   * for other 6845s.
+   */
+  reg = (p_video->crtc_address_register & k_crtc_register_mask);
+  switch (reg) {
+  case k_crtc_reg_mem_addr_high:
+  case k_crtc_reg_mem_addr_low:
+  case k_crtc_reg_cursor_high:
+  case k_crtc_reg_cursor_low:
+  case k_crtc_reg_light_pen_high:
+  case k_crtc_reg_light_pen_low:
+    return p_video->crtc_registers[reg];
+  default:
+    break;
+  }
+
+  return 0;
+}
+
+static void
+video_update_cursor_disabled(struct video_struct* p_video) {
+  int cursor_disabled = 0;
+  if ((p_video->crtc_registers[k_crtc_reg_cursor_start] & 0x60) == 0x20) {
+    cursor_disabled = 1;
+  }
+  if ((p_video->crtc_registers[k_crtc_reg_interlace] & 0xC0) == 0xC0) {
+    cursor_disabled = 1;
+  }
+  p_video->cursor_disabled = cursor_disabled;
+}
+
+void
+video_crtc_write_address(struct video_struct* p_video,
+                         uint8_t addr,
+                         uint8_t val) {
+  (void) addr;
+  p_video->crtc_address_register = val;
+}
+
+static void
+video_crtc_write_value(struct video_struct* p_video, uint8_t val) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->num_hw_writes++;
+  uint8_t reg;
+  uint64_t ticks;
+  uint8_t mask = 0xFF;
+  int does_not_change_framing = 0;
+  uint8_t hsync_pulse_width = 0;
+  uint8_t vsync_pulse_width = 0;
+
+  reg = (p_video->crtc_address_register & k_crtc_register_mask);
+
+  if (reg >= k_video_crtc_num_registers) {
+    return;
+  }
+
+  /* NOTE: don't change CRTC state until is safe to do so below after the CRTC
+   * advance.
+   */
+  switch (reg) {
+  /* R0 */
+  case k_crtc_reg_horiz_total:
+    if ((val != 63) && (val != 127)) {
+      log_do_log_max_count(&p_video->log_count_horiz_total,
+                           k_log_video,
+                           k_log_unusual,
+                           "horizontal total: %u",
+                           val);
+    }
+    break;
+  /* R3 */
+  case k_crtc_reg_sync_width:
+    hsync_pulse_width = (val & 0xF);
+    if ((hsync_pulse_width != 8) && (hsync_pulse_width != 4)) {
+      log_do_log_max_count(&p_video->log_count_hsync_width,
+                           k_log_video,
+                           k_log_unusual,
+                           "hsync pulse width: %u",
+                           hsync_pulse_width);
+    }
+    vsync_pulse_width = (val >> 4);
+    if (vsync_pulse_width == 0) {
+      vsync_pulse_width = 16;
+    }
+    if (vsync_pulse_width != 2) {
+      log_do_log_max_count(&p_video->log_count_vsync_width,
+                           k_log_video,
+                           k_log_unusual,
+                           "vsync pulse width: %u",
+                           vsync_pulse_width);
+    }
+    break;
+  /* R4 */
+  case k_crtc_reg_vert_total:
+    mask = 0x7F;
+    break;
+  /* R5 */
+  case k_crtc_reg_vert_adjust:
+    mask = 0x1F;
+    break;
+  /* R6 */
+  case k_crtc_reg_vert_displayed:
+    mask = 0x7F;
+    break;
+  /* R7 */
+  case k_crtc_reg_vert_sync_position:
+    mask = 0x7F;
+    break;
+  /* R9 */
+  case k_crtc_reg_lines_per_character:
+    mask = 0x1F;
+    break;
+  /* R10 */
+  case k_crtc_reg_cursor_start:
+    does_not_change_framing = 1;
+    mask = 0x7F;
+    break;
+  /* R11 */
+  case k_crtc_reg_cursor_end:
+    does_not_change_framing = 1;
+    mask = 0x1F;
+    break;
+  /* R12 */
+  case k_crtc_reg_mem_addr_high:
+    does_not_change_framing = 1;
+    mask = 0x3F;
+    break;
+  /* R13 */
+  case k_crtc_reg_mem_addr_low:
+    does_not_change_framing = 1;
+    break;
+  /* R14 */
+  case k_crtc_reg_cursor_high:
+    does_not_change_framing = 1;
+    mask = 0x3F;
+    break;
+  /* R15 */
+  case k_crtc_reg_cursor_low:
+    does_not_change_framing = 1;
+    break;
+  case k_crtc_reg_light_pen_high:
+  case k_crtc_reg_light_pen_low:
+    /* Light pen registers are read only. */
+    /* NOTE: returns. */
+    return;
+  default:
+    break;
+  }
+
+  if (p_video->is_rendering_active || !does_not_change_framing) {
+    video_advance_crtc_timing(p_video);
+  }
+
+  p_video->crtc_registers[reg] = (val & mask);
+
+  switch (reg) {
+  case k_crtc_reg_horiz_total:
+    p_video->half_r0 = ((p_video->crtc_registers[k_crtc_reg_horiz_total] + 1) /
+                        2);
+    break;
+  case k_crtc_reg_sync_width:
+    p_video->hsync_pulse_width = hsync_pulse_width;
+    p_video->vsync_pulse_width = vsync_pulse_width;
+    break;
+  case k_crtc_reg_interlace:
+    p_video->is_interlace = (val & 0x1);
+    p_video->is_interlace_sync_and_video = ((val & 0x3) == 0x3);
+    /* "master display off", selected by skew bitfield of 0x30, is handled by
+     * indexing into dispen_shifts[] to a DISPEN value that is always 0.
+     */
+    p_video->skew_dispen_index = ((val & 0x30) >> 4);
+    p_video->cursor_skew = ((val & 0xC0) >> 6);
+    if (p_video->is_interlace_sync_and_video) {
+      p_video->scanline_stride = 2;
+      p_video->scanline_mask = 0x1E;
+    } else {
+      p_video->scanline_stride = 1;
+      p_video->scanline_mask = 0x1F;
+    }
+    video_update_cursor_disabled(p_video);
+    ticks = timing_get_scaled_total_timer_ticks(p_video->p_timing);
+    video_update_VSYNC(p_video, ticks);
+    break;
+  case k_crtc_reg_cursor_start:
+    p_video->cursor_flashing = !!(val & 0x40);
+    if (val & 0x20) {
+      p_video->cursor_flash_mask = 0x10;
+    } else {
+      p_video->cursor_flash_mask = 0x08;
+    }
+    p_video->cursor_start_line = (val & 0x1F);
+    video_update_cursor_disabled(p_video);
+    break;
+  default:
+    break;
+  }
+
+  if (p_video->is_interlace_sync_and_video) {
+    /* EMU NOTE: interlace sync and video has a different behavior when
+     * programmed with an odd number in R9.
+     * The Hitachi datasheet covers it on page "92":
+     * https://www.cpcwiki.eu/imgs/c/c0/Hd6845.hitachi.pdf
+     * Since MODE7 doesn't use it, it's simplest to not emulate it, and this
+     * helps avoid headaches when CRTC registers are half-way programmed
+     * from MODE7 -> non-MODE7.
+     */
+     p_video->scanline_counter &= ~1;
+  }
+
+  if (reg == k_crtc_reg_vert_sync_position) {
+    /* A special case after the vsync position register was changed. A change of
+     * this register is actually capable of triggering an immediate vsync + IRQ
+     * on the Hitachi 6845, even in the middle of a scanline. So we need to
+     * check for vsync hit.
+     */
+    /* NOTE: we need to make sure this is done prior to recalculating the timer
+     * below (via video_framing_changed()).
+     */
+    video_advance_crtc_timing(p_video);
+  }
+
+  if (!does_not_change_framing) {
+    video_recalculate_framing_sanity(p_video);
+    video_framing_changed(p_video);
+  }
+
+  video_check_hack_legacy_shift_mode7(p_video);
+}
+
+void
+video_crtc_write(struct video_struct* p_video, uint8_t addr, uint8_t val) {
+  if (addr == k_crtc_addr_reg) {
+    video_crtc_write_address(p_video, 0, val);
+  } else {
+    assert(addr == k_crtc_addr_val);
+    video_crtc_write_value(p_video, val);
+  }
+}
+
+uint64_t
+video_crtc_write_value_with_countdown(struct video_struct* p_video,
+                                      uint8_t addr,
+                                      uint8_t val,
+                                      uint64_t countdown) {
+  struct timing_struct* p_timing = p_video->p_timing;
+  (void) addr;
+  timing_sync_countdown(p_timing, countdown);
+  video_crtc_write_value(p_video, val);
+  countdown = timing_get_countdown(p_timing);
+  return countdown;
+}
+
+uint8_t
+video_get_ula_control(struct video_struct* p_video) {
+  return p_video->video_ula_control;
+}
+
+void
+video_set_ula_control(struct video_struct* p_video, uint8_t val) {
+  video_ula_write(p_video, k_ula_addr_control, val);
+}
+
+void
+video_get_ula_full_palette(struct video_struct* p_video,
+                           uint8_t* p_values) {
+  size_t i;
+  for (i = 0; i < 16; ++i) {
+    p_values[i] = p_video->ula_palette[i];
+  }
+}
+
+void
+video_set_ula_full_palette(struct video_struct* p_video,
+                           const uint8_t* p_values) {
+  size_t i;
+  for (i = 0; i < 16; ++i) {
+    uint8_t val = p_values[i] & 0x0f;
+    val |= (i << 4);
+    video_ula_write(p_video, k_ula_addr_palette, val);
+  }
+}
+
+void
+video_get_crtc_registers(struct video_struct* p_video,
+                         uint8_t* p_values) {
+  uint32_t i;
+  for (i = 0; i < k_video_crtc_num_registers; ++i) {
+    p_values[i] = p_video->crtc_registers[i];
+  }
+}
+
+void
+video_set_crtc_registers(struct video_struct* p_video,
+                         const uint8_t* p_values) {
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  uint32_t i;
+  for (i = 0; i < k_video_crtc_num_registers; ++i) {
+    p_video->crtc_registers[i] = p_values[i];
+  }
+}
+
+void
+video_get_crtc_state(struct video_struct* p_video,
+                     uint8_t* p_horiz_counter,
+                     uint8_t* p_scanline_counter,
+                     uint8_t* p_vert_counter,
+                     uint16_t* p_address_counter,
+                     uint64_t* p_crtc_frames,
+                     int* p_is_in_vert_adjust,
+                     int* p_is_in_dummy_raster) {
+  video_advance_crtc_timing(p_video);
+
+  *p_horiz_counter = p_video->horiz_counter;
+  *p_scanline_counter = p_video->scanline_counter;
+  *p_vert_counter = p_video->vert_counter;
+  *p_address_counter = (uint16_t) p_video->address_counter;
+  *p_crtc_frames = p_video->crtc_frames;
+  *p_is_in_vert_adjust = p_video->is_in_vert_adjust;
+  *p_is_in_dummy_raster = p_video->in_dummy_raster;
+}
+
+#include "test-video.c"
+
+uint32_t
+video_get_num_hw_writes(struct video_struct* p_video) {
+  return p_video->num_hw_writes;
+}

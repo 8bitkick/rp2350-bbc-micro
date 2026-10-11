@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="380" viewBox="0 0 820 380" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif"><rect width="820" height="380" rx="10" fill="#1a1a19"/>
+<text x="24" y="30" font-size="15" fill="#f0efec" font-weight="600" text-anchor="start">On a 64-bit PC</text>
+<rect x="24" y="46" width="236" height="92" rx="8" fill="#9b8be0" fill-opacity="0.10" stroke="#9b8be0" stroke-width="1.5"/>
+<text x="142.0" y="72" font-size="14" fill="#9b8be0" font-weight="600" text-anchor="middle">6502 program</text>
+<text x="142.0" y="94" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">64 KB, mapped four ways by the MMU</text>
+<text x="142.0" y="112" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">ROM read-only, registers unmapped</text>
+<line x1="260" y1="92.0" x2="342" y2="92.0" stroke="#c3c2b7" stroke-width="2"/>
+<path d="M342,86.0 L352,92.0 L342,98.0 Z" fill="#c3c2b7"/>
+<text x="306.0" y="82.0" font-size="12" fill="#c3c2b7" font-weight="400" text-anchor="middle">fetch</text>
+<rect x="352" y="46" width="116" height="92" rx="8" fill="#c3c2b7" fill-opacity="0.10" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="410.0" y="72" font-size="14" fill="#c3c2b7" font-weight="600" text-anchor="middle">compiler</text>
+<text x="410.0" y="94" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">beebjit</text>
+<line x1="468" y1="92.0" x2="550" y2="92.0" stroke="#c3c2b7" stroke-width="2"/>
+<path d="M550,86.0 L560,92.0 L550,98.0 Z" fill="#c3c2b7"/>
+<text x="514.0" y="82.0" font-size="12" fill="#c3c2b7" font-weight="400" text-anchor="middle">emit</text>
+<rect x="560" y="46" width="236" height="92" rx="8" fill="#9b8be0" fill-opacity="0.10" stroke="#9b8be0" stroke-width="1.5"/>
+<text x="678.0" y="72" font-size="14" fill="#9b8be0" font-weight="600" text-anchor="middle">x64 / arm64 code</text>
+<text x="678.0" y="94" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">8 MB: 128 bytes per 6502 address</text>
+<text x="678.0" y="112" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">a write into it faults → invalidated</text>
+<text x="410" y="166" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">slot = base + address × 128</text>
+<text x="24" y="200" font-size="15" fill="#f0efec" font-weight="600" text-anchor="start">On the RP2350 (this port)</text>
+<rect x="24" y="216" width="236" height="92" rx="8" fill="#3987e5" fill-opacity="0.10" stroke="#3987e5" stroke-width="1.5"/>
+<text x="142.0" y="242" font-size="14" fill="#3987e5" font-weight="600" text-anchor="middle">6502 program</text>
+<text x="142.0" y="264" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">64 KB of SRAM, one flat buffer</text>
+<text x="142.0" y="282" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">ROM writes dropped in software</text>
+<line x1="260" y1="262.0" x2="342" y2="262.0" stroke="#c3c2b7" stroke-width="2"/>
+<path d="M342,256.0 L352,262.0 L342,268.0 Z" fill="#c3c2b7"/>
+<text x="306.0" y="252.0" font-size="12" fill="#c3c2b7" font-weight="400" text-anchor="middle">fetch</text>
+<rect x="352" y="216" width="116" height="92" rx="8" fill="#c3c2b7" fill-opacity="0.10" stroke="#c3c2b7" stroke-width="1.5"/>
+<text x="410.0" y="242" font-size="14" fill="#c3c2b7" font-weight="600" text-anchor="middle">compiler</text>
+<text x="410.0" y="264" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">beebjit</text>
+<line x1="468" y1="262.0" x2="550" y2="262.0" stroke="#c3c2b7" stroke-width="2"/>
+<path d="M550,256.0 L560,262.0 L550,268.0 Z" fill="#c3c2b7"/>
+<text x="514.0" y="252.0" font-size="12" fill="#c3c2b7" font-weight="400" text-anchor="middle">emit</text>
+<rect x="560" y="216" width="236" height="92" rx="8" fill="#d95926" fill-opacity="0.10" stroke="#d95926" stroke-width="1.5"/>
+<text x="678.0" y="242" font-size="14" fill="#d95926" font-weight="600" text-anchor="middle">Thumb-2 code</text>
+<text x="678.0" y="264" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">4 MB of PSRAM: 64 bytes per address</text>
+<text x="678.0" y="282" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">a store checks a page flag → invalidated</text>
+<text x="410" y="336" font-size="12.5" fill="#c3c2b7" font-weight="400" text-anchor="middle">slot = 0x11000000 + address × 64, run through the 16 KB cache</text>
+</svg>

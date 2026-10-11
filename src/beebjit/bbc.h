@@ -1,0 +1,180 @@
+#ifndef BEEBJIT_BBC_H
+#define BEEBJIT_BBC_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+struct cmos_struct;
+struct cpu_driver;
+struct keyboard_struct;
+struct serial_struct;
+struct serial_ula_struct;
+struct sound_struct;
+struct state_6502;
+struct via_struct;
+struct video_struct;
+
+enum {
+  k_bbc_rom_size = 0x4000,
+  k_bbc_ram_size = 0x8000,
+};
+enum {
+  k_bbc_num_roms = 16,
+  k_bbc_default_dfs_rom_slot = 0xD,
+  k_bbc_default_basic_rom_slot = 0xC,
+};
+enum {
+  k_bbc_registers_start = 0xFC00,
+  k_bbc_registers_len = 0x300,
+};
+enum {
+  k_message_exited = 1,
+  k_message_vsync = 2,
+  k_message_render_done = 3,
+};
+enum {
+  k_bbc_max_ssd_disc_size = (256 * 10 * 80),
+  k_bbc_max_dsd_disc_size = (256 * 10 * 80 * 2),
+};
+
+struct bbc_struct;
+
+/* A byte per 6502 page, read by every store (JIT code, inturbo and the
+ * interpreter): k_bbc_page_flag_code where JIT code has been compiled, so
+ * the store looks its code up to invalidate; k_bbc_page_flag_screen where
+ * the CRTC is reading (video.c sets it each frame), so the store marks the
+ * picture changed, in g_bbc_page_flags[k_bbc_page_flags_dirty]. In SRAM.
+ */
+enum {
+  k_bbc_page_flag_code = 1,
+  k_bbc_page_flag_screen = 2,
+  k_bbc_page_flags_dirty = 256,
+};
+extern uint8_t g_bbc_page_flags[257];
+
+struct bbc_struct* bbc_create(int mode,
+                              int is_master,
+                              int has_sideways_ram,
+                              uint8_t* p_os_rom,
+                              int wd_1770_type,
+                              int debug_flag,
+                              int run_flag,
+                              int print_flag,
+                              int fast_flag,
+                              int accurate_flag,
+                              int fasttape_flag,
+                              int test_map_flag,
+                              const char* p_opt_flags,
+                              const char* p_log_flags);
+void bbc_destroy(struct bbc_struct* p_bbc);
+
+void bbc_focus_lost_callback(void* p);
+
+void bbc_set_nula(struct bbc_struct* p_bbc, int nula_flag);
+
+void bbc_power_on_reset(struct bbc_struct* p_bbc);
+void bbc_enable_extended_rom_addressing(struct bbc_struct* p_bbc);
+/* Moves the ROMs (or sideways RAM) in two sockets into each other's. */
+void bbc_swap_roms(struct bbc_struct* p_bbc, uint8_t index_a, uint8_t index_b);
+void bbc_load_rom(struct bbc_struct* p_bbc,
+                  uint8_t index,
+                  uint8_t* p_rom_src);
+void bbc_save_rom(struct bbc_struct* p_bbc,
+                  uint8_t index,
+                  uint8_t* p_dest);
+void bbc_make_sideways_ram(struct bbc_struct* p_bbc, uint8_t index);
+uint8_t bbc_get_romsel(struct bbc_struct* p_bbc);
+uint8_t bbc_get_acccon(struct bbc_struct* p_bbc);
+void bbc_sideways_select(struct bbc_struct* p_bbc, uint8_t index);
+/* Takes the discs out of a drive and puts this one in (NULL: none). */
+void bbc_replace_disc(struct bbc_struct* p_bbc,
+                      const char* p_filename,
+                      int drive);
+void bbc_add_disc(struct bbc_struct* p_bbc,
+                  const char* p_file_name,
+                  int drive,
+                  int is_writeable,
+                  int is_mutable,
+                  int convert_to_hfe,
+                  int convert_to_ssd,
+                  int convert_to_adl);
+void bbc_add_raw_disc(struct bbc_struct* p_bbc,
+                      const char* p_file_name,
+                      const char* p_spec);
+void bbc_add_tape(struct bbc_struct* p_bbc, const char* p_file_name);
+void bbc_set_stop_cycles(struct bbc_struct* p_bbc, uint64_t cycles);
+void bbc_set_autoboot(struct bbc_struct* p_bbc, int autoboot_flag);
+/* For an embedding host: a reset (BREAK if !is_hard, else power on) at the
+ * CPU driver's next safe point, and a hook called after any reset, there,
+ * where the host may change the machine (memory, registers, discs).
+ */
+void bbc_request_reset(struct bbc_struct* p_bbc, int is_hard);
+void bbc_set_host_reset_callback(struct bbc_struct* p_bbc,
+                                 void (*p_callback)(void* p, uint32_t flags),
+                                 void* p_callback_object);
+void bbc_set_commands(struct bbc_struct* p_bbc, const char* p_commands);
+
+struct cpu_driver* bbc_get_cpu_driver(struct bbc_struct* p_bbc);
+void bbc_set_pc(struct bbc_struct* p_bbc, uint16_t pc);
+
+void bbc_run_async(struct bbc_struct* p_bbc);
+uint32_t bbc_get_run_result(struct bbc_struct* p_bbc);
+int bbc_check_do_break(struct bbc_struct* p_bbc);
+int bbc_replay_seek(struct bbc_struct* p_bbc, uint64_t seek_target);
+
+struct state_6502* bbc_get_6502(struct bbc_struct* p_bbc);
+struct via_struct* bbc_get_sysvia(struct bbc_struct* p_bbc);
+struct via_struct* bbc_get_uservia(struct bbc_struct* p_bbc);
+struct keyboard_struct* bbc_get_keyboard(struct bbc_struct* p_bbc);
+struct sound_struct* bbc_get_sound(struct bbc_struct* p_bbc);
+struct video_struct* bbc_get_video(struct bbc_struct* p_bbc);
+struct render_struct* bbc_get_render(struct bbc_struct* p_bbc);
+struct mc6850_struct* bbc_get_serial(struct bbc_struct* p_bbc);
+struct serial_ula_struct* bbc_get_serial_ula(struct bbc_struct* p_bbc);
+struct cmos_struct* bbc_get_cmos(struct bbc_struct* p_bbc);
+struct timing_struct* bbc_get_timing(struct bbc_struct* p_bbc);
+struct wd_fdc_struct* bbc_get_wd_fdc(struct bbc_struct* p_bbc);
+struct disc_drive_struct* bbc_get_drive_0(struct bbc_struct* p_bbc);
+struct disc_drive_struct* bbc_get_drive_1(struct bbc_struct* p_bbc);
+struct adc_struct* bbc_get_adc(struct bbc_struct* p_bbc);
+
+uint8_t bbc_get_IC32(struct bbc_struct* p_bbc);
+void bbc_set_IC32(struct bbc_struct* p_bbc, uint8_t val);
+
+uint8_t* bbc_get_mem_read(struct bbc_struct* p_bbc);
+uint8_t* bbc_get_mem_write(struct bbc_struct* p_bbc);
+void bbc_set_memory_block(struct bbc_struct* p_bbc,
+                          uint16_t addr,
+                          uint16_t len,
+                          uint8_t* p_src_mem);
+void bbc_memory_write(struct bbc_struct* p_bbc,
+                      uint16_t addr_6502,
+                      uint8_t val);
+void bbc_get_address_details(struct bbc_struct* p_bbc,
+                             int* p_out_is_register,
+                             int* p_out_is_rom,
+                             uint16_t addr_6502);
+
+int bbc_get_run_flag(struct bbc_struct* p_bbc);
+int bbc_get_print_flag(struct bbc_struct* p_bbc);
+
+int bbc_get_fast_flag(struct bbc_struct* p_bbc);
+void bbc_set_fast_flag(struct bbc_struct* p_bbc, int is_fast);
+
+void bbc_set_compat_old_1MHz_cycles(struct bbc_struct* p_bbc);
+
+void bbc_set_channel_handles(struct bbc_struct* p_bbc,
+                             intptr_t handle_channel_read_bbc,
+                             intptr_t handle_channel_write_bbc,
+                             intptr_t handle_channel_read_client,
+                             intptr_t handle_channel_write_client);
+
+struct bbc_message {
+  uint64_t data[5];
+};
+void bbc_client_send_message(struct bbc_struct* p_bbc,
+                             struct bbc_message* p_message);
+void bbc_client_receive_message(struct bbc_struct* p_bbc,
+                                struct bbc_message* p_out_message);
+
+#endif /* BEEBJIT_BBC_H */
