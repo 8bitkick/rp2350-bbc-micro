@@ -124,7 +124,7 @@ stretches weren't measured. (Before the JIT, beebjit's C interpreter ran the BAS
 
 Most of the gains came from the video, not the CPU: beebjit emulates the 6845 CRTC cycle by
 cycle, which on a microcontroller costs far more than running the 6502. Two steps were about the
-JIT handling Elite's self-modifying code properly rather than about speed.
+JIT handling Elite's self-modifying code properly rather than about speed. The optimizations continue...
 
 ### AI feedback loop
 
