@@ -40,6 +40,7 @@
 #if PRESTO_BEEBJIT_WIRE
 #include "../beebjit_wire.h"
 #include "pico/multicore.h"
+#include "pico/flash.h"
 #include "hardware/structs/systick.h"
 #endif
 
@@ -240,6 +241,8 @@ static void prof_init(void);
 #endif
 
 static void __not_in_flash_func(core1_main)(void) {
+  /* Let core 0 park this core while it writes the flash (saving WiFi details). */
+  (void) flash_safe_execute_core_init();
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
 #endif
