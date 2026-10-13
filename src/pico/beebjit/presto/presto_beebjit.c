@@ -299,7 +299,8 @@ static uint64_t s_turbo_time_us;
 /* ---- The render wire: core 0 emulates, core 1 draws. ---- */
 
 static uint32_t s_wire_buf[BEEBJIT_WIRE_WORDS];
-static uint32_t s_core1_stack[8 * 1024 / 4];
+/* 4 KB: its high-water mark is ~0.6 KB over every scene (STACKS, after !mem). */
+static uint32_t s_core1_stack[4 * 1024 / 4];
 /* Time core 1 waited for work, and core 0 waited for core 1. */
 static uint64_t s_core0_wait_us;
 static uint32_t s_core0_wait_start;
@@ -534,7 +535,38 @@ setup_clock(void) {
 
 /* ---- A bigger stack than SCRATCH_Y's 4K, for the emulator. ---- */
 
-static uint32_t s_emulator_stack[16 * 1024 / 4] __attribute__((aligned(8)));
+/* 8 KB: its high-water mark is ~3.2 KB over every scene (STACKS, after !mem). */
+static uint32_t s_emulator_stack[8 * 1024 / 4] __attribute__((aligned(8)));
+
+/* How much of a stack (bss, so zero at boot; grows down) has been touched:
+ * from its first non-zero word to the top. For the SRAM audit (!mem).
+ */
+static uint32_t
+stack_high_water(const uint32_t* p_stack, uint32_t words) {
+  uint32_t i;
+  for (i = 0; i < words; ++i) {
+    if (p_stack[i] != 0) {
+      break;
+    }
+  }
+  return ((words - i) * 4);
+}
+
+void
+presto_beebjit_print_stacks(void) {
+  extern uint32_t __scratch_y_start__;
+  extern uint32_t __StackTop;
+  (void) printf("STACKS emulator %u of %u, core 1 %u of %u, main (scratch Y) %u of %u\n",
+                (unsigned) stack_high_water(s_emulator_stack,
+                                            count_of(s_emulator_stack)),
+                (unsigned) sizeof(s_emulator_stack),
+                (unsigned) stack_high_water(s_core1_stack,
+                                            count_of(s_core1_stack)),
+                (unsigned) sizeof(s_core1_stack),
+                (unsigned) stack_high_water(&__scratch_y_start__,
+                                            (&__StackTop - &__scratch_y_start__)),
+                (unsigned) ((&__StackTop - &__scratch_y_start__) * 4));
+}
 
 static void __attribute__((naked, noinline))
 call_on_stack(void (*p_func)(void), void* p_stack_top) {

@@ -655,6 +655,7 @@ run_command(char* p_cmd) {
                   (unsigned) m.uordblks, (unsigned) m.fordblks,
                   (unsigned) (&__StackLimit - (char*) sbrk(0)),
                   (unsigned) big_used);
+    presto_beebjit_print_stacks();
   } else if (!strncmp(p_cmd, "lock", 4) &&
              ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
     presto_beebjit_lock(p_cmd + ((p_cmd[4] == ' ') ? 5 : 4));

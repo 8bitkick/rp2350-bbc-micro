@@ -58,9 +58,14 @@ struct render_struct {
    * logical color indices (4 bits each, laid out as the table), which only
    * change with the mode, then mapped through the palette 2 pixels at a time.
    */
-  /* Per mode (Elite's split screen switches mode twice a frame), built once. */
+  /* Each screen byte's logical pixels: pixel k is the shift register after
+   * k shifts, whatever the mode, and a mode with N pixels to a byte uses the
+   * first N. 16 nibbles a byte, pixel 0 in the low bits of the first word
+   * (2 KB; it was a 2 KB table per mode). Built once; packed_index_built
+   * also has a bit per mode for packed_used.
+   */
   uint32_t packed_index_built;
-  uint32_t packed_index_words[k_render_mode2_10 + 1][256 * 2];
+  uint32_t packed_index[256][2];
   /* The codes each mode's table was last built with: palette writes often
    * leave them as they were (Elite rewrites its palettes every frame).
    */
@@ -1003,40 +1008,39 @@ render_generate_packed_table(struct render_struct* p_render,
                              uint32_t words_per_entry,
                              uint32_t num_pixels) {
   uint32_t i;
-  uint32_t num_words = (256 * words_per_entry);
-  uint32_t* p_index_words =
-      &p_render->packed_index_words[p_render->render_mode][0];
+  uint32_t j;
+  /* Nibbles a logical pixel takes in the table: 1, 2, 4 or 8. */
+  uint32_t stride = ((8 * words_per_entry) / num_pixels);
   uint8_t codes[16];
-  uint8_t pair_codes[256];
+  uint32_t mode_bit = (1u << (p_render->render_mode + 1));
 
-  if (!(p_render->packed_index_built & (1u << p_render->render_mode))) {
-    /* As render_generate_*_table(), but logical indices, not colors. */
-    uint32_t pixels_per_entry = (8 * words_per_entry);
-    uint32_t pixel_stride = (pixels_per_entry / num_pixels);
+  if (!(p_render->packed_index_built & 1)) {
+    for (i = 0; i < 256; ++i) {
+      uint8_t shift_register = i;
+      p_render->packed_index[i][0] = 0;
+      p_render->packed_index[i][1] = 0;
+      for (j = 0; j < 16; ++j) {
+        uint32_t palette_index = (((shift_register & 0x02) >> 1) |
+                                  ((shift_register & 0x08) >> 2) |
+                                  ((shift_register & 0x20) >> 3) |
+                                  ((shift_register & 0x80) >> 4));
+        p_render->packed_index[i][j / 8] |= (palette_index << ((j & 7) * 4));
+        shift_register <<= 1;
+        shift_register |= 1;
+      }
+    }
+    p_render->packed_index_built |= 1;
+  }
+  if (!(p_render->packed_index_built & mode_bit)) {
     uint16_t used = 0;
     for (i = 0; i < 256; ++i) {
-      uint32_t j;
-      uint8_t shift_register = i;
-      uint32_t palette_index = 0;
-      for (j = 0; j < words_per_entry; ++j) {
-        p_index_words[(i * words_per_entry) + j] = 0;
-      }
-      for (j = 0; j < pixels_per_entry; ++j) {
-        if ((j % pixel_stride) == 0) {
-          palette_index = (((shift_register & 0x02) >> 1) |
-                           ((shift_register & 0x08) >> 2) |
-                           ((shift_register & 0x20) >> 3) |
-                           ((shift_register & 0x80) >> 4));
-          shift_register <<= 1;
-          shift_register |= 1;
-        }
-        p_index_words[(i * words_per_entry) + (j / 8)] |=
-            (palette_index << ((j & 7) * 4));
-        used |= (1u << palette_index);
+      for (j = 0; j < num_pixels; ++j) {
+        used |= (1u << ((p_render->packed_index[i][j / 8] >> ((j & 7) * 4)) &
+                        0xF));
       }
     }
     p_render->packed_used[p_render->render_mode] = used;
-    p_render->packed_index_built |= (1u << p_render->render_mode);
+    p_render->packed_index_built |= mode_bit;
   }
 
   {
@@ -1062,32 +1066,68 @@ render_generate_packed_table(struct render_struct* p_render,
   }
   (void) memcpy(&p_render->packed_codes[p_render->render_mode][0], codes, 16);
   p_render->packed_codes_valid |= (1u << p_render->render_mode);
-  if (((8 * words_per_entry) / num_pixels) >= 4) {
-    /* Pixels 4 nibbles wide or more (MODEs 2, 5, 8; Elite's dashboard
-     * rewrites MODE 5's palette 11 times a frame): a word is 2 pixels, its
-     * nibbles 0 and 4, so it maps through 16 words for each half.
+
+  /* Each output word is 8 nibbles, so 8 / stride logical pixels, mapped two
+   * at a time (MODEs 2, 5, 8 rebuild often: Elite's dashboard rewrites
+   * MODE 5's palette 11 times a frame).
+   */
+  if (stride == 1) {
+    /* 8 pixels a word, a nibble each (MODEs 0, 4_80): the index words as
+     * they are, through codes for each pair.
      */
+    uint8_t pair_codes[256];
+    for (i = 0; i < 256; ++i) {
+      pair_codes[i] = (codes[i & 0xF] | (codes[i >> 4] << 4));
+    }
+    for (i = 0; i < 256; ++i) {
+      for (j = 0; j < words_per_entry; ++j) {
+        uint32_t w = p_render->packed_index[i][j];
+        p_out_words[(i * words_per_entry) + j] =
+            (pair_codes[w & 0xFF] |
+             (pair_codes[(w >> 8) & 0xFF] << 8) |
+             (pair_codes[(w >> 16) & 0xFF] << 16) |
+             ((uint32_t) pair_codes[w >> 24] << 24));
+      }
+    }
+  } else if (stride == 2) {
+    /* 4 pixels a word, 2 nibbles each (MODEs 1, 4): a pair of pixels is a
+     * half word.
+     */
+    uint16_t pair_codes[256];
+    for (i = 0; i < 256; ++i) {
+      pair_codes[i] = ((codes[i & 0xF] * 0x11u) |
+                       ((codes[i >> 4] * 0x11u) << 8));
+    }
+    for (i = 0; i < 256; ++i) {
+      for (j = 0; j < words_per_entry; ++j) {
+        uint32_t v = (p_render->packed_index[i][0] >> (j * 16));
+        p_out_words[(i * words_per_entry) + j] =
+            (pair_codes[v & 0xFF] | ((uint32_t) pair_codes[(v >> 8) & 0xFF] << 16));
+      }
+    }
+  } else if (stride == 4) {
+    /* 2 pixels a word, 4 nibbles each (MODEs 2, 5). */
     uint32_t lo[16];
     uint32_t hi[16];
     for (i = 0; i < 16; ++i) {
       lo[i] = (codes[i] * 0x1111u);
       hi[i] = (lo[i] << 16);
     }
-    for (i = 0; i < num_words; ++i) {
-      uint32_t w = p_index_words[i];
-      p_out_words[i] = (lo[w & 0xF] | hi[(w >> 16) & 0xF]);
+    for (i = 0; i < 256; ++i) {
+      for (j = 0; j < words_per_entry; ++j) {
+        uint32_t v = (p_render->packed_index[i][0] >> (j * 8));
+        p_out_words[(i * words_per_entry) + j] = (lo[v & 0xF] | hi[(v >> 4) & 0xF]);
+      }
     }
-    return;
-  }
-  for (i = 0; i < 256; ++i) {
-    pair_codes[i] = (codes[i & 0xF] | (codes[i >> 4] << 4));
-  }
-  for (i = 0; i < num_words; ++i) {
-    uint32_t w = p_index_words[i];
-    p_out_words[i] = (pair_codes[w & 0xFF] |
-                      (pair_codes[(w >> 8) & 0xFF] << 8) |
-                      (pair_codes[(w >> 16) & 0xFF] << 16) |
-                      ((uint32_t) pair_codes[w >> 24] << 24));
+  } else {
+    /* 1 pixel a word (MODEs 2_10, 8). */
+    assert(stride == 8);
+    for (i = 0; i < 256; ++i) {
+      for (j = 0; j < words_per_entry; ++j) {
+        uint32_t v = (p_render->packed_index[i][0] >> (j * 4));
+        p_out_words[(i * words_per_entry) + j] = (codes[v & 0xF] * 0x11111111u);
+      }
+    }
   }
 }
 
