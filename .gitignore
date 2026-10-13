@@ -6,5 +6,7 @@ build/
 build-*/
 deps/
 # not part of this repository (scripts/setup.sh fetches them)
-discs/elite-disc-*.ssd
+discs/*
+!discs/README.md
 roms/general/gxr.rom
+__pycache__/

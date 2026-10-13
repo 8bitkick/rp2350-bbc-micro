@@ -4,6 +4,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Set-up code, run once: where hot code is copied to RAM (the Presto,
+ * BEEBJIT_COLD_SECTION), this keeps it in flash.
+ */
+#ifndef BEEBJIT_COLD
+#if BEEBJIT_COLD_SECTION
+#define BEEBJIT_COLD __attribute__((noinline, section(".flashtext")))
+#else
+#define BEEBJIT_COLD
+#endif
+#endif
+
 /* Memory. */
 void* util_malloc(size_t size);
 void* util_mallocz(size_t size);

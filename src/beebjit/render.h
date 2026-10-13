@@ -80,6 +80,12 @@ void render_set_row_buffer(struct render_struct* p_render,
                                                   uint32_t row,
                                                   uint32_t* p_pixels),
                            void* p_row_callback_object);
+/* A second row pair of the same size, after render_set_row_buffer(): the
+ * renderer then alternates between the two at each callback, so the host can
+ * go on reading the row it was given (e.g. by DMA) until the next callback.
+ */
+void render_set_row_buffer_other(struct render_struct* p_render,
+                                 uint32_t* p_buffer_other);
 
 void render_set_mode(struct render_struct* p_render,
                      int clock_speed,
@@ -120,6 +126,21 @@ void render_render(struct render_struct* p_render,
  */
 uint32_t* render_teletext_run_start(struct render_struct* p_render,
                                     uint32_t calls);
+/* Whether calls render_render() calls would all fall outside the window; if
+ * so, the beam has moved past them (nothing to draw).
+ */
+int render_teletext_run_outside(struct render_struct* p_render,
+                                uint32_t calls);
+/* How many render_render() calls render_teletext_run_start() would take from
+ * here (0 outside the row).
+ */
+uint32_t render_get_teletext_run_capacity(struct render_struct* p_render);
+/* Teletext characters outside the window up to its start: the render_render()
+ * calls to get there (0 if it isn't ahead), then those calls in one go.
+ */
+uint32_t render_teletext_calls_to_window(struct render_struct* p_render);
+void render_teletext_run_to_window(struct render_struct* p_render,
+                                   uint32_t calls);
 void render_teletext_run_end(struct render_struct* p_render, uint32_t calls);
 uint32_t render_get_bitmap_run_capacity(struct render_struct* p_render);
 /* As render_render() for each of count data bytes: one call per byte at 2MHz,

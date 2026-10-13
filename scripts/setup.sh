@@ -2,10 +2,11 @@
 # From a fresh clone to presto_beebjit.uf2: fetches the pinned toolchain and Pico SDK into deps/,
 # downloads flicker-free Elite, and builds the Presto firmware.
 #
-#   scripts/setup.sh [--apt] [--gxr] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--gxr] [--demos] [--no-build] [--flash]
 #
 #   --apt       install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
 #   --gxr       also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
+#   --demos     also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
 #   --no-build  fetch everything but don't build
 #   --flash     after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
 #
@@ -18,14 +19,15 @@ ARM_GNU=14.2.rel1
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEPS=$ROOT/deps
-DO_APT=0; DO_GXR=0; DO_BUILD=1; DO_FLASH=0
+DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
     --gxr) DO_GXR=1 ;;
+    --demos) DO_DEMOS=1 ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
@@ -97,6 +99,13 @@ if [ $DO_GXR = 1 ] && [ ! -f "$ROOT/roms/general/gxr.rom" ]; then
   say "Fetching the GXR ROM (from beebjit's ROM set)"
   curl -fsSL -o "$ROOT/roms/general/gxr.rom" \
     https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/gxr.rom
+fi
+if [ $DO_DEMOS = 1 ]; then
+  for d in bs-wobble-colours.ssd bs-bar-beeb.ssd; do
+    [ -f "$ROOT/discs/$d" ] && continue
+    say "Fetching $d (Bitshifters)"
+    curl -fsSL -o "$ROOT/discs/$d" "https://bitshifters.github.io/content/$d"
+  done
 fi
 
 [ $DO_BUILD = 1 ] || { say "Fetched everything; build with: . deps/env.sh && cmake ... (see README)"; exit 0; }

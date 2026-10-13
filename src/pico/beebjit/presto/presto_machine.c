@@ -542,6 +542,9 @@ reset_hook(void* p, uint32_t flags) {
  *   !turbo, !perf              toggle turbo, the panel's figures
  *   !wifi <ssid> <password>    join a network; !net its state
  *   !peek <hex addr> [len], !mem, !psram, !temp, !clk, !lcd, !bootsel
+ *   !lock [lead us]            the frame lock's phase error (presto_beebjit.c)
+ *   !prof, !profdump           (PRESTO_BEEBJIT_PROF) sample core 0 again,
+ *                              fetch the samples (tools/prof.py)
  */
 static void
 binary_out(const void* p_data, uint32_t len) {
@@ -587,6 +590,13 @@ run_command(char* p_cmd) {
     }
   } else if (!strcmp(p_cmd, "stats")) {
     presto_beebjit_print_stats();
+#if PRESTO_BEEBJIT_PROF
+  } else if (!strncmp(p_cmd, "prof", 4) &&
+             ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
+    presto_prof_restart();
+  } else if (!strcmp(p_cmd, "profdump")) {
+    presto_prof_dump();
+#endif
   } else if (!strcmp(p_cmd, "crtc")) {
     uint8_t regs[18];
     int i;
@@ -638,6 +648,9 @@ run_command(char* p_cmd) {
                   (unsigned) m.uordblks, (unsigned) m.fordblks,
                   (unsigned) (&__StackLimit - (char*) sbrk(0)),
                   (unsigned) big_used);
+  } else if (!strncmp(p_cmd, "lock", 4) &&
+             ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
+    presto_beebjit_lock(p_cmd + ((p_cmd[4] == ' ') ? 5 : 4));
   } else if (!strcmp(p_cmd, "psram")) {
     (void) printf("PSRAM %u bytes\n", (unsigned) presto_psram_size());
   } else if (!strcmp(p_cmd, "temp")) {

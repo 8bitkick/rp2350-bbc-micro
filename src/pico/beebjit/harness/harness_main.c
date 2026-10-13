@@ -32,6 +32,8 @@
 #include "cpu_driver.h"
 #if BEEBJIT_ASM_THUMB2
 #include "asm/thumb2/thumb2_defs.h"
+#include "asm/asm_platform.h"
+#include "asm/asm_jit_defs.h"
 #endif
 #include "../beebjit_host.h"
 #include "../beebjit_panel.h"
@@ -169,6 +171,10 @@ wire_cycles_now(void) {
 #endif
 static uint32_t s_frame_count;
 static const char* s_p_profile;
+/* -jit-dump <file>: at the end, the JIT's code region and the stubs and
+ * inturbo after it (K_JIT_ADDR on), for a disassembler.
+ */
+static const char* s_p_jit_dump;
 static int s_frame_skip;
 static uint32_t s_fb_dump_frame;
 static char s_opt_flags[256];
@@ -497,6 +503,8 @@ main(int argc, char** argv) {
       s_stats_from_frame = strtoul(argv[++i], NULL, 0);
     } else if (has_1 && !strcmp(p_arg, "-profile")) {
       s_p_profile = argv[++i];
+    } else if (has_1 && !strcmp(p_arg, "-jit-dump")) {
+      s_p_jit_dump = argv[++i];
     } else if (!strcmp(p_arg, "-frame-trace")) {
       s_do_frame_trace = 1;
     } else if (has_1 && !strcmp(p_arg, "-fb-dump-frame")) {
@@ -554,6 +562,8 @@ main(int argc, char** argv) {
   if (render_mode == 2) {
     config.p_row_callback = beebjit_panel_row;
     config.p_row_callback_object = &s_panel;
+    /* As on the Presto (its row goes to the panel by DMA). */
+    config.is_row_double_buffered = 1;
   } else if (render_mode == 1) {
     config.p_row_callback = null_row;
   }
@@ -653,6 +663,17 @@ main(int argc, char** argv) {
     harness_host_profile(0);
     harness_host_profile_save(s_p_profile);
   }
+#if BEEBJIT_ASM_THUMB2
+  if (s_p_jit_dump != NULL) {
+    FILE* p_file = fopen(s_p_jit_dump, "wb");
+    if (p_file != NULL) {
+      (void) fwrite((void*) K_JIT_ADDR, 1, (K_JIT_SIZE + 0x10000), p_file);
+      (void) fclose(p_file);
+      (void) printf("JIT code from %08lx in %s\n",
+                    (unsigned long) K_JIT_ADDR, s_p_jit_dump);
+    }
+  }
+#endif
   if (do_mode7) {
     print_mode7(s_p_bbc);
   }

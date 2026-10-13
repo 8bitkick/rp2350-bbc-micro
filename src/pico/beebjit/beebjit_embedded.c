@@ -57,6 +57,10 @@ beebjit_embedded_ui_handler(void* p) {
   }
 }
 
+#ifndef BEEBJIT_JIT_ENCODED_CALLBACKS
+#define BEEBJIT_JIT_ENCODED_CALLBACKS 1
+#endif
+
 struct bbc_struct*
 beebjit_embedded_create(const struct beebjit_embedded_config* p_config) {
   struct bbc_struct* p_bbc;
@@ -77,15 +81,18 @@ beebjit_embedded_create(const struct beebjit_embedded_config* p_config) {
     mode = k_cpu_mode_interp;
   }
   if (mode == k_cpu_mode_jit) {
-    /* The thumb2 JIT backend has no encoded callbacks (yet): turn them off.
-     * Also the video memory sync: with it, beebjit keeps a non-fast
+    /* Turn off the video memory sync: with it, beebjit keeps a non-fast
      * (accurate) machine in the interpreter, syncing every 6502 write to the
      * CRTC's reads, and the JIT would never run.
+     * BEEBJIT_JIT_ENCODED_CALLBACKS=0: hardware register accesses from JIT
+     * code go to the interpreter instead of being compiled as calls.
      */
     (void) snprintf(s_opt_flags,
                     sizeof(s_opt_flags),
-                    "%s,jit:no-encoded-callback,video:no-memory-sync",
-                    (s_config.p_opt_flags ? s_config.p_opt_flags : ""));
+                    "%s,%svideo:no-memory-sync",
+                    (s_config.p_opt_flags ? s_config.p_opt_flags : ""),
+                    (BEEBJIT_JIT_ENCODED_CALLBACKS ? "" :
+                     "jit:no-encoded-callback,"));
     s_config.p_opt_flags = s_opt_flags;
   }
 
@@ -161,11 +168,18 @@ beebjit_embedded_create(const struct beebjit_embedded_config* p_config) {
                           s_p_row_buffer,
                           s_config.p_row_callback,
                           s_config.p_row_callback_object);
+    if (s_config.is_row_double_buffered) {
+      render_set_row_buffer_other(
+          p_render,
+          util_mallocz(render_get_stride(p_render) * 2 * sizeof(uint32_t)));
+    }
   }
 
   bbc_power_on_reset(p_bbc);
 
-  p_load_rom = util_malloc(k_bbc_rom_size);
+  /* Loaded through PSRAM: on the Presto a 16 KB SRAM buffer here was what
+   * made the SRAM heap peak at boot, and the ROM is copied out of it once. */
+  p_load_rom = beebjit_embedded_malloc_big(k_bbc_rom_size);
   for (i = 0; i < 16; ++i) {
     const char* p_rom_name = s_config.p_rom_names[i];
     if (p_rom_name != NULL) {

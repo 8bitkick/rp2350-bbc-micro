@@ -30,6 +30,37 @@ beebjit_wire_teletext_note(uint8_t data, int is_dispen) {
   }
 }
 
+/* The note for a run of n bytes with DISPEN as k_wire_char_run's bits and
+ * off from off_from: only the trailing (0, 0) bytes count.
+ */
+static inline void
+beebjit_wire_teletext_note_run(const uint8_t* p_data,
+                               uint32_t n,
+                               uint32_t dispen,
+                               uint32_t dispen_settle,
+                               uint32_t dispen_pattern,
+                               uint32_t dispen_off_from) {
+  uint32_t zeros = 0;
+  uint32_t i = n;
+  while ((i > 0) && (zeros < 4)) {
+    uint32_t d;
+    i--;
+    d = BEEBJIT_WIRE_CHAR_RUN_DISPEN(dispen, dispen_settle, dispen_pattern, i);
+    if (i >= dispen_off_from) {
+      d = 0;
+    }
+    if ((p_data[i] != 0) || d) {
+      g_beebjit_wire_teletext_zeros = zeros;
+      return;
+    }
+    zeros++;
+  }
+  if (i == 0) {
+    zeros += g_beebjit_wire_teletext_zeros;
+  }
+  g_beebjit_wire_teletext_zeros = ((zeros > 4) ? 4 : zeros);
+}
+
 #define render_power_on_reset(p) \
     ((void) (p), beebjit_wire_put1(k_wire_power_on_reset, 0))
 #define render_set_flyback_callback(p, f, o) \
