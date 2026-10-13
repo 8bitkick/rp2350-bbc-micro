@@ -821,7 +821,8 @@ frame_callback(void* p, uint64_t cycles) {
   watchdog_update();
   perf_frame(cycles);
 #if PRESTO_BEEBJIT_AMBIENT
-  presto_ambient_frame();
+  /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
+  presto_ambient_frame((uint8_t) (((IC32 & 0x40) ? 0 : 1) | ((IC32 & 0x80) ? 0 : 2)));
 #endif
   presto_machine_frame();
 #if PRESTO_BEEBJIT_PROF
