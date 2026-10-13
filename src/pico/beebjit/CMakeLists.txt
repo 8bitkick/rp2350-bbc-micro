@@ -20,6 +20,7 @@ add_executable(presto_beebjit
         ${PRESTO_DIR}/presto_lcd.c
         ${PRESTO_DIR}/presto_psram.c
         ${PRESTO_DIR}/presto_boot.c
+        ${PRESTO_DIR}/presto_audio.c
         # the front end: the web panel, the SD card
         ${PRESTO_DIR}/presto_net.c
         ${PRESTO_DIR}/presto_sd.c
@@ -137,6 +138,7 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_MALLOC=beebjit_embedded_malloc
         BEEBJIT_REALLOC=beebjit_embedded_realloc
         BEEBJIT_FREE=beebjit_embedded_free
+        BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write   # the piezo's SN76489 (presto_audio.c)
         BEEBJIT_RENDER_PACKED4=1
         BEEBJIT_INTERP_COUNTDOWN32=1
         BEEBJIT_VIDEO_FAST_RUNS=1
