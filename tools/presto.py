@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Talk to the Presto build over its USB serial debug channel (set PRESTO_PORT if not /dev/ttyACM0).
+"""Talk to the Presto build over its USB serial debug channel (the first Raspberry Pi Pico-class
+USB serial device, or PRESTO_PORT).
 
   presto.py stats | crtc | bootsel | view X W Y H DW DH | shot out.png [hold ms] | key <sdl_scancode> [ms] | raw '<cmd>'
   presto.py discs | disc [<name>] | put <file.ssd> [name on card]
@@ -7,10 +8,15 @@
   presto.py wifi <secrets.py>      save the WiFi network (Pimoroni's WIFI_SSID / WIFI_PASSWORD file) and restart
   presto.py net                    the WiFi link and address (the control panel is at http://beeb.local/)
 """
-import base64, json, os, struct, sys, time, zlib
+import base64, glob, json, os, struct, sys, time, zlib
 import serial
 
-PORT = os.environ.get('PRESTO_PORT', '/dev/ttyACM0')
+def default_port():
+    # by USB identity, so another USB serial device (an ESP32, say) can't take ttyACM0 from it
+    ids = sorted(glob.glob('/dev/serial/by-id/usb-Raspberry_Pi_Pico*'))
+    return ids[0] if ids else '/dev/ttyACM0'
+
+PORT = os.environ.get('PRESTO_PORT') or default_port()
 
 def open_port():
     s = serial.Serial(PORT, 115200, timeout=3)
