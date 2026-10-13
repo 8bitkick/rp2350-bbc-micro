@@ -2540,7 +2540,18 @@ bbc_enable_extended_rom_addressing(struct bbc_struct* p_bbc) {
 static uint8_t*
 bbc_get_sideways_bank_storage(struct bbc_struct* p_bbc, uint8_t index) {
   if (p_bbc->p_sideways_banks[index] == NULL) {
+#ifdef BEEBJIT_MALLOC_BIG
+    /* A bank's storage is only read and written whole, when the bank is
+     * paged in or out (the 6502 sees the copy in the memory map), so on a
+     * host short of fast RAM it can live in slower, bigger memory.
+     */
+    extern void* BEEBJIT_MALLOC_BIG(size_t size);
+    uint8_t* p_bank = BEEBJIT_MALLOC_BIG(k_bbc_rom_size);
+    (void) memset(p_bank, '\0', k_bbc_rom_size);
+    p_bbc->p_sideways_banks[index] = p_bank;
+#else
     p_bbc->p_sideways_banks[index] = util_mallocz(k_bbc_rom_size);
+#endif
   }
   return p_bbc->p_sideways_banks[index];
 }
@@ -2598,16 +2609,6 @@ void
 bbc_make_sideways_ram(struct bbc_struct* p_bbc, uint8_t index) {
   assert(index < k_bbc_num_roms);
   assert(p_bbc->has_sideways_ram);
-#if BEEBJIT_NO_MMU && defined(BEEBJIT_MALLOC_BIG)
-  /* A RAM bank's own store is only copied at a bank switch: keep it in the
-   * host's big memory.
-   */
-  if (p_bbc->p_sideways_banks[index] == NULL) {
-    extern void* BEEBJIT_MALLOC_BIG(size_t size);
-    p_bbc->p_sideways_banks[index] = BEEBJIT_MALLOC_BIG(k_bbc_rom_size);
-    (void) memset(p_bbc->p_sideways_banks[index], '\0', k_bbc_rom_size);
-  }
-#endif
   (void) bbc_get_sideways_bank_storage(p_bbc, index);
   p_bbc->is_sideways_ram_bank[index] = 1;
   if (index < 0xC) {

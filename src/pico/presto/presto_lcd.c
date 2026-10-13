@@ -51,6 +51,9 @@
 #define TIMING_H_PULSE   16
 #define TIMING_H_BACK    30
 #define TIMING_H_DISPLAY PRESTO_LCD_WIDTH
+#ifndef TIMING_H_DATA_LEAD
+#define TIMING_H_DATA_LEAD 1    // dots the data SM's irq leads the panel's first pixel
+#endif
 
 // The pixel programs have PIO1's 32 instructions to themselves; the timing program (which also
 // clocks the panel) runs in PIO2 and raises PIO1's IRQ flags with "prev" index mode
@@ -87,14 +90,16 @@ static uint32_t __not_in_flash_func(timing_word)(uint row, uint phase) {
             instr = 0x40000000u;  // HSYNC high
             if (row >= TIMING_V_BACK && row < TIMING_V_DISPLAY) instr |= 0xD004u | IRQ_PREV;  // irq 4 -> data SM
             else instr |= 0xB042u;
-            instr |= (TIMING_H_BACK - 3) << 16;
+            // the data SM's first pixel reaches the pins a dot after its irq: raise it a dot early,
+            // so pixel 0 is the panel's first (the panel, in HV mode, starts 0x2E dots after HSYNC)
+            instr |= (TIMING_H_BACK - 3 - TIMING_H_DATA_LEAD) << 16;
             break;
         default:
             instr = 0x40000000u;  // HSYNC high
             if (row == TIMING_V_DISPLAY) instr |= 0xD001u | IRQ_PREV;  // irq 1 -> new frame
             else if (row >= TIMING_V_BACK - 1 && row < TIMING_V_DISPLAY) instr |= 0xD000u | IRQ_PREV;  // irq 0 -> new line
             else instr |= 0xB042u;
-            instr |= (TIMING_H_DISPLAY - 3) << 16;
+            instr |= (TIMING_H_DISPLAY - 3 + TIMING_H_DATA_LEAD) << 16;
             break;
     }
     if (row >= TIMING_V_PULSE) instr |= 0x80000000u;  // VSYNC high outside the pulse

@@ -12,6 +12,7 @@
 
 /* beebjit's util_malloc() and friends, via BEEBJIT_MALLOC etc. (util.c). */
 void* beebjit_embedded_malloc(size_t size);
+void beebjit_embedded_alloc_caller(void* p_caller);
 void* beebjit_embedded_realloc(void* p, size_t size);
 void beebjit_embedded_free(void* p);
 /* Prefer the big region whatever the size: for things rarely touched. */
