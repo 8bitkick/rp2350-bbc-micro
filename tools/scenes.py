@@ -144,4 +144,14 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import signal
+    # a SIGTERM (pkill) unwinds through the finally below too
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(1))
+    try:
+        main()
+    finally:
+        # never leave the board in turbo (an interrupted measurement would)
+        try:
+            post('/api/turbo', b'0')
+        except Exception:
+            pass

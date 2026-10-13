@@ -24,9 +24,21 @@ void BEEBJIT_FREE(void* p);
 #define BEEBJIT_FREE free
 #endif
 
+/* BEEBJIT_ALLOC_CALLER(p): told who called util_malloc() / util_mallocz(),
+ * for an allocation log (the embedded harness's -log-allocs).
+ */
+#ifdef BEEBJIT_ALLOC_CALLER
+void BEEBJIT_ALLOC_CALLER(void* p_caller);
+#define UTIL_NOTE_CALLER() BEEBJIT_ALLOC_CALLER(__builtin_return_address(0))
+#else
+#define UTIL_NOTE_CALLER()
+#endif
+
 void*
 util_malloc(size_t size) {
-  void* p_ret = BEEBJIT_MALLOC(size);
+  void* p_ret;
+  UTIL_NOTE_CALLER();
+  p_ret = BEEBJIT_MALLOC(size);
   if (p_ret == NULL) {
     util_bail("malloc failed");
   }
@@ -36,7 +48,12 @@ util_malloc(size_t size) {
 
 void*
 util_mallocz(size_t size) {
-  void* p_ret = util_malloc(size);
+  void* p_ret;
+  UTIL_NOTE_CALLER();
+  p_ret = BEEBJIT_MALLOC(size);
+  if (p_ret == NULL) {
+    util_bail("malloc failed");
+  }
 
   (void) memset(p_ret, '\0', size);
 
