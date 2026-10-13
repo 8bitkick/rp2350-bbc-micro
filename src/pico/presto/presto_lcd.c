@@ -384,6 +384,10 @@ const uint16_t *presto_lcd_row(int row, uint16_t *buf) {
     return buf;
 }
 
+const uint16_t *__not_in_flash_func(presto_lcd_row_raw)(int row) {
+    return row_table[row];
+}
+
 uint32_t presto_lcd_frame_count(void) {
     return frame_count;
 }

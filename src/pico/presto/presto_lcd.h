@@ -28,6 +28,8 @@ void presto_lcd_debug(void);
 
 // the pixels of a panel row, as byte swapped RGB565 (for screenshots); buf holds PRESTO_LCD_WIDTH
 const uint16_t *presto_lcd_row(int row, uint16_t *buf);
+// the 4 bit pixels the panel shows for a row, as above (PRESTO_LCD_ROW_WORDS words)
+const uint16_t *presto_lcd_row_raw(int row);
 void presto_lcd_set_backlight(uint8_t brightness);
 uint32_t presto_lcd_frame_count(void);
 uint32_t presto_lcd_frame_time_us(void);     // time_us_32() when the current frame's display area began (the first row's scan)
