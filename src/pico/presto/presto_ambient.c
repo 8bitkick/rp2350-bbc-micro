@@ -14,7 +14,7 @@
  * A cell's colour is that of its lit pixels, white counting a quarter as much as colours and
  * made more saturated (so colour leads, as ambient light should), as bright as the square root
  * of how much of it is lit (a red sprite on black glows red, not a dull brown), smoothed over
- * about 160 ms (flashing
+ * about 320 ms (flashing
  * colours and rasters don't flicker), gamma corrected, scaled to the brightness setting, and never
  * below a faint glow.
  *
@@ -210,9 +210,9 @@ void __not_in_flash_func(presto_ambient_update)(void) {
             target[2] = (blue * level) / most;
         }
         for (int ch = 0; ch < 3; ch++) {
-            // a quarter of the way there each update: about 160 ms
+            // an eighth of the way there each update: about 320 ms
             int32_t d = (int32_t) (target[ch] << 8) - (int32_t) s_level[i][ch];
-            s_level[i][ch] = (uint32_t) ((int32_t) s_level[i][ch] + (d / 4));
+            s_level[i][ch] = (uint32_t) ((int32_t) s_level[i][ch] + (d / 8));
             uint32_t v = (s_gamma[s_level[i][ch] >> 8] * bright) / 100;
             rgb[i][ch] = (uint8_t) ((v < GLOW) ? GLOW : v);
         }
