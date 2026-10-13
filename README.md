@@ -139,7 +139,6 @@ Elite alone hid problems, so later steps were measured across a set of scenes (s
 | Scene | v0.1 | Now |
 |---|---:|---:|
 | Elite, title screen | 7.7× | 9.1× |
-| Chuckie Egg, title screen | 10.9× | 23.2× |
 | Exile, in game | 6.7× | 7.8× |
 | MODE 7 BASIC prompt | 10.1× | 22.7× |
 | MODE 0 listing | 19.4× | 22.3× |
