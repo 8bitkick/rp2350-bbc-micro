@@ -11,8 +11,10 @@
  * border dulls everything: the extent of what's lit, over the last 2 s, no smaller than half the
  * panel.
  *
- * A cell's colour is that of its lit pixels, as bright as the square root of how much of it is
- * lit (a red sprite on black glows red, not a dull brown), smoothed over about 160 ms (flashing
+ * A cell's colour is that of its lit pixels, white counting a quarter as much as colours and
+ * made more saturated (so colour leads, as ambient light should), as bright as the square root
+ * of how much of it is lit (a red sprite on black glows red, not a dull brown), smoothed over
+ * about 160 ms (flashing
  * colours and rasters don't flicker), gamma corrected, scaled to the brightness setting, and never
  * below a faint glow.
  *
@@ -181,21 +183,31 @@ void __not_in_flash_func(presto_ambient_update)(void) {
     uint32_t bright = s_bright;
     for (int i = 0; i < NUM_LEDS; i++) {
         const uint16_t *n = counts[k_led_cell[i]];
+        // white pixels count a quarter as much as coloured ones: the colour leads (Elite's
+        // dashboard is mostly white bars, and its red would otherwise come out pink-white)
         uint32_t total = 0, red = 0, green = 0, blue = 0;
-        for (uint32_t c = 0; c < 8; c++) {
-            total += n[c];
-            if (c & 4) red += n[c];
-            if (c & 2) green += n[c];
-            if (c & 1) blue += n[c];
+        for (uint32_t c = 1; c < 8; c++) {
+            uint32_t weight = (c == 7) ? 1 : 4;
+            if (c & 4) red += n[c] * weight;
+            if (c & 2) green += n[c] * weight;
+            if (c & 1) blue += n[c] * weight;
         }
+        for (uint32_t c = 0; c < 8; c++) total += n[c];
         uint32_t lit = total - n[0];
         uint32_t target[3] = { 0, 0, 0 };
         if (lit != 0) {
-            // the lit pixels' colour, as bright as the square root of how much is lit
+            // more saturated (take off 3/4 of the least channel), as bright as the square root
+            // of how much is lit
+            uint32_t least = red < green ? red : green;
+            if (blue < least) least = blue;
+            least = (least * 3) / 4;
+            red -= least; green -= least; blue -= least;
+            uint32_t most = red > green ? red : green;
+            if (blue > most) most = blue;
             uint32_t level = s_sqrt[(lit * 255) / total];
-            target[0] = (red * level) / lit;
-            target[1] = (green * level) / lit;
-            target[2] = (blue * level) / lit;
+            target[0] = (red * level) / most;
+            target[1] = (green * level) / most;
+            target[2] = (blue * level) / most;
         }
         for (int ch = 0; ch < 3; ch++) {
             // a quarter of the way there each update: about 160 ms
