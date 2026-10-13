@@ -27,6 +27,7 @@ void presto_machine_poll(void);
 
 /* presto_beebjit.c: the "!stats" line. */
 void presto_beebjit_print_stats(void);
+void presto_beebjit_print_stacks(void);
 void presto_beebjit_lock(const char* p_arg);   /* "!lock [lead us]": the frame lock's state */
 /* With PRESTO_BEEBJIT_PROF: "!prof" (sample again from now) and "!profdump"
  * (the samples, for tools/prof.py).

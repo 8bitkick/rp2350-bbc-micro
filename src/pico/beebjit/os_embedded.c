@@ -154,6 +154,9 @@ big_size(void* p) {
   return (p_block->size - sizeof(struct big_block));
 }
 
+/* The harness's allocation log names the caller (util.c's hook). */
+static void* s_alloc_caller;
+
 void*
 beebjit_embedded_malloc(size_t size) {
   void* p_ret = NULL;
@@ -171,12 +174,14 @@ beebjit_embedded_malloc(size_t size) {
   }
   if (beebjit_embedded_log_allocs) {
     struct mallinfo m = mallinfo();
-    (void) printf("alloc %u -> %s %p (heap end %p, %u free in heap)\n",
+    (void) printf("alloc %u -> %s %p (heap end %p, %u free in heap) from %p\n",
                   (unsigned) size,
                   big_owns(p_ret) ? "big" : "ram",
                   p_ret,
                   sbrk(0),
-                  (unsigned) m.fordblks);
+                  (unsigned) m.fordblks,
+                  s_alloc_caller);
+    s_alloc_caller = NULL;
   }
   return p_ret;
 }
@@ -237,6 +242,10 @@ beebjit_embedded_realloc(void* p, size_t size) {
 }
 
 int beebjit_embedded_log_allocs;
+void
+beebjit_embedded_alloc_caller(void* p_caller) {
+  s_alloc_caller = p_caller;
+}
 
 void
 beebjit_embedded_get_alloc_stats(size_t* p_big_used,
