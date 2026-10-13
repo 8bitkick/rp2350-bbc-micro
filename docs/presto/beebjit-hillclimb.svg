@@ -6,17 +6,19 @@
 <text x="56" y="58" font-weight="600" fill="#f0efec">Throughput, unthrottled: emulated speed vs. a real BBC Micro</text>
 <line x1="56" x2="710" y1="266.0" y2="266.0" stroke="#33322f"/>
 <text x="48" y="270.0" text-anchor="end" fill="#c3c2b7">0×</text>
-<line x1="56" x2="710" y1="218.5" y2="218.5" stroke="#33322f"/>
-<text x="48" y="222.5" text-anchor="end" fill="#c3c2b7">2×</text>
-<line x1="56" x2="710" y1="171.0" y2="171.0" stroke="#33322f"/>
-<text x="48" y="175.0" text-anchor="end" fill="#c3c2b7">4×</text>
-<line x1="56" x2="710" y1="123.5" y2="123.5" stroke="#33322f"/>
-<text x="48" y="127.5" text-anchor="end" fill="#c3c2b7">6×</text>
+<line x1="56" x2="710" y1="228.0" y2="228.0" stroke="#33322f"/>
+<text x="48" y="232.0" text-anchor="end" fill="#c3c2b7">2×</text>
+<line x1="56" x2="710" y1="190.0" y2="190.0" stroke="#33322f"/>
+<text x="48" y="194.0" text-anchor="end" fill="#c3c2b7">4×</text>
+<line x1="56" x2="710" y1="152.0" y2="152.0" stroke="#33322f"/>
+<text x="48" y="156.0" text-anchor="end" fill="#c3c2b7">6×</text>
+<line x1="56" x2="710" y1="114.0" y2="114.0" stroke="#33322f"/>
+<text x="48" y="118.0" text-anchor="end" fill="#c3c2b7">8×</text>
 <line x1="56" x2="710" y1="76.0" y2="76.0" stroke="#33322f"/>
-<text x="48" y="80.0" text-anchor="end" fill="#c3c2b7">8×</text>
-<path d="M56.0,231.6H110.5L110.5,209.0H165.0L165.0,176.9H219.5L219.5,166.2H274.0L274.0,147.2H328.5L328.5,147.2H383.0L383.0,148.4H437.5L437.5,143.2H492.0L492.0,121.1H546.5L546.5,92.6H601.0L601.0,92.6H655.5L655.5,85.5H710.0" fill="none" stroke="#3987e5" stroke-width="2.5" stroke-linejoin="round"/>
-<text x="718.0" y="89.5" fill="#f0efec" font-weight="600">7.6×</text>
-<text x="56.0" y="249.6" fill="#c3c2b7">1.45×</text>
+<text x="48" y="80.0" text-anchor="end" fill="#c3c2b7">10×</text>
+<path d="M56.0,238.4H79.4L79.4,220.4H102.7L102.7,194.8H126.1L126.1,186.2H149.4L149.4,171.0H172.8L172.8,171.0H196.1L196.1,171.9H219.5L219.5,167.8H242.9L242.9,150.1H266.2L266.2,127.3H289.6L289.6,127.3H312.9L312.9,121.6H336.3L336.3,114.0H359.6L359.6,106.4H383.0L383.0,104.5H406.4L406.4,106.4H429.7L429.7,112.1H453.1L453.1,125.4H476.4L476.4,123.5H499.8L499.8,123.5H523.1L523.1,110.2H546.5L546.5,106.4H569.9L569.9,102.6H593.2L593.2,106.4H616.6L616.6,95.0H639.9L639.9,93.1H663.3L663.3,93.1H686.6L686.6,98.8H710.0" fill="none" stroke="#3987e5" stroke-width="2.5" stroke-linejoin="round"/>
+<text x="718.0" y="102.8" fill="#f0efec" font-weight="600">8.8×</text>
+<text x="56.0" y="256.4" fill="#c3c2b7">1.45×</text>
 <text x="56" y="306" font-weight="600" fill="#f0efec">CPU load per core at real speed</text>
 <line x1="56" x2="710" y1="474.0" y2="474.0" stroke="#33322f"/>
 <text x="48" y="478.0" text-anchor="end" fill="#c3c2b7">0%</text>
@@ -32,12 +34,15 @@
 <text x="482" y="306" fill="#c3c2b7">core 0: emulator</text>
 <line x1="590" x2="606" y1="302" y2="302" stroke="#d95926" stroke-width="2.5"/>
 <text x="612" y="306" fill="#c3c2b7">core 1: drawing</text>
-<path d="M219.5,438.4H274.0L274.0,438.4H328.5M383.0,438.4H437.5L437.5,438.4H492.0L492.0,449.6H546.5L546.5,449.6H601.0L601.0,451.5H655.5L655.5,453.4H710.0" fill="none" stroke="#d95926" stroke-width="2.5" stroke-linejoin="round"/>
-<path d="M328.5,438.4L383.0,438.4" fill="none" stroke="#d95926" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
-<text x="718.0" y="466.4" fill="#f0efec" font-weight="600">core 1 11%</text>
-<path d="M56.0,344.6H110.5L110.5,397.1H165.0M219.5,429.0H274.0L274.0,436.5H328.5M383.0,436.5H437.5L437.5,444.0H492.0L492.0,444.0H546.5L546.5,449.6H601.0L601.0,449.6H655.5L655.5,449.6H710.0" fill="none" stroke="#3987e5" stroke-width="2.5" stroke-linejoin="round"/>
-<path d="M165.0,397.1L219.5,429.0" fill="none" stroke="#3987e5" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
-<path d="M328.5,436.5L383.0,436.5" fill="none" stroke="#3987e5" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
-<text x="718.0" y="446.6" fill="#f0efec" font-weight="600">core 0 13%</text>
-<text x="383" y="494" text-anchor="middle" fill="#c3c2b7">12 measured steps, in one day →</text>
+<path d="M126.1,438.4H149.4L149.4,438.4H172.8M196.1,438.4H219.5L219.5,438.4H242.9L242.9,449.6H266.2L266.2,449.6H289.6L289.6,451.5H312.9L312.9,453.4H336.3L336.3,451.5H359.6L359.6,453.4H383.0L383.0,453.4H406.4L406.4,453.4H429.7L429.7,453.4H453.1L453.1,449.6H476.4L476.4,451.5H499.8L499.8,449.6H523.1L523.1,453.4H546.5L546.5,453.4H569.9L569.9,453.4H593.2L593.2,453.4H616.6L616.6,455.2H639.9L639.9,455.2H663.3L663.3,455.2H686.6L686.6,455.2H710.0" fill="none" stroke="#d95926" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M172.8,438.4L196.1,438.4" fill="none" stroke="#d95926" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
+<text x="718.0" y="452.2" fill="#f0efec" font-weight="600">core 1 10%</text>
+<path d="M56.0,344.6H79.4L79.4,397.1H102.7M126.1,429.0H149.4L149.4,436.5H172.8M196.1,436.5H219.5L219.5,444.0H242.9L242.9,444.0H266.2L266.2,449.6H289.6L289.6,449.6H312.9L312.9,449.6H336.3L336.3,453.4H359.6L359.6,455.2H383.0L383.0,455.2H406.4L406.4,457.1H429.7L429.7,457.1H453.1L453.1,453.4H476.4L476.4,455.2H499.8L499.8,455.2H523.1L523.1,455.2H546.5L546.5,453.4H569.9L569.9,455.2H593.2L593.2,455.2H616.6L616.6,453.4H639.9L639.9,455.2H663.3L663.3,455.2H686.6L686.6,455.2H710.0" fill="none" stroke="#3987e5" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M102.7,397.1L126.1,429.0" fill="none" stroke="#3987e5" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
+<path d="M172.8,436.5L196.1,436.5" fill="none" stroke="#3987e5" stroke-width="1.5" stroke-dasharray="2 4" stroke-linecap="round"/>
+<text x="718.0" y="468.2" fill="#f0efec" font-weight="600">core 0 10%</text>
+<line x1="464.8" x2="464.8" y1="64.0" y2="266.0" stroke="#5e5d58" stroke-width="1" stroke-dasharray="1.5 3" stroke-linecap="round"/>
+<line x1="464.8" x2="464.8" y1="324.0" y2="474.0" stroke="#5e5d58" stroke-width="1" stroke-dasharray="1.5 3" stroke-linecap="round"/>
+<text x="459.8" y="73.0" text-anchor="end" font-size="11" fill="#c3c2b7">50 Hz lock</text>
+<text x="383" y="494" text-anchor="middle" fill="#c3c2b7">26 measured steps, in three days →</text>
 </svg>

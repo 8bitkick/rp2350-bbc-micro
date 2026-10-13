@@ -22,10 +22,12 @@ def command(s, cmd):
     s.write(b'!' + cmd.encode() + b'\n')
 
 def readline_prefix(s, prefix):
+    until = time.time() + 10
     while True:
         line = s.readline()
-        if not line:
-            raise TimeoutError('no reply')
+        if not line or time.time() > until:
+            # (a board stuck reporting a boot failure talks, but never answers)
+            raise TimeoutError('no reply' if not line else 'no %s reply in: %r' % (prefix, line[:80]))
         if line.startswith(prefix.encode()):
             return line.decode().strip()
 

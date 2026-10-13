@@ -30,6 +30,10 @@ void presto_lcd_debug(void);
 const uint16_t *presto_lcd_row(int row, uint16_t *buf);
 void presto_lcd_set_backlight(uint8_t brightness);
 uint32_t presto_lcd_frame_count(void);
+uint32_t presto_lcd_frame_time_us(void);     // time_us_32() when the current frame's display area began (the first row's scan)
+uint32_t presto_lcd_frame_period_us(void);   // the refresh period
+uint32_t presto_lcd_frame_lines(void);       // lines a frame, blanking included
+int32_t presto_lcd_scan_row(uint32_t now_us);  // the panel row being scanned at that time, in lines from this frame's display area (< 0: before it; >= height: after it)
 
 #ifdef __cplusplus
 }

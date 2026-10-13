@@ -36,10 +36,17 @@
 
 #define BACKLIGHT_PWM_TOP 6200
 
+// The vertical front porch sets the refresh rate: PRESTO_LCD_V_FRONT_PORCH lines of 530 dot
+// clocks at 15.625 MHz (clk_sys 250 MHz / 16). 5 lines gave 59.2 Hz; 96 give 50.05 Hz, the
+// BBC's frame rate (312 lines of 64 us: 50.08 Hz), so an emulator locked to the frame
+// interrupt (presto_lcd_frame_time_us) shows each of its frames once, whole.
+#ifndef PRESTO_LCD_V_FRONT_PORCH
+#define PRESTO_LCD_V_FRONT_PORCH 96
+#endif
 #define TIMING_V_PULSE   8
 #define TIMING_V_BACK    (5 + TIMING_V_PULSE)
 #define TIMING_V_DISPLAY (PRESTO_LCD_HEIGHT + TIMING_V_BACK)
-#define TIMING_V_FRONT   (5 + TIMING_V_DISPLAY)
+#define TIMING_V_FRONT   (PRESTO_LCD_V_FRONT_PORCH + TIMING_V_DISPLAY)
 #define TIMING_H_FRONT   4
 #define TIMING_H_PULSE   16
 #define TIMING_H_BACK    30
@@ -59,6 +66,9 @@ static uint lcd_dma, lcd_dma2;
 // trigger register doesn't start the channel.
 static const uint16_t *const *volatile row_table;
 static volatile uint32_t frame_count;
+static volatile uint32_t frame_time_us;     // when the current frame's display area began
+static uint32_t display_offset_us;          // from the frame interrupt (the front porch's start) to it
+static uint32_t line_ns;                    // a line's time
 
 // the timing SM's instruction word for one quarter (front porch, sync, back porch, display)
 // of one line; see st7701_timing.pio
@@ -145,6 +155,7 @@ static void __not_in_flash_func(frame_start_isr)(void) {
         // start of frame
         hw_clear_bits(&lcd_pio->irq, 0x2);
         frame_count++;
+        frame_time_us = time_us_32() + display_offset_us;
         dma_channel_abort(lcd_dma);
         dma_channel_wait_for_finish_blocking(lcd_dma);
         pio_sm_set_enabled(lcd_pio, parallel_sm, false);
@@ -296,6 +307,11 @@ void presto_lcd_init(const uint16_t *const *rows) {
     sm_config_set_clkdiv_int_frac8(&c, clk_div, 0);
     pio_sm_init(timing_pio, timing_sm, timing_offset, &c);
     pio_sm_set_enabled(timing_pio, timing_sm, true);
+    // for presto_lcd_frame_time_us / presto_lcd_scan_row: the timing program takes two of its
+    // cycles per dot; the frame interrupt comes at the start of the front porch
+    line_ns = (uint32_t) (((uint64_t) (TIMING_H_FRONT + TIMING_H_PULSE + TIMING_H_BACK + TIMING_H_DISPLAY)
+                           * clk_div * 2 * 1000000000ull) / clock_get_hz(clk_sys));
+    display_offset_us = ((PRESTO_LCD_V_FRONT_PORCH + TIMING_V_BACK) * line_ns) / 1000;
 
     lcd_dma = dma_claim_unused_channel(true);
     lcd_dma2 = dma_claim_unused_channel(true);
@@ -370,6 +386,30 @@ const uint16_t *presto_lcd_row(int row, uint16_t *buf) {
 
 uint32_t presto_lcd_frame_count(void) {
     return frame_count;
+}
+
+uint32_t presto_lcd_frame_time_us(void) {
+    return frame_time_us;
+}
+
+int32_t presto_lcd_scan_row(uint32_t now_us) {
+    int32_t dt_us = (int32_t) (now_us - frame_time_us);
+    if (dt_us < 0) return -(int32_t) (((uint32_t) -dt_us * 1000u) / line_ns) - 1;
+    return (int32_t) (((uint32_t) dt_us * 1000u) / line_ns);
+}
+
+uint32_t presto_lcd_frame_lines(void) {
+    return TIMING_V_FRONT;
+}
+
+uint32_t presto_lcd_frame_period_us(void) {
+    // dot clocks a frame over the dot clock (clk_sys / clk_div / 2: the timing program takes
+    // two of its cycles per dot)
+    const uint32_t max_pio_clk = 34 * MHZ;
+    uint32_t clk_div = (clock_get_hz(clk_sys) + max_pio_clk - 1) / max_pio_clk;
+    if (clk_div & 1) clk_div++;
+    uint64_t dots = (uint64_t) TIMING_V_FRONT * (TIMING_H_FRONT + TIMING_H_PULSE + TIMING_H_BACK + TIMING_H_DISPLAY);
+    return (uint32_t) ((dots * clk_div * 2 * 1000000ull) / clock_get_hz(clk_sys));
 }
 
 void presto_lcd_debug(void) {

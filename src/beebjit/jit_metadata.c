@@ -75,6 +75,11 @@ jit_metadata_is_pc_in_code_block(struct jit_metadata* p_metadata,
   return ret;
 }
 
+const int32_t*
+jit_metadata_get_code_blocks(struct jit_metadata* p_metadata) {
+  return &p_metadata->code_blocks[0];
+}
+
 int32_t
 jit_metadata_get_code_block(struct jit_metadata* p_metadata,
                             uint16_t addr_6502) {

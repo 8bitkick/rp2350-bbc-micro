@@ -68,23 +68,34 @@ top the area where disc images and snapshots arrive.
 
 ## What has been done (and measured)
 
-On Elite's title screen, from the JIT's first run to now: turbo 1.45× → 7.6× real time; at real
-speed, core 0 69% → 13%, core 1 11%; 35 KB of SRAM free with WiFi up. `tools/beebjit_hillclimb.py`
+On Elite's title screen, from the JIT's first run to now: turbo 1.45× → ~9× real time; at real
+speed, core 0 69% → 10%, core 1 10%; ~25 KB of SRAM free with WiFi up. `tools/beebjit_hillclimb.py`
 has each step. The big ones: video emulated in runs and whole scanlines, then whole character rows;
 drawing moved to core 1; core 1 skipping black and the 640→480 scaling on PIO; hot code in SRAM; no
-steady-state recompiles.
+steady-state recompiles; hardware register accesses compiled into JIT code (encoded callbacks);
+smaller JIT code for the XIP cache (`subs`/`bpl` countdown checks, JSR / RTS / JMP (ind) through
+stubs); MODE 7 as one wire command a line, drawn through a cache of teletext character runs; the
+panel DMA reading the renderer's row directly; newlib's `mem*` functions in RAM.
+
+Since step 18 the panel runs at 50 Hz with the BBC's clock locked to it (`lock_frame()`), and a
+frame is emulated in 64-scanline slices so its rows reach core 1 at the beam's pace. That cost ~8%
+of turbo, for smooth motion; `presto.py raw lock` (and `LOCK=1 tools/scenes.py`) reports rows drawn
+after the scan passed them, which should be 0. Moving MODE 7 scenes (the scroll, the color
+scroller, Teletext Elite) are the most demanding on core 1, so measure them first.
 
 ## Optimization avenues not yet taken
 
-Measured in turbo (both cores saturated): core 0 is ~29% JIT code, ~27% video (most of it encoding
-each line for core 1), ~21% the interpreter handling hardware register accesses; core 1 is mostly
-per-line overhead, with ~13% rebuilding colour tables as Elite rewrites its palette mid-frame.
+Measured in turbo at v0.1 (both cores saturated): core 0 was ~29% JIT code, ~27% video (most of
+it encoding each line for core 1), ~21% the interpreter handling hardware register accesses (since
+compiled into JIT code); core 1 mostly per-line overhead. Profile again before relying on these
+shares: build with `-DPRESTO_BEEBJIT_PROF=ON` and run `tools/prof.py 0` (or 1).
 
 - XIP cache misses on the JIT's code in PSRAM cost roughly a fifth of core 0 (slowing the PSRAM
   clock by a third costs 7%); flash misses cost nothing measurable.
-- Hardware register accesses from JIT code (beebjit's "encoded callbacks" on x64) instead of
-  falling back to the interpreter. Register-heavy programs (raster demos such as Bitshifters' Bar
-  Beeb) run below real time today.
+- Bar Beeb's core 0 (~60% at real speed): its raster loop bounces out of the JIT at every
+  scanline's video timer and the interpreter runs on to the next block start.
+- SRAM is tight (~25 KB free): the render and teletext tables are bigger than the 4-bit, 12 px
+  path reads, and the teletext run cache could survive the frame if it were bigger.
 - Tried and dropped: drawing ordinary lines straight into the panel row on core 1 (no gain:
   the per-line costs moved rather than went).
 - The clock stays at 250 MHz: speed comes from code, PIO and DMA, not overclocking further.

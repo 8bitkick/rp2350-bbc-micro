@@ -28,6 +28,10 @@
 struct render_struct;
 struct teletext_struct;
 
+/* DISPEN at tick i of a char run (see k_wire_char_run). */
+#define BEEBJIT_WIRE_CHAR_RUN_DISPEN(steady, settle, pattern, i) \
+    (((i) < (settle)) ? (((pattern) >> (i)) & 1) : (steady))
+
 enum {
   k_wire_pad = 0,
   k_wire_render,
@@ -50,6 +54,11 @@ enum {
   k_wire_teletext_data,
   k_wire_teletext_ra_isv,
   k_wire_teletext_vsync,
+  /* A run of characters (video_do_char_run()): arg bits 0-7 the count (0 is
+   * 256), 8 odd tick, 9 1MHz, 10 teletext addressed, 11 DISPEN, 12-13 the
+   * number of first ticks (0-2) whose DISPEN is still settling through the
+   * 6845 skew, 14-16 their values; then the bytes.
+   */
   k_wire_char_run,
   /* A whole ordinary bitmap scanline (video_do_fast_line()): arg n shown
    * bytes, bit 8 1MHz, bit 9 hsync; then a word: blank characters before
@@ -63,6 +72,17 @@ enum {
    * teletext_RA_ISV_changed() first).
    */
   k_wire_fast_line_ra,
+  /* A whole teletext scanline (video_do_teletext_line()): arg bits 0-7 the
+   * characters (R0 + 1), 8 1MHz, 9 hsync; then a word: DISPEN on from
+   * character (the skew), DISPEN off from character (shown end; 0 and 0 if
+   * nothing's shown), the hsync's character (R2), hsync ticks (a byte each);
+   * then the bytes.
+   */
+  k_wire_teletext_line,
+  /* As k_wire_teletext_line, after a new line's RA (bits as
+   * k_wire_fast_line_ra).
+   */
+  k_wire_teletext_line_ra,
   /* A frame with nothing new to draw (video.c's frame skip): a flyback, so
    * the frame is painted (and counted) as every other.
    */
@@ -100,6 +120,8 @@ struct beebjit_wire {
    * around the drains), e.g. to time them.
    */
   void (*p_wait_hook)(int is_end);
+  /* Called at each of the BBC's vsyncs, by the producer. */
+  void (*p_vsync_hook)(void);
 };
 
 extern struct beebjit_wire g_beebjit_wire;

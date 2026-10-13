@@ -38,6 +38,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <stddef.h>
 #include <string.h>
 
 #ifndef BEEBJIT_NO_MMU
@@ -329,6 +330,22 @@ bbc_is_1MHz_address(struct bbc_struct* p_bbc, uint16_t addr) {
 }
 
 uint8_t g_bbc_page_flags[257];
+
+/* BEEBJIT_JIT_ENCODING_PTR32: JIT encoded callbacks on a host with 32-bit
+ * pointers (the thumb2 backend). bbc_get_{read,write}_jit_encoding() give
+ * bbc_struct offsets as x64's; this scales them.
+ */
+#ifndef BEEBJIT_JIT_ENCODING_PTR32
+#define BEEBJIT_JIT_ENCODING_PTR32 BEEBJIT_ASM_THUMB2
+#endif
+#if BEEBJIT_JIT_ENCODING_PTR32
+_Static_assert((offsetof(struct bbc_struct, p_bbc_write_romsel_func) *
+                (8 / sizeof(void*))) == 0xF8,
+               "bbc_struct JIT callback fields");
+_Static_assert((offsetof(struct bbc_struct, p_video_crtc_write_address_func) *
+                (8 / sizeof(void*))) == 0xD0,
+               "bbc_struct JIT callback fields");
+#endif
 
 static void
 bbc_do_pre_read_write_tick_handling(struct bbc_struct* p_bbc,
@@ -1462,6 +1479,19 @@ bbc_get_read_jit_encoding(void* p,
     return 0;
   }
 
+#if BEEBJIT_JIT_ENCODING_PTR32
+  /* 32-bit host (the thumb2 backend): the bbc_struct offsets above are for
+   * 64-bit pointers, and the field offsets into the other modules' structs
+   * are x64's. The VIA's are the same everywhere (only bytes come first);
+   * the ACIA, FDC and ADC fields aren't, so those reads use the interpreter.
+   */
+  if (!is_call && (param_offset != 0x8) && (param_offset != 0x10)) {
+    return 0;
+  }
+  param_offset /= (8 / sizeof(void*));
+  func_offset /= (8 / sizeof(void*));
+#endif
+
   /* TODO: fetch these unseemly constants in a more graceful manner! */
   asm_make_uop1(p_uop, k_opcode_deref_context, 0x40078);
   p_uop++;
@@ -1681,6 +1711,18 @@ bbc_get_write_jit_encoding(void* p,
     syncs_time = 1;
     returns_time = 1;
   }
+
+#if BEEBJIT_JIT_ENCODING_PTR32
+  /* As for reads. The CRTC address register (a field in video_struct at an
+   * x64 offset) is written through video_crtc_write_address() instead.
+   */
+  if (addr_6502 == 0xFE00) {
+    is_call = 1;
+    func_offset = 0xD0;
+  }
+  param_offset /= (8 / sizeof(void*));
+  func_offset /= (8 / sizeof(void*));
+#endif
 
   /* TODO: fetch these unseemly constants in a more graceful manner! */
   asm_make_uop1(p_uop, k_opcode_deref_context, 0x40078);
@@ -2030,7 +2072,7 @@ bbc_CA2_changed_callback(void* p, int level, int output) {
   via_set_CA1(p_user_via, 1);
 }
 
-struct bbc_struct*
+BEEBJIT_COLD struct bbc_struct*
 bbc_create(int mode,
            int is_master,
            int has_sideways_ram,

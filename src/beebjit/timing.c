@@ -36,6 +36,7 @@ struct timing_struct {
   uint32_t num_timers;
   struct timer_struct timers[k_timing_num_timers];
   int log_expiries;
+  uint32_t num_fires;
 };
 
 static inline void
@@ -116,6 +117,11 @@ timing_get_countdown(struct timing_struct* p_timing) {
 uint64_t
 timing_get_total_timer_ticks(struct timing_struct* p_timing) {
   return p_timing->total_timer_ticks;
+}
+
+uint32_t
+timing_get_num_fires(struct timing_struct* p_timing) {
+  return p_timing->num_fires;
 }
 
 uint64_t
@@ -490,6 +496,7 @@ timing_do_advance_time(struct timing_struct* p_timing, uint64_t delta) {
                  (uint64_t) p_old_timer,
                  p_timing->total_timer_ticks);
     }
+    p_timing->num_fires++;
     p_old_timer->p_callback(p_old_timer->p_object);
     assert(!p_old_timer->ticking ||
            !p_old_timer->firing ||

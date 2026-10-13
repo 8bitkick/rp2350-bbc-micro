@@ -90,6 +90,11 @@ struct teletext_struct {
   uint8_t* p_render_character;
   uint32_t render_fg_color;
   uint8_t last_data_byte;
+  /* For the run cache: scanline advances so far, and the double-height
+   * flag at the last one.
+   */
+  uint32_t advance_count;
+  int had_double_at_advance;
 };
 
 static void
@@ -202,7 +207,7 @@ teletext_store_glyph(uint8_t* p_dest, uint8_t* p_src) {
 #endif
 }
 
-static void
+static BEEBJIT_COLD void
 teletext_generate(void) {
   uint32_t i;
 
@@ -334,6 +339,9 @@ teletext_reset_scanline_state(struct teletext_struct* p_teletext) {
 
 static inline void
 teletext_advance_scanline(struct teletext_struct* p_teletext) {
+  p_teletext->advance_count++;
+  p_teletext->had_double_at_advance =
+      p_teletext->had_double_active_this_scanline;
   p_teletext->scanline++;
   if (p_teletext->scanline == 10) {
     p_teletext->scanline = 0;
@@ -756,6 +764,459 @@ teletext_render_internal(struct teletext_struct* p_teletext,
     p_out->host_pixels[i] = (color | 0xff000000);
   }
 }
+
+#if BEEBJIT_RENDER_PACKED4
+/* The run cache (teletext_run()). What a run of bytes does in teletext_data()
+ * is a function of the chip's state below and the bytes alone, so when a
+ * character row's next scanline sends the same run from the same state,
+ * every character's rendering inputs (glyph, colours) are what they were,
+ * as is the state left behind; only the glyph row follows the scanline.
+ * One line's worth of runs is kept: up to the hsync and past it, with one
+ * to spare.
+ */
+/* 0: every run character by character, through the renderer (a reference
+ * to check the cache and the short way for undrawn runs against).
+ */
+#ifndef BEEBJIT_TELETEXT_RUN_CACHE
+#define BEEBJIT_TELETEXT_RUN_CACHE 1
+#endif
+
+enum {
+  k_teletext_run_max = 64,
+  k_teletext_run_entries = 3,
+};
+
+struct teletext_run_state {
+  uint8_t data_pipeline[3];
+  uint8_t dispen_pipeline[2];
+  uint8_t curr_dispen;
+  uint8_t last_data_byte;
+  uint8_t is_graphics_active;
+  uint8_t is_separated_active;
+  uint8_t is_concealed;
+  uint8_t double_active;
+  uint8_t flash_active;
+  uint8_t had_double_active_this_scanline;
+  uint8_t second_character_row_of_double;
+  uint8_t flash_visible_this_frame;
+  uint8_t is_hold_graphics;
+  uint32_t fg_color;
+  uint32_t bg_color;
+  uint32_t render_fg_color;
+  uint8_t* p_held_character;
+  uint8_t* p_active_characters;
+  uint8_t* p_render_character;
+};
+
+struct teletext_run_entry {
+  struct teletext_struct* p_teletext;
+  uint32_t n;
+  uint32_t dispen_arg;
+  struct teletext_run_state start;
+  struct teletext_run_state end;
+  uint8_t advances;
+  uint8_t had_double_at_advance;
+  uint8_t bytes[k_teletext_run_max];
+  /* fg code << 4 | bg code (the packed word is the code in every nibble);
+   * 0xFF: black, DISPEN low.
+   */
+  uint8_t fgbg[k_teletext_run_max];
+  uint8_t is_double[k_teletext_run_max];
+  const uint8_t* p_glyph[k_teletext_run_max];
+};
+
+static struct teletext_run_entry s_teletext_runs[k_teletext_run_entries];
+static uint32_t s_teletext_run_next;
+uint32_t g_teletext_run_hits;
+uint32_t g_teletext_run_misses;
+
+static void
+teletext_run_state_get(struct teletext_struct* p_teletext,
+                       struct teletext_run_state* p_state) {
+  (void) memcpy(p_state->data_pipeline, p_teletext->data_pipeline, 3);
+  (void) memcpy(p_state->dispen_pipeline, p_teletext->dispen_pipeline, 2);
+  p_state->curr_dispen = p_teletext->curr_dispen;
+  p_state->last_data_byte = p_teletext->last_data_byte;
+  p_state->is_graphics_active = p_teletext->is_graphics_active;
+  p_state->is_separated_active = p_teletext->is_separated_active;
+  p_state->is_concealed = p_teletext->is_concealed;
+  p_state->double_active = p_teletext->double_active;
+  p_state->flash_active = p_teletext->flash_active;
+  p_state->had_double_active_this_scanline =
+      p_teletext->had_double_active_this_scanline;
+  p_state->second_character_row_of_double =
+      p_teletext->second_character_row_of_double;
+  p_state->flash_visible_this_frame = p_teletext->flash_visible_this_frame;
+  p_state->is_hold_graphics = p_teletext->is_hold_graphics;
+  p_state->fg_color = p_teletext->fg_color;
+  p_state->bg_color = p_teletext->bg_color;
+  p_state->render_fg_color = p_teletext->render_fg_color;
+  p_state->p_held_character = p_teletext->p_held_character;
+  p_state->p_active_characters = p_teletext->p_active_characters;
+  p_state->p_render_character = p_teletext->p_render_character;
+}
+
+static void
+teletext_run_state_set(struct teletext_struct* p_teletext,
+                       const struct teletext_run_state* p_state) {
+  (void) memcpy(p_teletext->data_pipeline, p_state->data_pipeline, 3);
+  (void) memcpy(p_teletext->dispen_pipeline, p_state->dispen_pipeline, 2);
+  p_teletext->curr_dispen = p_state->curr_dispen;
+  p_teletext->last_data_byte = p_state->last_data_byte;
+  p_teletext->is_graphics_active = p_state->is_graphics_active;
+  p_teletext->is_separated_active = p_state->is_separated_active;
+  p_teletext->is_concealed = p_state->is_concealed;
+  p_teletext->double_active = p_state->double_active;
+  p_teletext->flash_active = p_state->flash_active;
+  p_teletext->had_double_active_this_scanline =
+      p_state->had_double_active_this_scanline;
+  p_teletext->second_character_row_of_double =
+      p_state->second_character_row_of_double;
+  p_teletext->flash_visible_this_frame = p_state->flash_visible_this_frame;
+  p_teletext->is_hold_graphics = p_state->is_hold_graphics;
+  p_teletext->fg_color = p_state->fg_color;
+  p_teletext->bg_color = p_state->bg_color;
+  p_teletext->render_fg_color = p_state->render_fg_color;
+  p_teletext->p_held_character = p_state->p_held_character;
+  p_teletext->p_active_characters = p_state->p_active_characters;
+  p_teletext->p_render_character = p_state->p_render_character;
+}
+
+/* Whether the chip is in the state p_state records (without copying it).
+ * With is_quiet (teletext_run_is_quiet()), the fields such a run overwrites
+ * before they can show don't count.
+ */
+static inline int
+teletext_run_state_equals(const struct teletext_struct* p_teletext,
+                          const struct teletext_run_state* p_state,
+                          int is_quiet) {
+  if (is_quiet) {
+    if (!(p_state->data_pipeline[0] & 0x40)) {
+      return 0;
+    }
+  } else if ((p_teletext->p_render_character != p_state->p_render_character) ||
+             (p_teletext->data_pipeline[0] != p_state->data_pipeline[0]) ||
+             (p_teletext->last_data_byte != p_state->last_data_byte)) {
+    return 0;
+  }
+  return ((p_teletext->data_pipeline[1] == p_state->data_pipeline[1]) &&
+          (p_teletext->data_pipeline[2] == p_state->data_pipeline[2]) &&
+          (p_teletext->dispen_pipeline[0] == p_state->dispen_pipeline[0]) &&
+          (p_teletext->dispen_pipeline[1] == p_state->dispen_pipeline[1]) &&
+          (p_teletext->curr_dispen == p_state->curr_dispen) &&
+          (p_teletext->is_graphics_active == p_state->is_graphics_active) &&
+          (p_teletext->is_separated_active ==
+           p_state->is_separated_active) &&
+          (p_teletext->is_concealed == p_state->is_concealed) &&
+          (p_teletext->double_active == p_state->double_active) &&
+          (p_teletext->flash_active == p_state->flash_active) &&
+          (p_teletext->had_double_active_this_scanline ==
+           p_state->had_double_active_this_scanline) &&
+          (p_teletext->second_character_row_of_double ==
+           p_state->second_character_row_of_double) &&
+          (p_teletext->flash_visible_this_frame ==
+           p_state->flash_visible_this_frame) &&
+          (p_teletext->is_hold_graphics == p_state->is_hold_graphics) &&
+          (p_teletext->fg_color == p_state->fg_color) &&
+          (p_teletext->bg_color == p_state->bg_color) &&
+          (p_teletext->render_fg_color == p_state->render_fg_color) &&
+          (p_teletext->p_held_character == p_state->p_held_character) &&
+          (p_teletext->p_active_characters == p_state->p_active_characters));
+}
+
+/* A run whose first byte (the one waiting at the head of the chip's
+ * pipeline) goes through drawn black (DISPEN off in the pipeline), outside
+ * graphics, marked off-screen (bit 6 set, so a printable character): all it
+ * does is set the character to draw, the last byte seen and the held
+ * character to space, and the next byte overwrites the first two. So with 2
+ * bytes or more, it, the character and the last byte aren't part of the
+ * run's key. (A character row's first scanline starts with an off-screen
+ * byte from the line before it: without this, every row's second scanline
+ * missed the cache as well as its first.)
+ */
+static inline int
+teletext_run_is_quiet(const struct teletext_struct* p_teletext, uint32_t n) {
+  return ((n >= 2) &&
+          (p_teletext->dispen_pipeline[0] == 0) &&
+          !p_teletext->is_graphics_active &&
+          (p_teletext->data_pipeline[0] & 0x40));
+}
+
+/* What teletext_render_internal() would use for the character just fed. */
+static inline void
+teletext_run_capture(struct teletext_struct* p_teletext,
+                     struct teletext_run_entry* p_entry,
+                     uint32_t i) {
+  const uint8_t* p_src_data = p_teletext->p_render_character;
+  if (!p_teletext->curr_dispen) {
+    /* Black: drawn as a space in black on black. */
+    uint32_t black = p_teletext->render_character_2MHz_black.host_pixels[0];
+    assert((black & 0xF) * 0x11111111u == black);
+    p_entry->fgbg[i] = (((black & 0xF) << 4) | (black & 0xF));
+    p_entry->p_glyph[i] = &s_teletext_generated_glyphs[0];
+    p_entry->is_double[i] = 0;
+    return;
+  }
+  if ((p_teletext->flash_active && !p_teletext->flash_visible_this_frame) ||
+      (p_teletext->second_character_row_of_double &&
+       !p_teletext->double_active) ||
+      p_teletext->is_concealed) {
+    p_src_data = &s_teletext_generated_glyphs[0];
+  }
+  assert((p_teletext->render_fg_color & 0xF) * 0x11111111u ==
+         p_teletext->render_fg_color);
+  assert((p_teletext->bg_color & 0xF) * 0x11111111u == p_teletext->bg_color);
+  p_entry->fgbg[i] = (((p_teletext->render_fg_color & 0xF) << 4) |
+                      (p_teletext->bg_color & 0xF));
+  p_entry->p_glyph[i] = p_src_data;
+  p_entry->is_double[i] = !!p_teletext->double_active;
+}
+
+/* The rows of glyph data teletext_render_internal() would draw from now:
+ * the chip's scanline for a row's lines, or of a double-height pair.
+ */
+static inline void
+teletext_run_rows(const struct teletext_struct* p_teletext,
+                  uint32_t second_character_row_of_double,
+                  uint32_t* p_row_single,
+                  uint32_t* p_row_double) {
+  uint32_t scanline = p_teletext->scanline;
+  uint32_t row_single = ((scanline * 2) +
+                         ((!p_teletext->is_isv && p_teletext->crtc_ra0) ? 1 : 0));
+  uint32_t row_double = (scanline + (second_character_row_of_double ? 10 : 0));
+  assert(row_single < 20);
+  assert(row_double < 20);
+  *p_row_single = (row_single * k_teletext_row_bytes);
+  *p_row_double = (row_double * k_teletext_row_bytes);
+}
+
+/* One captured character, drawn (both ticks of a 1MHz character); p_rows:
+ * the single and double height glyph rows.
+ */
+static inline void
+teletext_run_draw(const struct teletext_run_entry* p_entry,
+                  uint32_t i,
+                  const uint32_t* p_rows,
+                  uint32_t* p_out) {
+  uint32_t fgbg = p_entry->fgbg[i];
+  const uint8_t* p_src = (p_entry->p_glyph[i] + p_rows[p_entry->is_double[i]]);
+  uint32_t bg = ((fgbg & 0xF) * 0x11111111u);
+  uint32_t fg_bg = (((fgbg >> 4) * 0x11111111u) ^ bg);
+  p_out[0] = (bg ^ (fg_bg & s_teletext_expand[p_src[0]]));
+  p_out[1] = (bg ^ (fg_bg & s_teletext_expand[p_src[1]]));
+}
+
+static void
+teletext_run_replay(struct teletext_struct* p_teletext,
+                    const struct teletext_run_entry* p_entry,
+                    uint32_t* p_out) {
+  uint32_t i;
+  uint32_t n = p_entry->n;
+  uint32_t rows[2];
+
+  teletext_run_rows(p_teletext,
+                    p_teletext->second_character_row_of_double,
+                    &rows[0],
+                    &rows[1]);
+  for (i = 0; (p_out != NULL) && (i < n); ++i) {
+    teletext_run_draw(p_entry, i, rows, p_out);
+    p_out += 2;
+  }
+
+  teletext_run_state_set(p_teletext, &p_entry->end);
+  if (p_entry->advances) {
+    /* The run's scanline advance, done on this scanline: the end state has
+     * the row's values from when the run was captured.
+     */
+    p_teletext->second_character_row_of_double =
+        p_entry->start.second_character_row_of_double;
+    p_teletext->had_double_active_this_scanline =
+        p_entry->had_double_at_advance;
+    teletext_advance_scanline(p_teletext);
+  }
+}
+
+/* (Byte loops: newlib's memcmp / memcpy run from flash on the Presto.) */
+static inline int
+teletext_run_bytes_equal(const uint8_t* p_a, const uint8_t* p_b, uint32_t n) {
+  uint32_t i;
+  for (i = 0; i < n; ++i) {
+    if (p_a[i] != p_b[i]) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+/* A run with DISPEN low throughout and nothing drawn (outside the window,
+ * or past the hsync). Once the chip's pipeline is quiet too (DISPEN low in
+ * it and drawn), outside graphics, every byte it takes in goes through
+ * marked off-screen (bit 6 set: a printable character), and all a printable
+ * character does there is set the character to draw, the last byte seen and
+ * the held character (space). So only the last bytes count: the run starts
+ * them in the pipeline as if the rest had gone through.
+ */
+static void
+teletext_run_off(struct teletext_struct* p_teletext,
+                 const uint8_t* p_data,
+                 uint32_t n) {
+  uint32_t i = 0;
+  while ((i < n) &&
+         ((p_teletext->curr_dispen != 0) ||
+          (p_teletext->dispen_pipeline[0] != 0) ||
+          (p_teletext->dispen_pipeline[1] != 0))) {
+    teletext_data(p_teletext, p_data[i], 0);
+    i++;
+  }
+  if (!p_teletext->is_graphics_active && ((n - i) >= 6)) {
+    p_teletext->data_pipeline[0] = (p_data[n - 6] | 0x40);
+    p_teletext->data_pipeline[1] = (p_data[n - 5] | 0x40);
+    p_teletext->data_pipeline[2] = p_data[n - 4];
+    i = (n - 3);
+  }
+  while (i < n) {
+    teletext_data(p_teletext, p_data[i], 0);
+    i++;
+  }
+}
+
+void
+teletext_run(struct teletext_struct* p_teletext,
+             const uint8_t* p_data,
+             uint32_t n,
+             uint32_t dispen,
+             uint32_t dispen_settle,
+             uint32_t dispen_pattern,
+             uint32_t dispen_off_from,
+             int is_1MHz,
+             uint32_t ticks_odd,
+             uint32_t* p_out) {
+  uint32_t i;
+  uint32_t ticks = ticks_odd;
+  uint32_t advances_before;
+  struct teletext_run_entry* p_entry;
+  uint32_t dispen_arg;
+  uint32_t rows[2];
+  int is_quiet;
+
+  if (dispen_off_from > n) {
+    dispen_off_from = n;
+  }
+  dispen_arg = (dispen | (dispen_settle << 1) | (dispen_pattern << 3) |
+                (dispen_off_from << 6));
+
+  if (!BEEBJIT_TELETEXT_RUN_CACHE || !is_1MHz || ticks_odd ||
+      (n > k_teletext_run_max) || (p_data == NULL)) {
+    /* Character by character. */
+    for (i = 0; i < n; ++i) {
+      if (!(ticks & 1)) {
+        if (p_data != NULL) {
+          uint32_t d = ((i < dispen_settle) ? ((dispen_pattern >> i) & 1) :
+                                              dispen);
+          if (i >= dispen_off_from) {
+            d = 0;
+          }
+          teletext_data(p_teletext, p_data[i], d);
+        } else {
+          teletext_data(p_teletext, 0, 0);
+        }
+      }
+      if (p_out != NULL) {
+        teletext_render_first_of_pair(p_teletext,
+                                      (ticks & 1),
+                                      (struct render_character_2MHz*) p_out);
+        p_out += k_render_words_per_8_pixels;
+        if (is_1MHz) {
+          teletext_render_first_of_pair(p_teletext,
+                                        1,
+                                        (struct render_character_2MHz*) p_out);
+          p_out += k_render_words_per_8_pixels;
+        }
+      }
+      ticks += (is_1MHz ? 2 : 1);
+    }
+    return;
+  }
+
+  if (p_out == NULL) {
+    /* Nothing drawn: with DISPEN low throughout, the short way. */
+    uint32_t on_ticks = ((dispen_off_from < dispen_settle) ? dispen_off_from :
+                                                             dispen_settle);
+    if ((dispen_off_from == 0) ||
+        ((!dispen || (dispen_settle >= dispen_off_from)) &&
+         ((on_ticks >= 32) ||
+          !(dispen_pattern & ((1u << on_ticks) - 1))))) {
+      teletext_run_off(p_teletext, p_data, n);
+      return;
+    }
+  }
+
+  is_quiet = teletext_run_is_quiet(p_teletext, n);
+  for (i = 0; i < k_teletext_run_entries; ++i) {
+    struct teletext_run_entry* p_e = &s_teletext_runs[i];
+    if ((p_e->p_teletext == p_teletext) &&
+        (p_e->n == n) &&
+        (p_e->dispen_arg == dispen_arg) &&
+        teletext_run_state_equals(p_teletext, &p_e->start, is_quiet) &&
+        teletext_run_bytes_equal(&p_e->bytes[0], p_data, n)) {
+      teletext_run_replay(p_teletext, p_e, p_out);
+      g_teletext_run_hits++;
+      return;
+    }
+  }
+  g_teletext_run_misses++;
+  p_entry = &s_teletext_runs[s_teletext_run_next];
+  s_teletext_run_next++;
+  if (s_teletext_run_next == k_teletext_run_entries) {
+    s_teletext_run_next = 0;
+  }
+  p_entry->p_teletext = NULL;
+  p_entry->n = n;
+  p_entry->dispen_arg = dispen_arg;
+  teletext_run_state_get(p_teletext, &p_entry->start);
+  for (i = 0; i < n; ++i) {
+    p_entry->bytes[i] = p_data[i];
+  }
+  advances_before = p_teletext->advance_count;
+
+  /* Each character through the chip, captured, and drawn from what was
+   * captured (as a replay draws it, with the rows as they are now).
+   */
+  teletext_run_rows(p_teletext,
+                    p_teletext->second_character_row_of_double,
+                    &rows[0],
+                    &rows[1]);
+  for (i = 0; i < n; ++i) {
+    uint32_t advances = p_teletext->advance_count;
+    uint32_t d = ((i < dispen_settle) ? ((dispen_pattern >> i) & 1) : dispen);
+    if (i >= dispen_off_from) {
+      d = 0;
+    }
+    teletext_data(p_teletext, p_data[i], d);
+    teletext_run_capture(p_teletext, p_entry, i);
+    if (p_out != NULL) {
+      if (p_teletext->advance_count != advances) {
+        teletext_run_rows(p_teletext,
+                          p_teletext->second_character_row_of_double,
+                          &rows[0],
+                          &rows[1]);
+      }
+      teletext_run_draw(p_entry, i, rows, p_out);
+      p_out += 2;
+    }
+  }
+
+  {
+    uint32_t advances = (p_teletext->advance_count - advances_before);
+    if (advances <= 1) {
+      p_entry->advances = advances;
+      p_entry->had_double_at_advance = p_teletext->had_double_at_advance;
+      teletext_run_state_get(p_teletext, &p_entry->end);
+      p_entry->p_teletext = p_teletext;
+    }
+  }
+}
+#endif
 
 void
 teletext_render(struct teletext_struct* p_teletext,

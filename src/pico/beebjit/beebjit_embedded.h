@@ -39,6 +39,10 @@ struct beebjit_embedded_config {
    * ARGB, or packed 4-bit codes with BEEBJIT_RENDER_PACKED4.
    */
   void (*p_row_callback)(void* p, uint32_t row, uint32_t* p_pixels);
+  /* Two row pairs, alternating (render_set_row_buffer_other()): the row
+   * handed to p_row_callback stays as it is until the next call.
+   */
+  int is_row_double_buffered;
   void* p_row_callback_object;
   /* Called at each vsync of the emulated CRT. */
   void (*p_frame_callback)(void* p, uint64_t cycles);
