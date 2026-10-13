@@ -6,7 +6,7 @@
 Each scene is set up through the web panel (http://beeb.local/ or PRESTO_HOST)
 and measured over USB (presto.py stats, three readings, the middle one):
 per-core load and speed at real speed, then turbo speed where it's meaningful.
-Discs come from the discs/ directory (chuckie-egg.ssd, Exile.ssd, the
+Discs come from the discs/ directory (Exile.ssd, teletext-elite.ssd, the
 Bitshifters demos) if they're there; a scene whose disc is missing is skipped.
 SHOTS=<directory> saves each scene's picture there (presto.py shot).
 LOCK=1 adds the frame lock's figures over the real-speed reading (presto.py
@@ -106,7 +106,6 @@ SCENES = [
     ('MODE 7 color scroller', lambda: (keys(['b']), time.sleep(5), type_text(
         '10 MODE 7\n20 P.CHR$(141);CHR$(129+R%);"DOUBLE";CHR$(151);"5?5?5?":R%=(R%+1)MOD 7\n30 GOTO 20\nRUN\n'),
         time.sleep(8))),
-    ('Chuckie Egg', lambda: (disc('chuckie-egg.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(30))),
     # (Mark Moxon's Elite in MODE 7: elite.bbcelite.com/hacks/teletext_elite; the title's ship rotates every frame)
     ('Teletext Elite', lambda: (disc('teletext-elite.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(25))),
     # (its instruction pages load in turn: one SPACE every 2 s gets to the menu; f0 runs the game)
