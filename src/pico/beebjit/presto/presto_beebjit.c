@@ -21,6 +21,7 @@
 #include "log.h"
 #include "timing.h"
 
+#include "presto_audio.h"
 #include "presto_boot.h"
 #include "presto_lcd.h"
 #include "presto_machine.h"
@@ -315,6 +316,8 @@ static void prof_init(void);
 static void __not_in_flash_func(core1_main)(void) {
   /* Let core 0 park this core while it writes the flash (saving WiFi details). */
   (void) flash_safe_execute_core_init();
+  /* The sound: its DMA interrupt runs here. */
+  presto_audio_init();
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
 #endif
@@ -810,6 +813,7 @@ frame_callback(void* p, uint64_t cycles) {
   }
   watchdog_update();
   perf_frame(cycles);
+  presto_audio_frame(cycles, s_turbo);
   presto_machine_frame();
 #if PRESTO_BEEBJIT_PROF
   prof_poll();
@@ -920,6 +924,7 @@ run_beebjit(void) {
 
   presto_boot_step(4);
 #if PRESTO_BEEBJIT_WIRE
+  presto_audio_set_ring(beebjit_embedded_malloc_big(presto_audio_ring_size()));
   beebjit_wire_init(s_wire_buf, 0);
   g_beebjit_wire.p_wait_hook = wire_wait_hook;
   g_beebjit_wire.p_vsync_hook = lock_frame;
