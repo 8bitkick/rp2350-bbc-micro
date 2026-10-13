@@ -18,6 +18,8 @@ printf "%-16s %12s\n" scene "instr/frame"
 printf "%-16s %12s\n" "MODE 7 prompt" "$($RUN -cycles 6000000 -frame-stats 100 "$@" | per_frame)"
 printf "%-16s %12s\n" "MODE 2 bars" "$($RUN -cycles 14000000 -frame-stats 300 "$@" -type \
   'MODE 2\nFOR I%=0 TO 7:GCOL 0,I%:MOVE I%*160,0:MOVE I%*160+150,0:PLOT 85,I%*160,1023:PLOT 85,I%*160+150,1023:NEXT\n' | per_frame)"
+printf "%-16s %12s\n" "MODE 7 scroll" "$($RUN -cycles 14000000 -frame-stats 300 "$@" -type \
+  '10 MODE 7\n20 P."abc";\n30 GOTO 20\nRUN\n' | per_frame)"
 if [ -f discs/elite-disc-flicker-free-sth.ssd ]; then
   printf "%-16s %12s\n" "Elite title" "$($RUN -disc discs/elite-disc-flicker-free-sth.ssd -autoboot \
     -cycles 50000000 -frame-stats 1000 "$@" | per_frame)"

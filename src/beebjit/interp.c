@@ -104,7 +104,7 @@ interp_poll_irq_now(int* p_do_irq,
     return;
   }
 
-  if (state_6502_check_irq_firing(p_state_6502, k_state_6502_irq_nmi) ||
+  if ((p_state_6502->abi_state.irq_fire & k_state_6502_irq_nmi) ||
       !intf) {
     *p_do_irq = 1;
   }
@@ -2980,7 +2980,10 @@ check_irq:
        * make sure to check the next poll point to see if it needs to fire.
        */
       if (p_state_6502->abi_state.irq_fire &&
-          (state_6502_check_irq_firing(p_state_6502, k_state_6502_irq_nmi) ||
+          /* (state_6502_check_irq_firing(), inline: this runs after every
+           * instruction while an IRQ is asserted but masked.)
+           */
+          ((p_state_6502->abi_state.irq_fire & k_state_6502_irq_nmi) ||
            !intf)) {
         special_checks |= k_interp_special_poll_irq;
       }

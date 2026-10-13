@@ -114,6 +114,9 @@ t2_layout_stubs(void) {
   g_t2.p_stub_php = (p_stubs + K_T2_STUB_PHP);
   g_t2.p_stub_plp = (p_stubs + K_T2_STUB_PLP);
   g_t2.p_stub_pull16 = (p_stubs + K_T2_STUB_PULL16);
+  g_t2.p_stub_push16 = (p_stubs + K_T2_STUB_PUSH16);
+  g_t2.p_stub_jmp_scratch = (p_stubs + K_T2_STUB_JMP_SCRATCH);
+  g_t2.p_stub_rts = (p_stubs + K_T2_STUB_RTS);
   g_t2.p_stub_exit = (p_stubs + K_T2_STUB_EXIT);
   g_t2.p_stub_interp = (p_stubs + K_T2_STUB_INTERP);
   g_t2.p_stub_flush_inv = (p_stubs + K_T2_STUB_FLUSH_INV);
@@ -253,7 +256,14 @@ enum {
   k_opcode_t2_STY_ABS,
   k_opcode_t2_STY_addr,
   k_opcode_t2_SUB_IMM,
+  /* call_scratch_param after set_param4_from_countdown: it pops param4. */
+  k_opcode_t2_call_scratch_param_stack,
+  /* PULL_16 + JMP_SCRATCH_n(1): a branch to the RTS stub. */
+  k_opcode_t2_RTS,
 };
+
+static void t2_emit_jump_scratch(struct util_buffer* p_buf);
+static void t2_emit_pull16_body(struct util_buffer* p_buf);
 
 /* Specialise the generic uops of one 6502 opcode, as the ARM64 backend does:
  * fold known addresses into loads and stores (ldrb / strb take a 12-bit
@@ -283,7 +293,36 @@ asm_jit_rewrite(struct asm_jit_struct* p_asm,
   int is_imm;
   int is_abs;
   uint16_t addr;
+  uint32_t i;
+  int has_param4;
   (void) p_asm;
+
+  /* An encoded callback: a call with a param4 cleans up after it. (The
+   * compiler may emit a uop twice, so the backend can't track this itself.)
+   */
+  has_param4 = 0;
+  for (i = 0; i < num_uops; ++i) {
+    if (p_uops[i].is_eliminated) {
+      continue;
+    }
+    if (p_uops[i].uopcode == k_opcode_set_param4_from_countdown) {
+      has_param4 = 1;
+    } else if ((p_uops[i].uopcode == k_opcode_call_scratch_param) &&
+               has_param4) {
+      p_uops[i].backend_tag = k_opcode_t2_call_scratch_param_stack;
+    } else if ((p_uops[i].uopcode == k_opcode_PULL_16) &&
+               ((i + 1) < num_uops) &&
+               !p_uops[i + 1].is_eliminated &&
+               (p_uops[i + 1].uopcode == k_opcode_JMP_SCRATCH_n) &&
+               (p_uops[i + 1].value1 == 1)) {
+      /* RTS: the pull and the jump as one branch to a stub, 4 bytes instead
+       * of 26 (for the XIP cache; Elite has 840 of them).
+       */
+      p_uops[i].backend_tag = k_opcode_t2_RTS;
+      p_uops[i + 1].is_eliminated = 1;
+      p_uops[i + 1].is_merged = 1;
+    }
+  }
 
   asm_breakdown_from_6502(p_uops,
                           num_uops,
@@ -797,11 +836,59 @@ t2_emit_write_flags_stub(struct util_buffer* p_buf,
   }
 }
 
+#ifdef T2_CODE_STATS
+#include <stdio.h>
+#include <stdlib.h>
+static uint32_t s_t2_stat_bytes[0x1100];
+static uint32_t s_t2_stat_count[0x1100];
+static void
+t2_stats_print(void) {
+  uint32_t i, k, total = 0;
+  for (i = 0; i < 0x1100; ++i) total += s_t2_stat_bytes[i];
+  printf("thumb2 code bytes emitted: %u\n", total);
+  for (k = 0; k < 30; ++k) {
+    uint32_t best = 0;
+    for (i = 0; i < 0x1100; ++i) if (s_t2_stat_bytes[i] > s_t2_stat_bytes[best]) best = i;
+    if (!s_t2_stat_bytes[best]) break;
+    printf("  uop %4x: %7u bytes %6u times (%.1f each)\n", best, s_t2_stat_bytes[best],
+           s_t2_stat_count[best], (double) s_t2_stat_bytes[best] / s_t2_stat_count[best]);
+    s_t2_stat_bytes[best] = 0;
+  }
+}
+static void asm_emit_jit_inner(struct asm_jit_struct* p_asm,
+                               struct util_buffer* p_buf,
+                               struct util_buffer* p_buf_epilog,
+                               struct asm_uop* p_uop);
 void
 asm_emit_jit(struct asm_jit_struct* p_asm,
              struct util_buffer* p_buf,
              struct util_buffer* p_buf_epilog,
              struct asm_uop* p_uop) {
+  static int s_registered;
+  size_t pos = util_buffer_get_pos(p_buf);
+  size_t epos = (p_buf_epilog ? util_buffer_get_pos(p_buf_epilog) : 0);
+  int32_t op = ((p_uop->backend_tag >= 0x1000) ? p_uop->backend_tag :
+                p_uop->uopcode);
+  if (!s_registered) { s_registered = 1; atexit(t2_stats_print); }
+  asm_emit_jit_inner(p_asm, p_buf, p_buf_epilog, p_uop);
+  if ((op >= 0) && (op < 0x1100)) {
+    s_t2_stat_bytes[op] += (util_buffer_get_pos(p_buf) - pos);
+    if (p_buf_epilog) s_t2_stat_bytes[op] += (util_buffer_get_pos(p_buf_epilog) - epos);
+    s_t2_stat_count[op]++;
+  }
+}
+static void
+asm_emit_jit_inner(struct asm_jit_struct* p_asm,
+                   struct util_buffer* p_buf,
+                   struct util_buffer* p_buf_epilog,
+                   struct asm_uop* p_uop) {
+#else
+void
+asm_emit_jit(struct asm_jit_struct* p_asm,
+             struct util_buffer* p_buf,
+             struct util_buffer* p_buf_epilog,
+             struct asm_uop* p_uop) {
+#endif
   int32_t uopcode = p_uop->uopcode;
   intptr_t value1 = p_uop->value1;
   intptr_t value2 = p_uop->value2;
@@ -1008,8 +1095,21 @@ asm_emit_jit(struct asm_jit_struct* p_asm,
     t2_ldr(p_buf, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0);
     t2_emit_exit_if_scratch(p_buf, p_buf_epilog, value1);
     break;
-  case k_opcode_countdown:
   case k_opcode_countdown_no_preserve_nz_flags:
+    /* The next opcode sets N / Z, and host C / V never live across an
+     * opcode (ADC / SBC reload C from REG_CF; save_carry / save_overflow
+     * follow the instruction that set them), so the subtraction can set the
+     * flags: 3 instructions, 12 bytes, instead of 4 and 16.
+     */
+    assert((value2 >= 0) && (value2 <= 4095));
+    if (t2_mod_imm(value2) >= 0) {
+      t2_dp_imm(p_buf, k_t2_op_sub, 1, REG_COUNTDOWN, REG_COUNTDOWN, value2);
+      t2_bcond_skip(p_buf, k_t2_pl, 6);
+      t2_emit_jump_interp(p_buf, value1);
+      break;
+    }
+    /* fall through */
+  case k_opcode_countdown:
     assert((value2 >= 0) && (value2 <= 4095));
     t2_subw(p_buf, REG_COUNTDOWN, REG_COUNTDOWN, value2);
     t2_shift(p_buf, k_t2_lsr, 0, REG_JIT_SCRATCH, REG_COUNTDOWN, 31);
@@ -1034,15 +1134,16 @@ asm_emit_jit(struct asm_jit_struct* p_asm,
     t2_b(p_buf, g_t2.p_stub_inturbo);
     break;
   case k_opcode_JMP_SCRATCH_n:
-    if (value1 != 0) {
-      t2_addw(p_buf, REG_ADDR, REG_ADDR, value1);
+    if (value1 == 0) {
+      /* JMP (ind), RTI: the jump through a stub (4 bytes, not 18). */
+      t2_b(p_buf, g_t2.p_stub_jmp_scratch);
+      break;
     }
-    t2_ubfx(p_buf, REG_ADDR, REG_ADDR, 0, 16);
-    t2_shift(p_buf, k_t2_lsl, 0, REG_JIT_SCRATCH, REG_ADDR, K_JIT_BYTES_SHIFT);
-    t2_dp_imm(p_buf, k_t2_op_orr, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 1);
-    t2_dp_imm(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH,
-              K_JIT_ADDR);
-    t2_bx(p_buf, REG_JIT_SCRATCH);
+    t2_addw(p_buf, REG_ADDR, REG_ADDR, value1);
+    t2_emit_jump_scratch(p_buf);
+    break;
+  case k_opcode_t2_RTS:
+    t2_b(p_buf, g_t2.p_stub_rts);
     break;
   case k_opcode_load_carry:
   case k_opcode_load_overflow:
@@ -1053,10 +1154,8 @@ asm_emit_jit(struct asm_jit_struct* p_asm,
     t2_bl(p_buf, g_t2.p_stub_pull16);
     break;
   case k_opcode_PUSH_16:
-    t2_mov32(p_buf, REG_SCRATCH1, ((uint32_t) value1 >> 8));
-    t2_emit_push(p_buf, REG_SCRATCH1);
-    t2_mov32(p_buf, REG_SCRATCH1, ((uint32_t) value1 & 0xFF));
-    t2_emit_push(p_buf, REG_SCRATCH1);
+    t2_movw(p_buf, REG_SCRATCH1, ((uint32_t) value1 & 0xFFFF));
+    t2_bl(p_buf, g_t2.p_stub_push16);
     break;
   case k_opcode_save_carry:
     t2_emit_save_carry(p_buf);
@@ -1216,6 +1315,81 @@ asm_emit_jit(struct asm_jit_struct* p_asm,
   case k_opcode_TXA: asm_emit_instruction_TXA(p_buf); break;
   case k_opcode_TXS: asm_emit_instruction_TXS(p_buf); break;
   case k_opcode_TYA: asm_emit_instruction_TYA(p_buf); break;
+  /* Encoded callbacks (bbc.c's bbc_get_{read,write}_jit_encoding): a
+   * hardware register access as a direct call or field access, without
+   * leaving JIT code. As the ARM64 backend, with the AAPCS: param1-3 in
+   * r0-r2; a 64-bit countdown as param3 goes in r2:r3, as param4 on the
+   * stack. save_regs pushes what a call clobbers (A, X, Y, S, the host flags
+   * and lr, the compile stub).
+   */
+  case k_opcode_deref_context:
+    /* The bbc_struct is the memory callback object. */
+    t2_mov32(p_buf, REG_SCRATCH1, (uint32_t) (uintptr_t) g_t2.p_bbc);
+    break;
+  case k_opcode_deref_scratch:
+    t2_ldr(p_buf, REG_JIT_SCRATCH, REG_SCRATCH1, value1);
+    break;
+  case k_opcode_load_deref_scratch:
+    t2_ldrb(p_buf, REG_VALUE, REG_JIT_SCRATCH, value1);
+    break;
+  case k_opcode_load_deref_scratch_quad:
+    /* The low word: only its bit 0 is used (sync_even_cycle). */
+    t2_ldr(p_buf, REG_VALUE, REG_JIT_SCRATCH, value1);
+    break;
+  case k_opcode_store_deref_scratch:
+    t2_strb(p_buf, REG_VALUE, REG_JIT_SCRATCH, value1);
+    break;
+  case k_opcode_sync_even_cycle:
+    t2_dp_reg(p_buf, k_t2_op_eor, 0, REG_VALUE, REG_COUNTDOWN, REG_VALUE,
+              k_t2_lsl, 0);
+    t2_dp_imm(p_buf, k_t2_op_and, 0, REG_VALUE, REG_VALUE, 1);
+    t2_dp_reg(p_buf, k_t2_op_add, 0, REG_COUNTDOWN, REG_COUNTDOWN, REG_VALUE,
+              k_t2_lsl, 0);
+    break;
+  case k_opcode_save_regs:
+    /* mrs r7, apsr; push {r0-r3, r7, lr} (6 words: sp stays 8-aligned). */
+    t2_mrs_apsr(p_buf, REG_JIT_SCRATCH);
+    t2_h(p_buf, 0xB58F);
+    break;
+  case k_opcode_restore_regs:
+    /* pop {r0-r3, r7, lr}; msr apsr, r7. */
+    t2_w(p_buf, 0xE8BD, 0x408F);
+    t2_msr_apsr(p_buf, REG_JIT_SCRATCH);
+    break;
+  case k_opcode_set_param2_from_ID_F:
+    /* Only the I flag matters to the callees (flags_ID & 0x4). */
+    t2_ldst_neg(p_buf, 1, 0, k_t2_r1, REG_MEM, K_T2_MEM_I_FLAG);
+    break;
+  case k_opcode_set_param3_from_value:
+    t2_mov(p_buf, k_t2_r2, REG_VALUE);
+    break;
+  case k_opcode_set_param3_from_countdown:
+    t2_mov(p_buf, k_t2_r2, REG_COUNTDOWN);
+    t2_shift(p_buf, k_t2_asr, 0, k_t2_r3, REG_COUNTDOWN, 31);
+    break;
+  case k_opcode_set_param4_from_countdown:
+    /* sub sp, #8; the 64-bit countdown at sp. call_scratch_param pops it. */
+    t2_h(p_buf, 0xB082);
+    t2_str(p_buf, REG_COUNTDOWN, k_t2_sp, 0);
+    t2_shift(p_buf, k_t2_asr, 0, REG_JIT_SCRATCH, REG_COUNTDOWN, 31);
+    t2_str(p_buf, REG_JIT_SCRATCH, k_t2_sp, 4);
+    break;
+  case k_opcode_call_scratch_param:
+  case k_opcode_t2_call_scratch_param_stack:
+    t2_ldr(p_buf, k_t2_r0, REG_SCRATCH1, value1);
+    t2_ldr(p_buf, REG_JIT_SCRATCH, REG_SCRATCH1, value2);
+    t2_blx(p_buf, REG_JIT_SCRATCH);
+    if (uopcode == k_opcode_t2_call_scratch_param_stack) {
+      /* add sp, #8: set_param4_from_countdown's stack slot. */
+      t2_h(p_buf, 0xB002);
+    }
+    break;
+  case k_opcode_set_value_from_ret:
+    t2_mov(p_buf, REG_VALUE, k_t2_r0);
+    break;
+  case k_opcode_set_countdown_from_ret:
+    t2_mov(p_buf, REG_COUNTDOWN, k_t2_r0);
+    break;
   default:
     /* Encoded callbacks, debug, loop collapsing and ST_IMM are switched off
      * for this backend (see asm_jit_supports_uopcode and the jit: options the
@@ -1264,6 +1438,35 @@ t2_emit_restore_state(struct util_buffer* p_buf) {
 }
 
 /* lr = the compile stub; jump to the JIT code for state_6502's PC. */
+/* Jump to the JIT code for the 6502 address in REG_ADDR (any high bits
+ * dropped).
+ */
+static void
+t2_emit_jump_scratch(struct util_buffer* p_buf) {
+  t2_ubfx(p_buf, REG_ADDR, REG_ADDR, 0, 16);
+  t2_shift(p_buf, k_t2_lsl, 0, REG_JIT_SCRATCH, REG_ADDR, K_JIT_BYTES_SHIFT);
+  t2_dp_imm(p_buf, k_t2_op_orr, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 1);
+  t2_dp_imm(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH,
+            K_JIT_ADDR);
+  t2_bx(p_buf, REG_JIT_SCRATCH);
+}
+
+/* REG_ADDR = a 16-bit word pulled from the stack (RTS / RTI). */
+static void
+t2_emit_pull16_body(struct util_buffer* p_buf) {
+  t2_addw(p_buf, REG_JIT_SCRATCH, REG_S, 1);
+  t2_dp_imm(p_buf, k_t2_op_and, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0xFF);
+  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM,
+            REG_JIT_SCRATCH, k_t2_lsl, 0);
+  t2_ldrb(p_buf, REG_SCRATCH1, REG_JIT_SCRATCH, 0x100);
+  t2_emit_add8(p_buf, REG_S, 2);
+  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM, REG_S,
+            k_t2_lsl, 0);
+  t2_ldrb(p_buf, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0x100);
+  t2_dp_reg(p_buf, k_t2_op_orr, 0, REG_ADDR, REG_SCRATCH1, REG_JIT_SCRATCH,
+            k_t2_lsl, 8);
+}
+
 static void
 t2_emit_jump_to_state_pc(struct util_buffer* p_buf) {
   t2_mov32(p_buf, k_t2_lr, ((uint32_t) (uintptr_t) g_t2.p_stub_compile | 1));
@@ -1393,19 +1596,9 @@ t2_generate_stubs(void) {
   t2_stub_at(p_buf, K_T2_STUB_PLP, g_t2.p_stub_plp);
   t2_emit_plp_body(p_buf);
   t2_emit_helper_return(p_buf);
-  /* REG_ADDR = a 16-bit word pulled from the stack (RTS / RTI). */
+  /* REG_ADDR = a 16-bit word pulled from the stack (RTI). */
   t2_stub_at(p_buf, K_T2_STUB_PULL16, g_t2.p_stub_pull16);
-  t2_addw(p_buf, REG_JIT_SCRATCH, REG_S, 1);
-  t2_dp_imm(p_buf, k_t2_op_and, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0xFF);
-  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM,
-            REG_JIT_SCRATCH, k_t2_lsl, 0);
-  t2_ldrb(p_buf, REG_SCRATCH1, REG_JIT_SCRATCH, 0x100);
-  t2_emit_add8(p_buf, REG_S, 2);
-  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM, REG_S,
-            k_t2_lsl, 0);
-  t2_ldrb(p_buf, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0x100);
-  t2_dp_reg(p_buf, k_t2_op_orr, 0, REG_ADDR, REG_SCRATCH1, REG_JIT_SCRATCH,
-            k_t2_lsl, 8);
+  t2_emit_pull16_body(p_buf);
   t2_emit_helper_return(p_buf);
 
   /* Exit: back to asm_jit_enter's caller with 1 (exited). */
@@ -1511,6 +1704,33 @@ t2_generate_stubs(void) {
              g_t2.p_stub_inturbo_write_flags);
   t2_emit_write_flags_stub(p_buf, REG_INTURBO_EA, 1);
 
+  /* Push16: "bl" here with the 16-bit value in REG_SCRATCH1: the high byte
+   * at S, the low byte at S - 1 (each wrapping in the stack page), S -= 2.
+   * One stub call instead of 40 bytes inline at every JSR.
+   */
+  t2_stub_at(p_buf, K_T2_STUB_PUSH16, g_t2.p_stub_push16);
+  t2_subw(p_buf, REG_JIT_SCRATCH, REG_S, 1);
+  t2_dp_imm(p_buf, k_t2_op_and, 0, REG_JIT_SCRATCH, REG_JIT_SCRATCH, 0xFF);
+  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM,
+            REG_JIT_SCRATCH, k_t2_lsl, 0);
+  t2_strb(p_buf, REG_SCRATCH1, REG_JIT_SCRATCH, 0x100);
+  t2_dp_reg(p_buf, k_t2_op_add, 0, REG_JIT_SCRATCH, REG_MEM, REG_S,
+            k_t2_lsl, 0);
+  t2_shift(p_buf, k_t2_lsr, 0, REG_SCRATCH1, REG_SCRATCH1, 8);
+  t2_strb(p_buf, REG_SCRATCH1, REG_JIT_SCRATCH, 0x100);
+  t2_emit_add8(p_buf, REG_S, -2);
+  t2_emit_helper_return(p_buf);
+
+  /* Jumps, entered by a branch (the block ends there): to the 6502 address
+   * in REG_ADDR (JMP (ind), RTI), and RTS: the pull, plus one, and the jump.
+   */
+  t2_stub_at(p_buf, K_T2_STUB_JMP_SCRATCH, g_t2.p_stub_jmp_scratch);
+  t2_emit_jump_scratch(p_buf);
+  t2_stub_at(p_buf, K_T2_STUB_RTS, g_t2.p_stub_rts);
+  t2_emit_pull16_body(p_buf);
+  t2_addw(p_buf, REG_ADDR, REG_ADDR, 1);
+  t2_emit_jump_scratch(p_buf);
+
   t2_stub_at(p_buf, K_T2_STUB_END, ((uint8_t*) K_T2_STUB_ADDR + K_T2_STUB_END));
   assert(util_buffer_get_pos(p_buf) <= K_T2_STUB_SIZE);
   t2_flush(p_stubs, K_T2_STUB_SIZE);
@@ -1525,6 +1745,7 @@ t2_setup(void* p_context) {
   g_t2.p_context = p_context;
   g_t2.p_state_6502 = p_driver->abi.p_state_6502;
   g_t2.p_mem = p_driver->p_extra->p_memory_access->p_mem_read;
+  g_t2.p_bbc = p_driver->p_extra->p_memory_access->p_callback_obj;
   g_t2.p_jit_ptrs = &p_head->jit_ptrs[0];
   g_t2.p_compile_callback = &p_head->p_compile_callback;
   g_t2.p_interp_callback = &p_driver->abi.p_interp_callback;

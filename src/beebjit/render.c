@@ -121,6 +121,13 @@ struct render_struct {
   uint32_t* p_row_dirty_end;
   uint32_t row_uncleared_start[2];
   uint32_t row_uncleared_end[2];
+  /* A second row pair (render_set_row_buffer_other()): the pairs alternate
+   * at each callback, so the host can read a row (e.g. by DMA) while the next
+   * is drawn. Its own uncleared spans travel with it.
+   */
+  uint32_t* p_buffer_other;
+  uint32_t row_uncleared_other_start[2];
+  uint32_t row_uncleared_other_end[2];
   void (*p_row_callback)(void* p, uint32_t row, uint32_t* p_pixels);
   void* p_row_callback_object;
 };
@@ -351,8 +358,18 @@ render_get_buffer_crc32(struct render_struct* p_render) {
 }
 
 /* Black from p_words up to p_end. */
+#ifdef BEEBJIT_WIRE_STATS
+/* Harness only: words filled black by row flushes [0] and blank runs [1],
+ * row flushes [2], blank run calls [3], hsyncs [4], set_RA [5], prepare [6].
+ */
+uint32_t g_render_fill_stats[8];
+static int g_render_fill_ctx;
+#endif
 static inline void
 render_fill_black(uint32_t* p_words, uint32_t* p_end) {
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[g_render_fill_ctx] += (p_end - p_words);
+#endif
   uint32_t black = render_pixel_from_argb(0xff000000);
   while ((p_words + 4) <= p_end) {
     p_words[0] = black;
@@ -385,6 +402,10 @@ render_row_mode_flush(struct render_struct* p_render, int32_t new_row_pos) {
   if (new_row_pos == p_render->row_window_pos) {
     return;
   }
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[2]++;
+  g_render_fill_ctx = 0;
+#endif
   if (p_render->row_window_pos >= 0) {
     /* Deinterlacing renderers draw both rows of the pair; the interlaced ones
      * draw the odd row on odd fields.
@@ -450,6 +471,23 @@ render_row_mode_flush(struct render_struct* p_render, int32_t new_row_pos) {
         }
       }
     }
+    if (p_render->p_buffer_other != NULL) {
+      /* The host may still be reading this pair: draw into the other. */
+      uint32_t* p_other = p_render->p_buffer_other;
+      uint32_t i;
+      p_render->p_buffer_other = p_render->p_buffer;
+      p_render->p_buffer = p_other;
+      p_render->p_buffer_end = (p_other + (p_render->stride * 2));
+      for (i = 0; i < 2; ++i) {
+        uint32_t start = p_render->row_uncleared_start[i];
+        uint32_t end = p_render->row_uncleared_end[i];
+        p_render->row_uncleared_start[i] =
+            p_render->row_uncleared_other_start[i];
+        p_render->row_uncleared_end[i] = p_render->row_uncleared_other_end[i];
+        p_render->row_uncleared_other_start[i] = start;
+        p_render->row_uncleared_other_end[i] = end;
+      }
+    }
   }
   /* Empty: start past the end. */
   p_render->p_row_dirty_start = (p_render->p_buffer + p_render->stride);
@@ -495,15 +533,20 @@ render_reset_render_pos(struct render_struct* p_render) {
       (vert_beam_pos < p_render->vert_beam_window_start_pos)) {
     if (p_render->is_row_mode) {
       render_row_mode_flush(p_render, -1);
+      /* (It may have switched row pairs.) */
+      p_render->p_render_pos = (p_render->p_buffer_end + 1);
+      p_render->p_render_pos_row = (p_render->p_buffer_end + 1);
     }
     return;
   }
 
   window_vert_pos = (vert_beam_pos - p_render->vert_beam_window_start_pos);
-  p_render->p_render_pos_row = p_render->p_buffer;
   if (p_render->is_row_mode) {
     render_row_mode_flush(p_render, window_vert_pos);
-  } else {
+    p_render->p_render_pos = (p_render->p_buffer_end + 1);
+  }
+  p_render->p_render_pos_row = p_render->p_buffer;
+  if (!p_render->is_row_mode) {
     p_render->p_render_pos_row += (window_vert_pos * p_render->stride);
   }
 
@@ -580,6 +623,22 @@ render_set_row_buffer(struct render_struct* p_render,
   p_render->p_row_callback = p_row_callback;
   p_render->p_row_callback_object = p_row_callback_object;
   render_setup_new_buffer(p_render);
+}
+
+void
+render_set_row_buffer_other(struct render_struct* p_render,
+                            uint32_t* p_buffer_other) {
+  uint32_t i;
+  assert(p_render->is_row_mode);
+  assert(p_render->p_buffer_other == NULL);
+  for (i = 0; i < (p_render->stride * 2); ++i) {
+    p_buffer_other[i] = render_pixel_from_argb(0xff000000);
+  }
+  p_render->row_uncleared_other_start[0] = 0;
+  p_render->row_uncleared_other_end[0] = 0;
+  p_render->row_uncleared_other_start[1] = 0;
+  p_render->row_uncleared_other_end[1] = 0;
+  p_render->p_buffer_other = p_buffer_other;
 }
 
 void
@@ -1003,6 +1062,23 @@ render_generate_packed_table(struct render_struct* p_render,
   }
   (void) memcpy(&p_render->packed_codes[p_render->render_mode][0], codes, 16);
   p_render->packed_codes_valid |= (1u << p_render->render_mode);
+  if (((8 * words_per_entry) / num_pixels) >= 4) {
+    /* Pixels 4 nibbles wide or more (MODEs 2, 5, 8; Elite's dashboard
+     * rewrites MODE 5's palette 11 times a frame): a word is 2 pixels, its
+     * nibbles 0 and 4, so it maps through 16 words for each half.
+     */
+    uint32_t lo[16];
+    uint32_t hi[16];
+    for (i = 0; i < 16; ++i) {
+      lo[i] = (codes[i] * 0x1111u);
+      hi[i] = (lo[i] << 16);
+    }
+    for (i = 0; i < num_words; ++i) {
+      uint32_t w = p_index_words[i];
+      p_out_words[i] = (lo[w & 0xF] | hi[(w >> 16) & 0xF]);
+    }
+    return;
+  }
   for (i = 0; i < 256; ++i) {
     pair_codes[i] = (codes[i & 0xF] | (codes[i >> 4] << 4));
   }
@@ -1251,6 +1327,9 @@ render_set_DISPEN(struct render_struct* p_render, int is_enabled) {
 
 void
 render_set_RA(struct render_struct* p_render, uint32_t row_address) {
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[5]++;
+#endif
   p_render->row_address = row_address;
 
   render_select_render_func(p_render);
@@ -1336,10 +1415,20 @@ render_check_mode_recalc(struct render_struct* p_render) {
    * therefore the bounds.
    */
   render_reset_render_pos(p_render);
+
+  /* Until the next render_set_mode(). (Upstream never clears this, and so
+   * does all of the above for every render_prepare(): once per CRTC advance
+   * with rendering on, which with the render wire's slices is 40 times a
+   * frame, each with a row flush.)
+   */
+  p_render->needs_render_mode_recalc = 0;
 }
 
 void
 render_prepare(struct render_struct* p_render) {
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[6]++;
+#endif
   render_check_mode_recalc(p_render);
   if (p_render->render_mode == k_render_mode7) {
     /* Nothing to do. */
@@ -1372,6 +1461,9 @@ render_render(struct render_struct* p_render, uint8_t data, int is_odd_tick) {
   }
 }
 
+#ifdef BEEBJIT_WIRE_STATS
+uint32_t g_render_run_why[8];
+#endif
 uint32_t*
 render_teletext_run_start(struct render_struct* p_render, uint32_t calls) {
   /* calls render_render() calls of deinterlaced teletext, all inside the
@@ -1379,6 +1471,16 @@ render_teletext_run_start(struct render_struct* p_render, uint32_t calls) {
    * each pair itself (teletext_render_first_of_pair(); the row mode flush
    * only hands over the first row when deinterlacing).
    */
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_run_why[0]++;
+  if (p_render->render_mode != k_render_mode7) g_render_run_why[1]++;
+  else if (!p_render->is_row_mode) g_render_run_why[2]++;
+  else if (p_render->p_selected_render_func != render_function_teletext_deinterlaced) g_render_run_why[3]++;
+  else if (p_render->cursor_segment_index != -1) g_render_run_why[4]++;
+  else if (p_render->p_render_pos < p_render->p_render_pos_row) g_render_run_why[5]++;
+  else if ((p_render->p_render_pos + ((calls - 1) * k_render_words_per_8_pixels)) > p_render->p_render_pos_row_max) g_render_run_why[6]++;
+  else g_render_run_why[7]++;
+#endif
   if ((p_render->render_mode != k_render_mode7) ||
       !p_render->is_row_mode ||
       (p_render->p_selected_render_func !=
@@ -1392,6 +1494,77 @@ render_teletext_run_start(struct render_struct* p_render, uint32_t calls) {
     return NULL;
   }
   return p_render->p_render_pos;
+}
+
+uint32_t
+render_get_teletext_run_capacity(struct render_struct* p_render) {
+  if ((p_render->render_mode != k_render_mode7) ||
+      !p_render->is_row_mode ||
+      (p_render->p_selected_render_func !=
+       render_function_teletext_deinterlaced) ||
+      (p_render->cursor_segment_index != -1) ||
+      (p_render->p_render_pos < p_render->p_render_pos_row) ||
+      (p_render->p_render_pos > p_render->p_render_pos_row_max)) {
+    return 0;
+  }
+  return (((p_render->p_render_pos_row_max - p_render->p_render_pos) /
+           k_render_words_per_8_pixels) + 1);
+}
+
+int
+render_teletext_run_outside(struct render_struct* p_render, uint32_t calls) {
+  /* calls render_render() calls that would all land outside the window (the
+   * blanked characters of a line): nothing to draw, but the beam moves on,
+   * unless the window starts or the line wraps within them (render_render()
+   * does those).
+   */
+  uint32_t pos = p_render->horiz_beam_pos;
+  uint32_t end = (pos + (calls * 8));
+  uint32_t window_start = p_render->horiz_beam_window_start_pos;
+  if (p_render->p_render_pos <= p_render->p_render_pos_row_max) {
+    return 0;
+  }
+  if (end >= 1536) {
+    return 0;
+  }
+  /* render_render() resets at the call where (pos + 8k) & ~7 is the window
+   * start: one of pos + 8 .. end, when the start is 8-aligned.
+   */
+  if (((window_start & 7) == 0) &&
+      (pos < window_start) &&
+      (end >= window_start)) {
+    return 0;
+  }
+  p_render->horiz_beam_pos = end;
+  return 1;
+}
+
+uint32_t
+render_teletext_calls_to_window(struct render_struct* p_render) {
+  /* Outside the window with its start ahead on this line: how many
+   * render_render() calls take the beam to it (the last of them resets the
+   * render position there), or 0.
+   */
+  int32_t pos = p_render->horiz_beam_pos;
+  int32_t window_start = p_render->horiz_beam_window_start_pos;
+  if ((p_render->p_render_pos <= p_render->p_render_pos_row_max) ||
+      (window_start & 7) ||
+      (pos >= window_start)) {
+    return 0;
+  }
+  return (uint32_t) ((window_start - pos + 7) / 8);
+}
+
+void
+render_teletext_run_to_window(struct render_struct* p_render, uint32_t calls) {
+  /* As render_render() would, those calls: the beam moves on, nothing is
+   * drawn, and the last one resets the render position at the window.
+   */
+  assert(calls == render_teletext_calls_to_window(p_render));
+  p_render->horiz_beam_pos += (calls * 8);
+  assert((p_render->horiz_beam_pos & ~7) ==
+         p_render->horiz_beam_window_start_pos);
+  render_reset_render_pos(p_render);
 }
 
 void
@@ -1530,6 +1703,10 @@ render_render_blank_run(struct render_struct* p_render, uint32_t count) {
    * (a forced hsync), done here one at a time as render_render() would.
    */
   uint32_t done = 0;
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[3]++;
+  g_render_fill_ctx = 1;
+#endif
   while (count > 0) {
     uint32_t* p_pos = p_render->p_render_pos;
     if (p_pos <= p_render->p_render_pos_row_max) {
@@ -1704,6 +1881,9 @@ render_process_full_buffer(struct render_struct* p_render) {
 
 void
 render_hsync(struct render_struct* p_render, uint32_t hsync_pulse_ticks) {
+#ifdef BEEBJIT_WIRE_STATS
+  g_render_fill_stats[4]++;
+#endif
   /* Another CRT + PAL mystery!
    * Fire Track manages to achieve a black and white display on a color TV by
    * having a very "late" HSYNC directly after the VSYNC. (Hold F5 as you
@@ -1835,3 +2015,4 @@ render_set_beam_pos(struct render_struct* p_render,
   }
   render_reset_render_pos(p_render);
 }
+

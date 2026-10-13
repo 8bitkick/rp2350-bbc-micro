@@ -8,6 +8,10 @@ and measured over USB (presto.py stats, three readings, the middle one):
 per-core load and speed at real speed, then turbo speed where it's meaningful.
 Discs come from the discs/ directory (chuckie-egg.ssd, Exile.ssd, the
 Bitshifters demos) if they're there; a scene whose disc is missing is skipped.
+SHOTS=<directory> saves each scene's picture there (presto.py shot).
+LOCK=1 adds the frame lock's figures over the real-speed reading (presto.py
+raw lock): rows drawn late / rows, and the nearest any row came to the scan
+(lines; negative is ahead).
 """
 import os, subprocess, sys, time, urllib.request
 
@@ -35,16 +39,22 @@ def keys(events):
 
 
 def type_text(text):
-    ev = []
+    # a character's events go in one request: split across two, the key would be held down
+    # through the pause between them, and auto-repeat
+    post_ev = []
     for ch in text:
         sh = ch in SHIFTED
         k = M[SHIFTED[ch] if sh else ch.upper()]
-        ev += (['d00'] if sh else []) + ['d%02x' % k, 'u%02x' % k] + (['u00'] if sh else [])
-    keys(ev)
+        ev = (['d00'] if sh else []) + ['d%02x' % k, 'u%02x' % k] + (['u00'] if sh else [])
+        if len(post_ev) + len(ev) > 24:
+            keys(post_ev)
+            post_ev = []
+        post_ev += ev
+    keys(post_ev)
 
 
 def disc(name):
-    for d in (os.path.join(ROOT, 'discs', name), os.path.join(os.path.expanduser('~/presto/discs'), name)):
+    for d in (os.path.join(ROOT, 'discs', name),):
         if os.path.exists(d):
             post('/api/disc?name=' + name, open(d, 'rb').read())
             return True
@@ -57,33 +67,63 @@ def stats():
     return int(f['core0'].rstrip('%')), int(f['core1'].rstrip('%')), int(f['speed'].rstrip('%'))
 
 
-def measure(turbo):
+def lock():
+    out = subprocess.run([sys.executable, PRESTO, 'raw', 'lock'], capture_output=True, text=True).stdout
+    # "... rows N: late L, near M, lines from the scan min X avg Y max Z; ..."
+    f = out.split()
+    try:
+        i = f.index('scan')
+        return (int(f[f.index('late') + 1].rstrip(',')), int(f[f.index('rows') + 1].rstrip(':')),
+                int(f[i + 2]), int(f[i + 6].rstrip(';')))
+    except (ValueError, IndexError):
+        return (0, 0, 0, 0)
+
+
+def measure(turbo, do_lock=False):
     subprocess.run([sys.executable, PRESTO, 'raw', 'turbo'], capture_output=True)
     if turbo:
         post('/api/turbo', b'1')
     else:
         post('/api/turbo', b'0')
     time.sleep(4)
+    if do_lock:
+        lock()   # (reading resets the counters: the lock has settled by now)
     r = sorted(stats() for _ in (time.sleep(2), time.sleep(2), time.sleep(2)))
+    late = lock() if do_lock else None
     post('/api/turbo', b'0')
-    return r[1]
+    return r[1] + (late,)
 
 
 SCENES = [
-    ('MODE 7 prompt', lambda: (keys(['b']), time.sleep(6))),
+    # (from Elite's title, which leaves BREAK alone; some games catch it)
+    ('MODE 7 prompt', lambda: (post('/api/eject'), time.sleep(40), keys(['b']), time.sleep(6))),
     ('Elite title', lambda: (post('/api/eject'), time.sleep(40))),
     ('MODE 0 listing', lambda: (keys(['b']), time.sleep(5), type_text('MODE 0\nFOR I%=1 TO 300:PRINT I%;" ";:NEXT\n'), time.sleep(8))),
+    # (teletext under load: the screen scrolls continuously)
+    ('MODE 7 scroll', lambda: (keys(['b']), time.sleep(5), type_text('10 MODE 7\n20 P."abc";\n30 GOTO 20\nRUN\n'), time.sleep(8))),
+    # (moving teletext the plain scroll doesn't cover: double height, a color change each line,
+    # graphics characters, the whole screen scrolling)
+    ('MODE 7 color scroller', lambda: (keys(['b']), time.sleep(5), type_text(
+        '10 MODE 7\n20 P.CHR$(141);CHR$(129+R%);"DOUBLE";CHR$(151);"5?5?5?":R%=(R%+1)MOD 7\n30 GOTO 20\nRUN\n'),
+        time.sleep(8))),
     ('Chuckie Egg', lambda: (disc('chuckie-egg.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(30))),
+    # (Mark Moxon's Elite in MODE 7: elite.bbcelite.com/hacks/teletext_elite; the title's ship rotates every frame)
+    ('Teletext Elite', lambda: (disc('teletext-elite.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(25))),
+    # (its instruction pages load in turn: one SPACE every 2 s gets to the menu; f0 runs the game)
     ('Exile, in game', lambda: (disc('Exile.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(20),
-                                keys(['d62', 'u62'] * 10), time.sleep(2), keys(['d20', 'u20']), time.sleep(20))),
+                                [(keys(['d62', 'u62']), time.sleep(2)) for _ in range(16)],
+                                keys(['d20', 'u20']), time.sleep(15))),
     ('Wobble Colours', lambda: (disc('bs-wobble-colours.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(12))),
+    ('Bar Beeb', lambda: (disc('bs-bar-beeb.ssd') or (_ for _ in ()).throw(FileNotFoundError), time.sleep(5),
+                          type_text('*RUN BARBEEB\n'), time.sleep(10))),
 ]
 
 
 def main():
     want = sys.argv[1:]
-    print('| Scene | Core 0 | Core 1 | Speed | Turbo |')
-    print('|---|---:|---:|---:|---:|')
+    do_lock = bool(os.environ.get('LOCK'))
+    print('| Scene | Core 0 | Core 1 | Speed | Turbo |' + (' Late rows | Nearest (lines) |' if do_lock else ''))
+    print('|---|---:|---:|---:|---:|' + ('---:|---:|' if do_lock else ''))
     for name, setup in SCENES:
         if want and not any(w.lower() in name.lower() for w in want):
             continue
@@ -92,9 +132,14 @@ def main():
         except FileNotFoundError:
             print('| %s | (no disc) | | | |' % name)
             continue
-        c0, c1, speed = measure(False)
-        t0, t1, tspeed = measure(True)
-        print('| %s | %d%% | %d%% | %d%% | %.1f× |' % (name, c0, c1, speed, tspeed / 100.0))
+        c0, c1, speed, late = measure(False, do_lock)
+        t0, t1, tspeed, _ = measure(True)
+        if os.environ.get('SHOTS'):
+            # the picture, to check the scene ran (SHOTS=<directory>)
+            subprocess.run([sys.executable, PRESTO, 'shot', os.path.join(os.environ['SHOTS'], name.split(',')[0].replace(' ', '-') + '.png')],
+                           capture_output=True)
+        print('| %s | %d%% | %d%% | %d%% | %.1f× |' % (name, c0, c1, speed, tspeed / 100.0)
+              + (' %d / %d | %d |' % (late[0], late[1], late[3]) if do_lock else ''))
         sys.stdout.flush()
     post('/api/eject')
 

@@ -32,9 +32,12 @@
 
 #include "beebjit_host.h"
 #include "os_embedded.h"
+#include "../presto/presto_boot.h"
 
 #include <assert.h>
+#include <malloc.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -159,16 +162,21 @@ beebjit_embedded_malloc(size_t size) {
     p_ret = big_alloc(size);
   }
   if (p_ret == NULL) {
+    /* (an out-of-memory panic then reports this size and the SRAM total) */
+    presto_boot_note(size, s_small_live);
     p_ret = malloc(size);
     if (p_ret != NULL) {
       s_small_live += size;
     }
   }
   if (beebjit_embedded_log_allocs) {
-    (void) printf("alloc %u -> %s %p\n",
+    struct mallinfo m = mallinfo();
+    (void) printf("alloc %u -> %s %p (heap end %p, %u free in heap)\n",
                   (unsigned) size,
                   big_owns(p_ret) ? "big" : "ram",
-                  p_ret);
+                  p_ret,
+                  sbrk(0),
+                  (unsigned) m.fordblks);
   }
   return p_ret;
 }

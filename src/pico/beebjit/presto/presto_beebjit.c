@@ -37,6 +37,7 @@
 #include "hardware/pio.h"
 #include "hardware/vreg.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 #if PRESTO_BEEBJIT_WIRE
 #include "../beebjit_wire.h"
 #include "pico/multicore.h"
@@ -45,6 +46,7 @@
 
 #include <malloc.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -93,8 +95,6 @@ static int s_pack_sm = -1;
 static uint s_pack_offset;
 static int s_copy_dma = -1;
 static int s_pack_dma = -1;
-static uint32_t s_pack_lines[2][k_beebjit_panel_src_width / 8];
-static uint32_t s_pack_line;
 static uint32_t s_pack_timeouts;
 
 /* From the top of the program, with nothing in flight. */
@@ -158,17 +158,109 @@ panel_pio_init(void) {
 }
 
 /* The renderer's row callback (beebjit_panel_row's job), on core 1. */
+/* ---- Frame lock ----
+ * The panel refreshes at the BBC's frame rate (presto_lcd.c), and the BBC's
+ * clock is steered, a little each frame, so its vsync leads the start of the
+ * panel's display area by s_lock_lead_us. Core 1 then draws each row (as the
+ * emulator reaches it) before the panel scans it, and every frame is shown
+ * once and whole: no frame shown twice, none torn. The lead covers the BBC's
+ * own vertical blanking before its first displayed row (~2.6 ms), the
+ * emulator running up to a 4 ms slice (BEEBJIT_VIDEO_SLICE_LINES) ahead or
+ * behind, and some lateness on core 1; the rows are drawn at about the
+ * panel's pace (16.4 ms for 256 against 16.3 for 480), so they can't lap it.
+ * "!lock [lead us]" reads and sets it, and counts the rows that were late.
+ */
+#ifndef PRESTO_BEEBJIT_LOCK_LEAD_US
+#define PRESTO_BEEBJIT_LOCK_LEAD_US 11000
+#endif
+static void lock_frame(void);
+static int32_t s_lock_lead_us = PRESTO_BEEBJIT_LOCK_LEAD_US;
+static int32_t s_lock_err_us;
+static int32_t s_lock_err_min_us;
+static int32_t s_lock_err_max_us;
+static uint32_t s_lock_frames;
+/* Core 1's: rows drawn, rows drawn after the panel had scanned them, and
+ * how far the panel's scan was from each row as it was drawn (panel rows;
+ * negative: the row was drawn that far ahead of the scan).
+ */
+static volatile uint32_t s_lock_rows;
+static volatile uint32_t s_lock_late_rows;
+static volatile uint32_t s_lock_near_rows;   /* under 40 lines ahead of the scan */
+/* How a frame's rows arrive: from the first row to the last, in us. */
+static uint32_t s_lock_span_first_us;
+static uint32_t s_lock_span_last_us;
+static uint32_t s_lock_span_last_row;
+static volatile uint32_t s_lock_span_frames;
+static volatile uint32_t s_lock_span_min_us;
+static volatile uint32_t s_lock_span_max_us;
+static volatile uint64_t s_lock_span_sum_us;
+static volatile int32_t s_lock_first_scan_sum;   /* the scan's line when the first row went */
+static volatile int32_t s_lock_margin_min;
+static volatile int32_t s_lock_margin_max;
+static volatile int64_t s_lock_margin_sum;
+
+
 static void __not_in_flash_func(panel_pio_row)(void* p,
                                                uint32_t row,
                                                uint32_t* p_pixels) {
   struct beebjit_panel* p_panel = (struct beebjit_panel*) p;
-  uint32_t* p_line;
   uint32_t t0;
-  uint32_t i;
 
   row >>= 1;
   if (row >= p_panel->num_rows) {
     return;
+  }
+  /* The frame lock's check: a row the panel has already scanned this frame
+   * shows a frame late (a torn frame).
+   */
+  {
+    uint32_t now = time_us_32();
+    int32_t scan = presto_lcd_scan_row(now);
+    int32_t margin = (scan - (int32_t) (row * PRESTO_LCD_HEIGHT / p_panel->num_rows));
+    if (row <= s_lock_span_last_row) {
+      /* A new frame: the previous one's span. */
+      if (s_lock_rows != 0) {
+        uint32_t span = (s_lock_span_last_us - s_lock_span_first_us);
+        if ((s_lock_span_frames == 0) || (span < s_lock_span_min_us)) {
+          s_lock_span_min_us = span;
+        }
+        if ((s_lock_span_frames == 0) || (span > s_lock_span_max_us)) {
+          s_lock_span_max_us = span;
+        }
+        s_lock_span_sum_us += span;
+        s_lock_span_frames++;
+      }
+      s_lock_span_first_us = now;
+      s_lock_first_scan_sum += scan;
+    }
+    s_lock_span_last_us = now;
+    s_lock_span_last_row = row;
+    int32_t lines = (int32_t) presto_lcd_frame_lines();
+    /* To the nearest scan of this row: the one before (negative: the row
+     * was drawn that many lines ahead of it) or the one after.
+     */
+    if (margin >= (lines / 2)) {
+      margin -= lines;
+    } else if (margin < -(lines / 2)) {
+      margin += lines;
+    }
+    if (s_lock_rows == 0) {
+      s_lock_margin_min = s_lock_margin_max = margin;
+      s_lock_margin_sum = 0;
+    }
+    s_lock_rows++;
+    if (margin >= 0) {
+      s_lock_late_rows++;
+    } else if (margin > -40) {
+      s_lock_near_rows++;
+    }
+    if (margin < s_lock_margin_min) {
+      s_lock_margin_min = margin;
+    }
+    if (margin > s_lock_margin_max) {
+      s_lock_margin_max = margin;
+    }
+    s_lock_margin_sum += margin;
   }
   /* The last row's (long done; if it somehow isn't, start the PIO afresh
    * rather than hang).
@@ -182,30 +274,10 @@ static void __not_in_flash_func(panel_pio_row)(void* p,
       break;
     }
   }
-  p_line = s_pack_lines[s_pack_line];
-  s_pack_line ^= 1;
-  for (i = 0; i < (k_beebjit_panel_src_width / 8); i += 8) {
-    uint32_t w0 = p_pixels[i];
-    uint32_t w1 = p_pixels[i + 1];
-    uint32_t w2 = p_pixels[i + 2];
-    uint32_t w3 = p_pixels[i + 3];
-    uint32_t w4 = p_pixels[i + 4];
-    uint32_t w5 = p_pixels[i + 5];
-    uint32_t w6 = p_pixels[i + 6];
-    uint32_t w7 = p_pixels[i + 7];
-    p_line[i] = w0;
-    p_line[i + 1] = w1;
-    p_line[i + 2] = w2;
-    p_line[i + 3] = w3;
-    p_line[i + 4] = w4;
-    p_line[i + 5] = w5;
-    p_line[i + 6] = w6;
-    p_line[i + 7] = w7;
-  }
   dma_channel_set_write_addr((uint) s_pack_dma, p_panel->p_rows[row], false);
   dma_channel_set_trans_count((uint) s_pack_dma,
                               (k_beebjit_panel_width / 8), true);
-  dma_channel_set_read_addr((uint) s_copy_dma, p_line, false);
+  dma_channel_set_read_addr((uint) s_copy_dma, p_pixels, false);
   dma_channel_set_trans_count((uint) s_copy_dma,
                               (k_beebjit_panel_src_width / 8), true);
   p_panel->rows_written++;
@@ -271,6 +343,76 @@ static void __not_in_flash_func(wire_wait_hook)(int is_end) {
 uint64_t
 beebjit_host_time_us(void) {
   return (time_us_64() + s_turbo_time_us);
+}
+
+static void
+lock_frame(void) {
+  int32_t period = (int32_t) presto_lcd_frame_period_us();
+  /* Where in the panel's frame this vsync fell, against where it should. */
+  int32_t phase = (int32_t) (time_us_32() - presto_lcd_frame_time_us());
+  int32_t err = (phase - (period - s_lock_lead_us));
+  int32_t step;
+  if (s_turbo || (period == 0)) {
+    return;
+  }
+  while (err > (period / 2)) {
+    err -= period;
+  }
+  while (err < -(period / 2)) {
+    err += period;
+  }
+  /* Late (err > 0): advance the BBC's clock, so it sleeps less and the next
+   * vsync comes sooner. A quarter of the error a frame, at most 250 us.
+   */
+  step = (err / 4);
+  if (step > 250) {
+    step = 250;
+  } else if (step < -250) {
+    step = -250;
+  }
+  s_turbo_time_us += step;
+  s_lock_err_us = err;
+  if ((s_lock_frames == 0) || (err < s_lock_err_min_us)) {
+    s_lock_err_min_us = err;
+  }
+  if ((s_lock_frames == 0) || (err > s_lock_err_max_us)) {
+    s_lock_err_max_us = err;
+  }
+  s_lock_frames++;
+}
+
+void
+presto_beebjit_lock(const char* p_arg) {
+  if ((p_arg != NULL) && (*p_arg != '\0')) {
+    s_lock_lead_us = atoi(p_arg);
+  }
+  (void) printf("LOCK lead=%ld panel=%lu us err=%ld (min %ld max %ld over %lu frames) "
+                "rows %lu: late %lu, near %lu, lines from the scan min %ld avg %ld max %ld; "
+                "a frame's rows span %lu/%lu/%lu us, first at scan line %ld, over %lu frames\n",
+                (long) s_lock_lead_us,
+                (unsigned long) presto_lcd_frame_period_us(),
+                (long) s_lock_err_us,
+                (long) s_lock_err_min_us,
+                (long) s_lock_err_max_us,
+                (unsigned long) s_lock_frames,
+                (unsigned long) s_lock_rows,
+                (unsigned long) s_lock_late_rows,
+                (unsigned long) s_lock_near_rows,
+                (long) s_lock_margin_min,
+                (long) (s_lock_rows ? (s_lock_margin_sum / (int64_t) s_lock_rows) : 0),
+                (long) s_lock_margin_max,
+                (unsigned long) s_lock_span_min_us,
+                (unsigned long) (s_lock_span_frames ? (s_lock_span_sum_us / s_lock_span_frames) : 0),
+                (unsigned long) s_lock_span_max_us,
+                (long) (s_lock_span_frames ? (s_lock_first_scan_sum / (int32_t) s_lock_span_frames) : 0),
+                (unsigned long) s_lock_span_frames);
+  s_lock_span_frames = 0;
+  s_lock_span_sum_us = 0;
+  s_lock_first_scan_sum = 0;
+  s_lock_frames = 0;
+  s_lock_late_rows = 0;
+  s_lock_near_rows = 0;
+  s_lock_rows = 0;
 }
 
 void
@@ -489,11 +631,40 @@ prof_init(void) {
   timer_hw->alarm[s_prof_alarm] = (timer_hw->timerawl + PROF_START_US);
 }
 
+/* "!prof": sample again, from now (the boot-time run's samples are gone);
+ * "!profdump": "PROF <n>" and the samples as raw little endian words, for
+ * tools/prof.py.
+ */
+static int s_prof_by_command;
+
+void
+presto_prof_restart(void) {
+  if ((s_prof == NULL) || (s_prof_alarm < 0)) {
+    (void) printf("PROF none\n");
+    return;
+  }
+  s_prof_by_command = 1;
+  s_prof_count = 0;
+  s_prof[PROF_SAMPLES] = 0;
+  prof_arm();
+}
+
+void
+presto_prof_dump(void) {
+  uint32_t n = ((s_prof != NULL) ? s_prof_count : 0);
+  (void) printf("PROF %lu\n", (unsigned long) n);
+  (void) fflush(stdout);
+  stdio_set_translate_crlf(&stdio_usb, false);
+  (void) fwrite(s_prof, 4, n, stdout);
+  (void) fflush(stdout);
+  stdio_set_translate_crlf(&stdio_usb, true);
+}
+
 static void
 prof_poll(void) {
   static int s_printed;
   uint32_t i;
-  if (s_printed || (s_prof_count < PROF_SAMPLES)) {
+  if (s_printed || s_prof_by_command || (s_prof_count < PROF_SAMPLES)) {
     return;
   }
   s_printed = 1;
@@ -729,6 +900,8 @@ run_beebjit(void) {
   config.p_log_flags = "";
 #if PRESTO_BEEBJIT_PANEL_PIO
   config.p_row_callback = panel_pio_row;
+  /* The DMA reads the row the renderer gave it while the next is drawn. */
+  config.is_row_double_buffered = 1;
 #else
   config.p_row_callback = beebjit_panel_row;
 #endif
@@ -739,6 +912,7 @@ run_beebjit(void) {
 #if PRESTO_BEEBJIT_WIRE
   beebjit_wire_init(s_wire_buf, 0);
   g_beebjit_wire.p_wait_hook = wire_wait_hook;
+  g_beebjit_wire.p_vsync_hook = lock_frame;
 #endif
   p_bbc = beebjit_embedded_create(&config);
 #if PRESTO_BEEBJIT_WIRE
@@ -776,6 +950,14 @@ main(void) {
   presto_boot_begin();   /* reports instead, if the last boot died */
   setup_clock();
   stdio_init_all();
+#if PRESTO_BEEBJIT_LOG_ALLOCS
+  /* Diagnosis (build with -DPRESTO_BEEBJIT_LOG_ALLOCS=1): wait for the USB
+   * console, then log every allocation, with the SRAM heap's state. */
+  while (!stdio_usb_connected() && (to_ms_since_boot(get_absolute_time()) < 6000)) {
+    sleep_ms(10);
+  }
+  beebjit_embedded_log_allocs = 1;
+#endif
   presto_boot_step(1);
 
   s_psram = presto_psram_init();

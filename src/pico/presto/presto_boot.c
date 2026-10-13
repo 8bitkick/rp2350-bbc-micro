@@ -20,6 +20,7 @@
 
 #define BOOT_STARTING 0xb00757a7u
 #define BOOT_FAULTED  0xb007fa17u
+#define BOOT_PANICKED 0xb007a71cu
 
 typedef struct {
     uint32_t state, step, pc, lr, cfsr, bfar, core, xpsr;
@@ -35,7 +36,8 @@ static void report_forever(boot_record_t r) {
     while (true) {
         printf("LASTPC core0 pc=%08x lr=%08x core1 pc=%08x lr=%08x\n", (uint) last[0], (uint) last[1], (uint) last[2], (uint) last[3]);
         printf("BOOTFAIL %s step=%u pc=%08x lr=%08x cfsr=%08x bfar=%08x core=%u xpsr=%08x\n",
-               r.state == BOOT_FAULTED ? "fault" : "hang", (uint) r.step, (uint) r.pc, (uint) r.lr,
+               r.state == BOOT_FAULTED ? "fault" : r.state == BOOT_PANICKED ? "panic" : "hang",
+               (uint) r.step, (uint) r.pc, (uint) r.lr,
                (uint) r.cfsr, (uint) r.bfar, (uint) r.core, (uint) r.xpsr);
         // wait a second for "!bootsel"
         absolute_time_t until = make_timeout_time_ms(1000);
@@ -51,7 +53,7 @@ static void report_forever(boot_record_t r) {
 }
 
 void presto_boot_begin(void) {
-    if (record.state == BOOT_STARTING || record.state == BOOT_FAULTED) {
+    if (record.state == BOOT_STARTING || record.state == BOOT_FAULTED || record.state == BOOT_PANICKED) {
         boot_record_t r = record;
         record.state = 0;           // next boot runs normally
         report_forever(r);
@@ -64,6 +66,11 @@ void presto_boot_begin(void) {
 
 void presto_boot_step(uint32_t step) {
     record.step = step;
+}
+
+void presto_boot_note(uint32_t a, uint32_t b) {
+    record.cfsr = a;
+    record.bfar = b;
 }
 
 void presto_boot_ok(void) {
@@ -86,6 +93,20 @@ void __used presto_boot_fault(uint32_t *frame) {
         record.bfar = scb_hw->bfar;
         record.core = get_core_num();
         record.state = BOOT_FAULTED;
+        watchdog_reboot(0, 0, 1);
+    }
+    while (true) __breakpoint();
+}
+
+// an SDK panic (PICO_PANIC_FUNCTION): "panic" with pc = the message's address (a string in the
+// ELF: arm-none-eabi-objdump -s --start-address=<pc> ...) and lr = who panicked
+void __attribute__((noreturn)) presto_boot_panic(const char *fmt, ...) {
+    if (record.state == BOOT_STARTING) {
+        record.pc = (uint32_t) fmt;
+        record.lr = (uint32_t) __builtin_return_address(0);
+        record.core = get_core_num();
+        record.state = BOOT_PANICKED;
+        sleep_ms(300);      // lets what was printed before the panic reach the USB console
         watchdog_reboot(0, 0, 1);
     }
     while (true) __breakpoint();

@@ -76,7 +76,10 @@
 #define K_T2_STUB_INTURBO_INTERP   0x6C0
 #define K_T2_STUB_WRITE_FLAGS      0x840
 #define K_T2_STUB_INTURBO_WRITE_FLAGS 0x8C0
-#define K_T2_STUB_END              0x940
+#define K_T2_STUB_PUSH16           0x940
+#define K_T2_STUB_JMP_SCRATCH      0x9C0
+#define K_T2_STUB_RTS              0x9E0
+#define K_T2_STUB_END              0xA40
 
 #include <stddef.h>
 #include <stdint.h>
@@ -89,6 +92,8 @@ struct t2_globals {
   void* p_context;
   uint32_t* p_jit_ptrs;
   uint8_t* p_mem;
+  /* The memory callback object (bbc_struct), for encoded callbacks. */
+  void* p_bbc;
   void** p_compile_callback;
   void** p_interp_callback;
   void** p_interp_object;
@@ -101,6 +106,10 @@ struct t2_globals {
   uint8_t* p_stub_php;
   uint8_t* p_stub_plp;
   uint8_t* p_stub_pull16;
+  /* JSR / BRK: push the 16-bit value in REG_SCRATCH1 (high byte first). */
+  uint8_t* p_stub_push16;
+  uint8_t* p_stub_jmp_scratch;
+  uint8_t* p_stub_rts;
   /* Exit to the interpreter: "bl" here, followed by the 6502 PC as a
    * halfword.
    */

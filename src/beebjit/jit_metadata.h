@@ -17,6 +17,10 @@ void* jit_metadata_get_host_jit_ptr(struct jit_metadata* p_metadata,
                                     uint16_t addr_6502);
 int jit_metadata_is_pc_in_code_block(struct jit_metadata* p_metadata,
                                      uint16_t addr_6502);
+/* The code block of each 6502 address (-1: none), for a caller that looks
+ * them up in a hot loop (jit.c's interpreter callback).
+ */
+const int32_t* jit_metadata_get_code_blocks(struct jit_metadata* p_metadata);
 int32_t jit_metadata_get_code_block(struct jit_metadata* p_metadata,
                                     uint16_t addr_6502);
 int jit_metadata_is_jit_ptr_no_code(struct jit_metadata* p_metadata,

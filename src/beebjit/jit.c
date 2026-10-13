@@ -11,6 +11,7 @@
 #include "os_fault.h"
 #include "jit_compiler.h"
 #include "jit_metadata.h"
+#include "jit_opcode.h"
 #include "log.h"
 #include "state_6502.h"
 #include "timing.h"
@@ -22,6 +23,7 @@
 #include "asm/asm_inturbo_defs.h"
 #include "asm/asm_jit.h"
 #include "asm/asm_jit_defs.h"
+#include "asm/asm_opcodes.h"
 
 #include <assert.h>
 #include <inttypes.h>
@@ -74,21 +76,85 @@ struct jit_struct {
   uint64_t counter_num_interps;
   uint64_t counter_num_faults;
   int do_fault_log;
+  int is_encoded_callbacks;
+  /* For the interpreter's per-instruction callback: the metadata's code
+   * blocks, and whether the interpreter has a memory written callback (as
+   * set through jit_set_memory_written_callback()).
+   */
+  const int32_t* p_code_blocks;
+  int has_memory_written_callback;
+  /* BEEBJIT_JIT_EARLY_RETURN: how the current interpreter run started. */
+  int interp_return_mode;
+  uint32_t interp_entry_fires;
 };
 
 /* BEEBJIT_JIT_IO_STAY: JIT code bounces to the interpreter for each hardware
- * register access (without encoded callbacks, as on the thumb2 backend). A
- * bounce costs far more than interpreting an instruction, so stay in the
- * interpreter through bursts of register accesses and polling loops. Either
- * way the 6502 runs exactly the same; this only picks the cheaper one.
+ * register access that isn't an encoded callback. A bounce costs far more
+ * than interpreting an instruction, so stay in the interpreter through
+ * bursts of register accesses and polling loops. Either way the 6502 runs
+ * exactly the same; this only picks the cheaper one.
+ * Off since the thumb2 backend has encoded callbacks: the look-ahead costs
+ * every interpreted instruction more than the bounces it saves (Bar Beeb,
+ * which bounces for each video timer expiry: 90% -> 99% of real speed).
  */
 #ifndef BEEBJIT_JIT_IO_STAY
-#define BEEBJIT_JIT_IO_STAY BEEBJIT_ASM_THUMB2
+#define BEEBJIT_JIT_IO_STAY 0
 #endif
 
+/* BEEBJIT_JIT_EARLY_RETURN: upstream's interpreter runs on to the next JIT
+ * block start before going back to JIT code, which in a long block (a raster
+ * loop) can be dozens of instructions per bounce. Instead, go back as soon
+ * as the reason for the bounce is dealt with: bit 0, for an expiring
+ * countdown, once a timer has fired; bit 1, otherwise after the instruction
+ * that bounced. A PC in the middle of a block then becomes a block start (the
+ * block is split), as for any jump into a block.
+ * Off: on the Presto it halves the interpreter's time in Bar Beeb, but the
+ * splits spread Elite's hot code over more of the JIT's 64-byte slots, and
+ * the XIP cache misses cost more (Elite turbo 8.3x -> 5.7x).
+ */
+#ifndef BEEBJIT_JIT_EARLY_RETURN
+#define BEEBJIT_JIT_EARLY_RETURN 0
+#endif
+enum {
+  k_jit_interp_return_block = 0,
+  k_jit_interp_return_after_one = 1,
+  k_jit_interp_return_after_fire = 2,
+};
+
 #if BEEBJIT_JIT_IO_STAY
+/* Whether JIT code makes this access itself, as an encoded callback (see
+ * jit_compiler.c: known address reads that don't write, and stores).
+ */
+static int
+jit_is_encoded_access(struct jit_struct* p_jit,
+                      uint8_t opmode,
+                      uint8_t opmem,
+                      uint16_t addr) {
+  struct memory_access* p_memory_access =
+      p_jit->driver.p_extra->p_memory_access;
+  struct asm_uop uops[k_max_uops_per_opcode];
+  int ends_block;
+  uint32_t extra_cycles;
+  void* p_obj = p_memory_access->p_callback_obj;
+
+  if (!p_jit->is_encoded_callbacks || (opmode != k_abs)) {
+    return 0;
+  }
+  if (opmem == k_opmem_read_flag) {
+    return (p_memory_access->memory_get_read_jit_encoding(
+                p_obj, uops, &ends_block, &extra_cycles,
+                k_max_uops_per_opcode, addr, 1) > 0);
+  }
+  if (opmem == k_opmem_write_flag) {
+    return (p_memory_access->memory_get_write_jit_encoding(
+                p_obj, uops, &ends_block, &extra_cycles,
+                k_max_uops_per_opcode, addr, 1) > 0);
+  }
+  return 0;
+}
+
 /* Whether the instruction at pc accesses a hardware register (by its base
- * address, for indexed modes).
+ * address, for indexed modes) without an encoded callback.
  */
 static int
 jit_is_register_access(struct jit_struct* p_jit, uint16_t pc) {
@@ -108,11 +174,11 @@ jit_is_register_access(struct jit_struct* p_jit, uint16_t pc) {
           (p_mem_read[(uint16_t) (pc + 2)] << 8));
   if ((opmem & k_opmem_read_flag) &&
       p_memory_access->memory_read_needs_callback(p_obj, addr)) {
-    return 1;
+    return !jit_is_encoded_access(p_jit, opmode, opmem, addr);
   }
   if ((opmem & k_opmem_write_flag) &&
       p_memory_access->memory_write_needs_callback(p_obj, addr)) {
-    return 1;
+    return !jit_is_encoded_access(p_jit, opmode, opmem, addr);
   }
   return 0;
 }
@@ -138,8 +204,7 @@ jit_interp_instruction_callback(void* p,
   /* Any memory writes executed by the interpreter need to invalidate
    * compiled JIT code if they're self-modifying writes.
    */
-  if ((opmem & k_opmem_write_flag) &&
-      jit_metadata_is_pc_in_code_block(p_metadata, done_addr)) {
+  if ((opmem & k_opmem_write_flag) && (p_jit->p_code_blocks[done_addr] != -1)) {
     void* p_jit_ptr = jit_metadata_get_host_jit_ptr(p_metadata, done_addr);
     if (!jit_metadata_is_jit_ptr_no_code(p_metadata, p_jit_ptr) &&
         !jit_metadata_is_jit_ptr_dynamic(p_metadata, p_jit_ptr)) {
@@ -154,12 +219,27 @@ jit_interp_instruction_callback(void* p,
     return 0;
   }
 
+#if BEEBJIT_JIT_EARLY_RETURN
+  if (p_jit->interp_return_mode != k_jit_interp_return_block) {
+    if ((p_jit->interp_return_mode == k_jit_interp_return_after_one) ||
+        (timing_get_num_fires(p_jit->driver.p_extra->p_timing) !=
+         p_jit->interp_entry_fires)) {
+      if (!interp_has_memory_written_callback(p_jit->p_interp)) {
+        p_jit->interp_return_mode = k_jit_interp_return_block;
+        return 1;
+      }
+    }
+  }
+#endif
+
   /* We stay in interp indefinitely if we're syncing the 6502 writes to video
    * 6845 reads. This is denoted by the presence of a memory written handler.
    */
-  if (interp_has_memory_written_callback(p_jit->p_interp)) {
+  if (p_jit->has_memory_written_callback) {
+    assert(interp_has_memory_written_callback(p_jit->p_interp));
     return 0;
   }
+  assert(!interp_has_memory_written_callback(p_jit->p_interp));
 
 #if BEEBJIT_JIT_IO_STAY
   {
@@ -196,7 +276,7 @@ jit_interp_instruction_callback(void* p,
   }
 #endif
 
-  next_block = jit_metadata_get_code_block(p_metadata, next_pc);
+  next_block = p_jit->p_code_blocks[next_pc];
   if (next_block == -1) {
     /* Always consider an address with no JIT code to be a new block
      * boundary. Without this, an RTI to an uncompiled region will stay stuck
@@ -205,7 +285,7 @@ jit_interp_instruction_callback(void* p,
     return 1;
   }
 
-  next_block_prev = jit_metadata_get_code_block(p_metadata, (next_pc - 1));
+  next_block_prev = p_jit->p_code_blocks[(uint16_t) (next_pc - 1)];
   if (next_block != next_block_prev) {
     /* If the instruction we're about to execute is at the start of a JIT
      * block, bounce back into JIT at this clean boundary.
@@ -235,6 +315,23 @@ jit_enter_interp(struct jit_struct* p_jit,
   struct state_6502* p_state_6502 = p_jit_cpu_driver->abi.p_state_6502;
 
   p_jit->counter_num_interps++;
+
+#if BEEBJIT_JIT_EARLY_RETURN
+  /* A negative countdown: the countdown check at a block start bounced (a
+   * timer is due inside the block); anything else bounces one instruction.
+   */
+  if (countdown < 0) {
+    p_jit->interp_return_mode = ((BEEBJIT_JIT_EARLY_RETURN & 1) ?
+                                 k_jit_interp_return_after_fire :
+                                 k_jit_interp_return_block);
+    p_jit->interp_entry_fires =
+        timing_get_num_fires(p_jit_cpu_driver->p_extra->p_timing);
+  } else {
+    p_jit->interp_return_mode = ((BEEBJIT_JIT_EARLY_RETURN & 2) ?
+                                 k_jit_interp_return_after_one :
+                                 k_jit_interp_return_block);
+  }
+#endif
 
   /* Take care of any deferred fault logging. */
   if (p_jit->do_fault_log) {
@@ -329,6 +426,7 @@ jit_set_memory_written_callback(struct cpu_driver* p_cpu_driver,
                                 void* p_memory_written_callback_object) {
   struct jit_struct* p_jit = (struct jit_struct*) p_cpu_driver;
   struct cpu_driver* p_interp_driver = (struct cpu_driver*) p_jit->p_interp;
+  p_jit->has_memory_written_callback = (memory_written_callback != NULL);
   p_interp_driver->p_funcs->set_memory_written_callback(
       p_interp_driver,
       memory_written_callback,
@@ -895,6 +993,8 @@ jit_init(struct cpu_driver* p_cpu_driver) {
 
   p_jit->log_compile = util_has_option(p_options->p_log_flags, "jit:compile");
   p_jit->log_fault = util_has_option(p_options->p_log_flags, "jit:fault");
+  p_jit->is_encoded_callbacks =
+      !util_has_option(p_options->p_opt_flags, "jit:no-encoded-callback");
   p_funcs->get_opcode_maps(p_cpu_driver,
                            &p_jit->p_opcode_types,
                            &p_jit->p_opcode_modes,
@@ -999,6 +1099,7 @@ jit_init(struct cpu_driver* p_cpu_driver) {
                                    ((uint8_t*) p_no_code_mapping_addr + 4),
                                    &p_jit->jit_ptrs[0]);
   p_jit->p_metadata = p_metadata;
+  p_jit->p_code_blocks = jit_metadata_get_code_blocks(p_metadata);
   /* Set up the invalidation markers. jit_memory_range_invalidate() only
    * invalidates existing blocks, and here we're starting from a clean slate.
    */

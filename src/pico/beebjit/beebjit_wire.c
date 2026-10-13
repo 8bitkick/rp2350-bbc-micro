@@ -160,60 +160,111 @@ beebjit_wire_fast_line(struct render_struct* p_render,
   }
 }
 
+/* n characters of teletext, from the wire's point of view: each through
+ * teletext_data() on its even tick (DISPEN: 0 from off_from on, else
+ * pattern bit i while i < settle, else dispen) and render_render() each tick.
+ * Through teletext.c's cache of runs where the renderer takes a run: a run
+ * that fits the row, or one entirely outside the window (nothing drawn); the
+ * renderer only resets its row position in render_render() at the window's
+ * start, so a character at a time until the rest fits.
+ */
 static void
-beebjit_wire_char_run(struct render_struct* p_render,
-                      struct teletext_struct* p_teletext,
-                      uint32_t arg,
-                      const uint8_t* p_data) {
-  /* As video_do_char_run(). */
-  uint32_t n = (arg & 0xFF);
-  uint32_t ticks = ((arg >> 8) & 1);
-  int is_1MHz = ((arg >> 9) & 1);
-  int is_teletext_addressed = ((arg >> 10) & 1);
-  int dispen = ((arg >> 11) & 1);
-  uint32_t i;
+beebjit_wire_teletext_chars(struct render_struct* p_render,
+                            struct teletext_struct* p_teletext,
+                            const uint8_t* p_data,
+                            uint32_t n,
+                            int is_teletext_addressed,
+                            uint32_t dispen,
+                            uint32_t dispen_settle,
+                            uint32_t dispen_pattern,
+                            uint32_t dispen_off_from,
+                            int is_1MHz,
+                            uint32_t ticks) {
+  uint32_t i = 0;
+  uint32_t mul = (is_1MHz ? 2 : 1);
 
-  if (n == 0) {
-    n = 256;
-  }
+  while (i < n) {
+    uint32_t left = (n - i);
+    uint8_t data;
+    int is_odd_tick;
 #if BEEBJIT_RENDER_PACKED4
-  {
-    /* Teletext on screen with no cursor: the glyphs straight into the row. */
-    uint32_t calls = (n * (is_1MHz ? 2 : 1));
-    uint32_t* p_pos = render_teletext_run_start(p_render, calls);
-    if (p_pos != NULL) {
-      for (i = 0; i < n; ++i) {
-        uint8_t data = p_data[i];
-        if (!(ticks & 1)) {
-          if (is_teletext_addressed) {
-            teletext_data(p_teletext, data, dispen);
-          } else {
-            teletext_data(p_teletext, 0, 0);
-          }
-        }
-        teletext_render_first_of_pair(p_teletext,
-                                      (ticks & 1),
-                                      (struct render_character_2MHz*) p_pos);
-        p_pos += k_render_words_per_8_pixels;
-        ticks++;
-        if (is_1MHz) {
-          teletext_render_first_of_pair(
-              p_teletext, 1, (struct render_character_2MHz*) p_pos);
-          p_pos += k_render_words_per_8_pixels;
-          ticks++;
+    {
+      uint32_t capacity = render_get_teletext_run_capacity(p_render);
+      uint32_t chars = (capacity / mul);
+      uint32_t* p_pos = NULL;
+      if (chars > left) {
+        chars = left;
+      }
+      if (chars > 0) {
+        p_pos = render_teletext_run_start(p_render, (chars * mul));
+        if (p_pos == NULL) {
+          chars = 0;
         }
       }
-      render_teletext_run_end(p_render, calls);
-      return;
+      if ((chars == 0) &&
+          render_teletext_run_outside(p_render, (left * mul))) {
+        chars = left;
+      }
+      if (chars == 0) {
+        /* Up to the window's start, where the renderer resets its row
+         * position: those characters undrawn, then the reset.
+         */
+        uint32_t calls = render_teletext_calls_to_window(p_render);
+        uint32_t to_window = (calls / mul);
+        if ((calls != 0) && ((calls % mul) == 0) && (to_window <= left)) {
+          /* (A character at a time through the chip: a run this short
+           * would only push a line's runs out of teletext.c's cache.)
+           */
+          uint32_t end = (i + to_window);
+          for (; i < end; ++i) {
+            if (!(ticks & 1)) {
+              if (is_teletext_addressed) {
+                uint32_t d = BEEBJIT_WIRE_CHAR_RUN_DISPEN(dispen, dispen_settle,
+                                                          dispen_pattern, i);
+                if (i >= dispen_off_from) {
+                  d = 0;
+                }
+                teletext_data(p_teletext, p_data[i], d);
+              } else {
+                teletext_data(p_teletext, 0, 0);
+              }
+            }
+            ticks += mul;
+          }
+          render_teletext_run_to_window(p_render, calls);
+          continue;
+        }
+      }
+      if (chars > 0) {
+        teletext_run(p_teletext,
+                     (is_teletext_addressed ? (p_data + i) : NULL),
+                     chars,
+                     dispen,
+                     ((dispen_settle > i) ? (dispen_settle - i) : 0),
+                     (dispen_pattern >> i),
+                     ((dispen_off_from > i) ? (dispen_off_from - i) : 0),
+                     is_1MHz,
+                     (ticks & 1),
+                     p_pos);
+        if (p_pos != NULL) {
+          render_teletext_run_end(p_render, (chars * mul));
+        }
+        i += chars;
+        ticks += (chars * mul);
+        continue;
+      }
     }
-  }
 #endif
-  for (i = 0; i < n; ++i) {
-    uint8_t data = p_data[i];
-    int is_odd_tick = (ticks & 1);
+    data = p_data[i];
+    is_odd_tick = (ticks & 1);
     if (!is_odd_tick) {
       if (is_teletext_addressed) {
-        teletext_data(p_teletext, data, dispen);
+        uint32_t d = BEEBJIT_WIRE_CHAR_RUN_DISPEN(dispen, dispen_settle,
+                                                  dispen_pattern, i);
+        if (i >= dispen_off_from) {
+          d = 0;
+        }
+        teletext_data(p_teletext, data, d);
       } else {
         teletext_data(p_teletext, 0, 0);
       }
@@ -224,8 +275,113 @@ beebjit_wire_char_run(struct render_struct* p_render,
       render_render(p_render, data, 1);
       ticks++;
     }
+    i++;
   }
 }
+
+static void
+beebjit_wire_char_run(struct render_struct* p_render,
+                      struct teletext_struct* p_teletext,
+                      uint32_t arg,
+                      const uint8_t* p_data) {
+  /* As video_do_char_run(). */
+  uint32_t n = (arg & 0xFF);
+  if (n == 0) {
+    n = 256;
+  }
+  beebjit_wire_teletext_chars(p_render,
+                              p_teletext,
+                              p_data,
+                              n,
+                              ((arg >> 10) & 1),
+                              ((arg >> 11) & 1),
+                              ((arg >> 12) & 3),
+                              ((arg >> 14) & 7),
+                              0xFFFFFFFFu,
+                              ((arg >> 9) & 1),
+                              ((arg >> 8) & 1));
+}
+
+static void
+beebjit_wire_teletext_line(struct render_struct* p_render,
+                           struct teletext_struct* p_teletext,
+                           uint32_t arg,
+                           const uint32_t* p) {
+  /* As video_do_teletext_line() would tick: the characters up to the hsync,
+   * the hsync, the rest.
+   */
+  uint32_t n = (arg & 0xFF);
+  int is_1MHz = ((arg >> 8) & 1);
+  int has_hsync = ((arg >> 9) & 1);
+  uint32_t w = p[0];
+  uint32_t on_from = (w & 0xFF);
+  uint32_t off_from = ((w >> 8) & 0xFF);
+  uint32_t hsync_at = (has_hsync ? ((w >> 16) & 0xFF) : n);
+  const uint8_t* p_bytes = (const uint8_t*) &p[1];
+  uint32_t pattern = 0;
+  /* DISPEN low for the first on_from ticks: settle on_from with pattern 0. */
+  beebjit_wire_teletext_chars(p_render, p_teletext, p_bytes, hsync_at, 1,
+                              1, on_from, pattern, off_from, is_1MHz, 0);
+  if (has_hsync) {
+    render_hsync(p_render, (w >> 24));
+    beebjit_wire_teletext_chars(p_render, p_teletext, (p_bytes + hsync_at),
+                                (n - hsync_at), 1, 0, 0, 0, 0, is_1MHz,
+                                (hsync_at * (is_1MHz ? 2 : 1)));
+  }
+}
+
+#ifdef BEEBJIT_WIRE_STATS
+/* Harness only: commands by opcode, and the characters in runs, printed at
+ * exit (-DBEEBJIT_WIRE_STATS).
+ */
+#include <stdio.h>
+static uint32_t s_wire_stat_count[k_wire_frame_tick + 1];
+static uint32_t s_wire_stat_chars[k_wire_frame_tick + 1];
+static uint32_t s_wire_stat_frames;
+static void
+beebjit_wire_stats_print(void) {
+  uint32_t i;
+  uint32_t f = (s_wire_stat_frames ? s_wire_stat_frames : 1);
+  extern uint32_t g_render_run_why[8];
+  extern uint32_t g_teletext_run_hits;
+  printf("run_start: calls %u, not mode7 %u, not row %u, func %u, cursor %u, before window %u, past window %u, ok %u\n",
+         (unsigned) g_render_run_why[0], (unsigned) g_render_run_why[1], (unsigned) g_render_run_why[2], (unsigned) g_render_run_why[3],
+         (unsigned) g_render_run_why[4], (unsigned) g_render_run_why[5], (unsigned) g_render_run_why[6], (unsigned) g_render_run_why[7]);
+  extern uint32_t g_teletext_run_misses;
+  extern uint32_t g_render_fill_stats[8];
+  printf("fills per frame: flush words %.0f blank words %.0f; flushes %.1f blank runs %.1f hsyncs %.1f set_RA %.1f prepare %.1f\n",
+         (double) g_render_fill_stats[0] / f, (double) g_render_fill_stats[1] / f,
+         (double) g_render_fill_stats[2] / f, (double) g_render_fill_stats[3] / f,
+         (double) g_render_fill_stats[4] / f, (double) g_render_fill_stats[5] / f,
+         (double) g_render_fill_stats[6] / f);
+  printf("wire commands per frame (%u frames); teletext runs: %u hits %u misses\n",
+         (unsigned) s_wire_stat_frames, (unsigned) g_teletext_run_hits,
+         (unsigned) g_teletext_run_misses);
+  for (i = 0; i <= k_wire_frame_tick; ++i) {
+    if (s_wire_stat_count[i]) {
+      printf("  op %2u: %8.1f commands %9.1f chars\n", (unsigned) i,
+             (double) s_wire_stat_count[i] / f, (double) s_wire_stat_chars[i] / f);
+    }
+  }
+}
+static void
+beebjit_wire_stat(uint32_t word) {
+  uint32_t op = (word & 0xFF);
+  uint32_t arg = (word >> 8);
+  s_wire_stat_count[op]++;
+  if ((op == k_wire_char_run) || (op == k_wire_bitmap_run)) {
+    s_wire_stat_chars[op] += ((arg & 0xFF) ? (arg & 0xFF) : 256);
+  } else if ((op == k_wire_fast_line) || (op == k_wire_fast_line_ra) ||
+             (op == k_wire_teletext_line) || (op == k_wire_teletext_line_ra)) {
+    s_wire_stat_chars[op] += (arg & 0xFF);
+  } else if (op == k_wire_vsync) {
+    s_wire_stat_frames++;
+    if ((s_wire_stat_frames % 200) == 0) {
+      beebjit_wire_stats_print();
+    }
+  }
+}
+#endif
 
 uint32_t
 BEEBJIT_WIRE_FUNC(beebjit_wire_drain)(void) {
@@ -252,6 +408,9 @@ BEEBJIT_WIRE_FUNC(beebjit_wire_drain)(void) {
     uint32_t word = p[0];
     uint32_t arg = (word >> 8);
     uint32_t len = 1;
+#ifdef BEEBJIT_WIRE_STATS
+    beebjit_wire_stat(word);
+#endif
     switch (word & 0xFF) {
     case k_wire_pad:
       len = (BEEBJIT_WIRE_WORDS - pos);
@@ -347,6 +506,16 @@ BEEBJIT_WIRE_FUNC(beebjit_wire_drain)(void) {
                             arg,
                             (const uint8_t*) &p[1]);
       len += ((((arg & 0xFF) ? (arg & 0xFF) : 256) + 3) / 4);
+      break;
+    case k_wire_teletext_line_ra:
+      teletext_RA_ISV_changed(p_teletext,
+                              ((arg >> 10) & 0x1F),
+                              ((arg >> 15) & 1));
+      render_set_RA(p_render, ((arg >> 10) & 0x1F));
+      /* Fall through. */
+    case k_wire_teletext_line:
+      beebjit_wire_teletext_line(p_render, p_teletext, arg, &p[1]);
+      len += (1 + (((arg & 0xFF) + 3) / 4));
       break;
     default:
       assert(0);

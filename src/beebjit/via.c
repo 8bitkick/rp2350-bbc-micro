@@ -9,6 +9,7 @@
 #include "util.h"
 
 #include <assert.h>
+#include <stddef.h>
 
 enum {
   k_via_ORB =   0x0,
@@ -84,6 +85,15 @@ struct via_struct {
   uint64_t t2_last_fire_cycles;
   uint64_t t2_shift_last_fire_cycles;
 };
+
+/* JIT encoded callbacks (bbc.c) load these fields at fixed offsets, on 32-bit
+ * hosts too.
+ */
+_Static_assert((offsetof(struct via_struct, ACR) == 0x7) &&
+               (offsetof(struct via_struct, IFR) == 0x9) &&
+               (offsetof(struct via_struct, IER) == 0xA) &&
+               (offsetof(struct via_struct, IRA_cached) == 0x25),
+               "via_struct JIT fields");
 
 static void
 via_check_interrupt(struct via_struct* p_via) {
