@@ -284,6 +284,13 @@ bbc_write_needs_callback(void* p, uint16_t addr) {
   (void) p_bbc;
   assert(!p_bbc->is_master);
 
+  if (BEEBJIT_NO_MMU) {
+    /* No write mapping to drop ROM writes into: bbc_write_callback() writes
+     * sideways RAM and drops writes to ROM (as write_callback_from).
+     */
+    return (addr >= k_bbc_sideways_offset);
+  }
+
   if (p_bbc->has_sideways_ram) {
     return (addr >= k_bbc_os_rom_offset);
   }
@@ -2549,6 +2556,16 @@ void
 bbc_make_sideways_ram(struct bbc_struct* p_bbc, uint8_t index) {
   assert(index < k_bbc_num_roms);
   assert(p_bbc->has_sideways_ram);
+#if BEEBJIT_NO_MMU && defined(BEEBJIT_MALLOC_BIG)
+  /* A RAM bank's own store is only copied at a bank switch: keep it in the
+   * host's big memory.
+   */
+  if (p_bbc->p_sideways_banks[index] == NULL) {
+    extern void* BEEBJIT_MALLOC_BIG(size_t size);
+    p_bbc->p_sideways_banks[index] = BEEBJIT_MALLOC_BIG(k_bbc_rom_size);
+    (void) memset(p_bbc->p_sideways_banks[index], '\0', k_bbc_rom_size);
+  }
+#endif
   (void) bbc_get_sideways_bank_storage(p_bbc, index);
   p_bbc->is_sideways_ram_bank[index] = 1;
   if (index < 0xC) {
