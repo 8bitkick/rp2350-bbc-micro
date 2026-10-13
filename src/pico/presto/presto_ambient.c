@@ -18,6 +18,9 @@
  * colours and rasters don't flicker), gamma corrected, scaled to the brightness setting, and never
  * below a faint glow.
  *
+ * CAPS LOCK and SHIFT LOCK can show too, red as the BBC's own: on the BBC's keyboard CAPS LOCK
+ * sits just above SHIFT LOCK at the left, so they're the left LED and the bottom left one.
+ *
  * Core 0 sets things up (PIO0 must be switched to GPIO 16-47 before it holds any program) and
  * asks for an update every other frame; core 1 does it when it's idle, from SRAM. The PIO sends
  * the seven words from its joined FIFO, so an update never waits.
@@ -49,7 +52,10 @@ static const uint8_t k_led_cell[NUM_LEDS] = { 8, 5, 2, 1, 0, 3, 6 };
 static PIO s_pio = pio0;
 static int s_sm = -1;
 static volatile int s_mode = k_screen;
+static volatile int s_mode_before_test = k_screen;
 static volatile uint32_t s_bright = 40;     // percent
+static volatile bool s_locks_on = true;     // show CAPS LOCK and SHIFT LOCK
+static volatile uint8_t s_locks;            // bit 0 CAPS LOCK, 1 SHIFT LOCK lit
 static volatile uint32_t s_frames;          // core 0's frame count
 static uint32_t s_updated_frames;           // at core 1's last update
 static volatile uint32_t s_test_start;
@@ -89,7 +95,8 @@ void presto_ambient_init(void) {
     for (int i = 0; i < NUM_LEDS; i++) pio_sm_put(s_pio, (uint) s_sm, 0);
 }
 
-void presto_ambient_frame(void) {
+void presto_ambient_frame(uint8_t locks) {
+    s_locks = locks;
     s_frames++;
     __sev();
 }
@@ -108,6 +115,21 @@ static void __not_in_flash_func(send)(const uint8_t rgb[NUM_LEDS][3]) {
     }
 }
 
+// CAPS LOCK on the left LED, SHIFT LOCK on the bottom left one, red
+static void __not_in_flash_func(show_locks)(uint8_t rgb[NUM_LEDS][3]) {
+    if (!s_locks_on) return;
+    uint32_t v = (255 * s_bright) / 100;
+    if (v < 48) v = 48;
+    for (int i = 0; i < 2; i++) {
+        if (s_locks & (1 << i)) {
+            uint8_t *led = rgb[(i == 0) ? 5 : 6];
+            led[0] = (uint8_t) v;
+            led[1] = 0;
+            led[2] = 0;
+        }
+    }
+}
+
 void __not_in_flash_func(presto_ambient_update)(void) {
     static uint16_t counts[9][8];           // samples of each colour, in each cell
     static int8_t word_cell[ROW_WORDS];     // each word's column of the grid, or -1
@@ -117,6 +139,7 @@ void __not_in_flash_func(presto_ambient_update)(void) {
 
     if (s_mode == k_off) {
         memset(rgb, 0, sizeof(rgb));
+        show_locks(rgb);
         send(rgb);
         return;
     }
@@ -127,7 +150,7 @@ void __not_in_flash_func(presto_ambient_update)(void) {
         if (n < NUM_LEDS) {
             rgb[n][0] = rgb[n][1] = rgb[n][2] = (uint8_t) ((255 * s_bright) / 100);
         } else {
-            s_mode = k_screen;
+            s_mode = s_mode_before_test;
         }
         send(rgb);
         return;
@@ -217,7 +240,27 @@ void __not_in_flash_func(presto_ambient_update)(void) {
             rgb[i][ch] = (uint8_t) ((v < GLOW) ? GLOW : v);
         }
     }
+    show_locks(rgb);
     send(rgb);
+}
+
+bool presto_ambient_ready(void) {
+    return s_sm >= 0;
+}
+
+void presto_ambient_get(bool *on, unsigned *bright, bool *locks) {
+    *on = (s_mode == k_screen) || ((s_mode == k_test) && (s_mode_before_test == k_screen));
+    *bright = (unsigned) s_bright;
+    *locks = s_locks_on;
+}
+
+void presto_ambient_set(int on, int bright, int locks) {
+    if (on >= 0) {
+        if (s_mode == k_test) s_mode_before_test = on ? k_screen : k_off;
+        else s_mode = on ? k_screen : k_off;
+    }
+    if (bright >= 0) s_bright = (bright > 100) ? 100 : (uint32_t) bright;
+    if (locks >= 0) s_locks_on = (locks != 0);
 }
 
 void presto_ambient_command(const char *args) {
@@ -228,23 +271,28 @@ void presto_ambient_command(const char *args) {
         return;
     }
     if (!strcmp(args, "off")) {
-        s_mode = k_off;
+        presto_ambient_set(0, -1, -1);
     } else if (!strcmp(args, "screen")) {
-        s_mode = k_screen;
+        presto_ambient_set(1, -1, -1);
+    } else if (!strcmp(args, "locks on")) {
+        presto_ambient_set(-1, -1, 1);
+    } else if (!strcmp(args, "locks off")) {
+        presto_ambient_set(-1, -1, 0);
     } else if (!strcmp(args, "test")) {
         s_test_start = time_us_32();
+        if (s_mode != k_test) s_mode_before_test = s_mode;
         s_mode = k_test;
         printf("LEDS test: each LED in turn for 1 s, 0 to 6 (expected: bottom right, right, "
                "top right, top, top left, left, bottom left)\n");
     } else if (sscanf(args, "bright %u", &percent) == 1) {
-        s_bright = (percent > 100) ? 100 : percent;
+        presto_ambient_set(-1, (int) percent, -1);
     } else if (*args != '\0') {
-        printf("LEDS usage: leds [off|screen|test|bright <percent>]\n");
+        printf("LEDS usage: leds [off|screen|test|bright <percent>|locks on|locks off]\n");
         return;
     }
-    printf("LEDS mode=%s bright=%lu%% updates=%lu box=%lu..%lu,%lu..%lu\n",
+    printf("LEDS mode=%s bright=%lu%% locks=%s updates=%lu box=%lu..%lu,%lu..%lu\n",
            (s_mode == k_off) ? "off" : (s_mode == k_test) ? "test" : "screen",
-           (unsigned long) s_bright, (unsigned long) s_updates,
+           (unsigned long) s_bright, s_locks_on ? "on" : "off", (unsigned long) s_updates,
            (unsigned long) (s_box_w0 * 8), (unsigned long) (s_box_w1 * 8),
            (unsigned long) s_box_y0, (unsigned long) s_box_y1);
 }
