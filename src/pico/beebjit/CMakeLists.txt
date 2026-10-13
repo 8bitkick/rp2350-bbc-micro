@@ -20,7 +20,6 @@ add_executable(presto_beebjit
         ${PRESTO_DIR}/presto_lcd.c
         ${PRESTO_DIR}/presto_psram.c
         ${PRESTO_DIR}/presto_boot.c
-        ${PRESTO_DIR}/presto_audio.c
         # the front end: the web panel, the SD card
         ${PRESTO_DIR}/presto_net.c
         ${PRESTO_DIR}/presto_sd.c
@@ -80,6 +79,16 @@ option(PRESTO_BEEBJIT_WIRE "Draw on core 1" ON)
 if (PRESTO_BEEBJIT_WIRE)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_WIRE=1 BEEBJIT_RENDER_WIRE=1)
 endif()
+# -DPRESTO_BEEBJIT_SOUND=ON: the BBC's sound on the piezo (presto_audio.c), made on core 1.
+option(PRESTO_BEEBJIT_SOUND "The BBC's sound on the piezo" OFF)
+if (PRESTO_BEEBJIT_SOUND)
+    if (NOT PRESTO_BEEBJIT_WIRE)
+        message(FATAL_ERROR "PRESTO_BEEBJIT_SOUND needs core 1 (PRESTO_BEEBJIT_WIRE)")
+    endif()
+    target_sources(presto_beebjit PRIVATE ${PRESTO_DIR}/presto_audio.c)
+    target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_SOUND=1
+            BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
+endif()
 # -DPRESTO_BEEBJIT_FRAME_SKIP=OFF: draw every frame, even when the picture can't have changed.
 option(PRESTO_BEEBJIT_FRAME_SKIP "Skip drawing frames that can't have changed" ON)
 if (PRESTO_BEEBJIT_FRAME_SKIP)
@@ -138,7 +147,6 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_MALLOC=beebjit_embedded_malloc
         BEEBJIT_REALLOC=beebjit_embedded_realloc
         BEEBJIT_FREE=beebjit_embedded_free
-        BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write   # the piezo's SN76489 (presto_audio.c)
         BEEBJIT_RENDER_PACKED4=1
         BEEBJIT_INTERP_COUNTDOWN32=1
         BEEBJIT_VIDEO_FAST_RUNS=1
