@@ -41,6 +41,7 @@ CFLAGS="$ARCHFLAGS \
   -Wno-address-of-packed-member -Wno-format -Wno-char-subscripts -Wno-pointer-to-int-cast \
   -Wno-unused-function -ffunction-sections -fdata-sections \
   -DBEEBJIT_NO_MMU=1 -DBEEBJIT_MALLOC=beebjit_embedded_malloc \
+  -DBEEBJIT_ALLOC_CALLER=beebjit_embedded_alloc_caller \
   -DBEEBJIT_REALLOC=beebjit_embedded_realloc -DBEEBJIT_FREE=beebjit_embedded_free \
   -DBEEBJIT_HEADLESS=1 ${ASMFLAGS} -DBEEBJIT_RENDER_PACKED4=${PACKED4:-1} -DBEEBJIT_INTERP_COUNTDOWN32=1 -DBEEBJIT_VIDEO_FAST_RUNS=1 -DBEEBJIT_RENDER_WIRE=${WIRE:-0} ${EXTRA_CFLAGS} \
   -I$ROOT/src/beebjit -I$HERE/.."

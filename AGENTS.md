@@ -69,7 +69,7 @@ top the area where disc images and snapshots arrive.
 ## What has been done (and measured)
 
 On Elite's title screen, from the JIT's first run to now: turbo 1.45× → ~9× real time; at real
-speed, core 0 69% → 10%, core 1 10%; ~25 KB of SRAM free with WiFi up. `tools/beebjit_hillclimb.py`
+speed, core 0 69% → 10%, core 1 10%; ~87 KB of SRAM free with WiFi up. `tools/beebjit_hillclimb.py`
 has each step. The big ones: video emulated in runs and whole scanlines, then whole character rows;
 drawing moved to core 1; core 1 skipping black and the 640→480 scaling on PIO; hot code in SRAM; no
 steady-state recompiles; hardware register accesses compiled into JIT code (encoded callbacks);
@@ -94,8 +94,10 @@ shares: build with `-DPRESTO_BEEBJIT_PROF=ON` and run `tools/prof.py 0` (or 1).
   clock by a third costs 7%); flash misses cost nothing measurable.
 - Bar Beeb's core 0 (~60% at real speed): its raster loop bounces out of the JIT at every
   scanline's video timer and the interpreter runs on to the next block start.
-- SRAM is tight (~25 KB free): the render and teletext tables are bigger than the 4-bit, 12 px
-  path reads, and the teletext run cache could survive the frame if it were bigger.
+- SRAM: ~87 KB free. The sideways ROM banks live in PSRAM (a bank switch copies 16 KB from
+  PSRAM, ~0.5 ms; nothing measured paid for it), the renderer's pixel indices are one 2 KB table
+  for every mode, and the stacks are sized to at least 2.5x their high-water marks (`!mem` prints
+  `STACKS`). The teletext run cache could now survive the frame if it were bigger.
 - Tried and dropped: drawing ordinary lines straight into the panel row on core 1 (no gain:
   the per-line costs moved rather than went).
 - The clock stays at 250 MHz: speed comes from code, PIO and DMA, not overclocking further.
