@@ -276,6 +276,20 @@ a32_fault_handler(int sig, void* p_info, void* p_ucontext) {
     (void) printf("r%lu=%08lx%s", (unsigned long) i, (unsigned long) p_regs[i],
                   ((i % 7) == 6) ? "\n" : " ");
   }
+  if (((p_regs[14] & ~1u) >= 0x11000000u) &&
+      ((p_regs[14] & ~1u) < 0x12000000u)) {
+    /* Returned from or called out of JIT code: the code before lr. */
+    (void) printf("\ncode before lr:");
+    for (i = 0; i < 48; ++i) {
+      (void) printf(" %04x",
+                    (unsigned) ((uint16_t*) ((p_regs[14] & ~1u) - 80))[i]);
+    }
+  }
+  if (pc < 0x10000u) {
+    (void) printf("\n");
+    fflush(stdout);
+    (void) a32_syscall(k_nr_exit_group, 99, 0, 0);
+  }
   (void) printf("\ncode:");
   for (i = 0; i < 16; ++i) {
     (void) printf(" %04x", (unsigned) ((uint16_t*) ((pc & ~1u) - 16))[i]);

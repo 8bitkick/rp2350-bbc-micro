@@ -75,13 +75,22 @@ enum {
   k_crtc_reg_light_pen_low = 17,
 };
 
+/* The wire: scanlines a frame being rendered is run in, at most (0: whole,
+ * vsync to vsync). See video_update_timer().
+ */
+#ifndef BEEBJIT_VIDEO_SLICE_LINES
+#define BEEBJIT_VIDEO_SLICE_LINES 64
+#endif
+
 enum {
   k_video_timer_null = 0,
   k_video_timer_expect_vsync_raise = 1,
   k_video_timer_expect_vsync_lower = 2,
-  k_video_timer_jump_to_vsync_raise = 3,
-  k_video_timer_jump_to_vsync_lower = 4,
-  k_video_timer_jump_full_frame = 5,
+  /* (The wire: a slice of a frame being rendered, see video_update_timer().) */
+  k_video_timer_slice = 3,
+  k_video_timer_jump_to_vsync_raise = 4,
+  k_video_timer_jump_to_vsync_lower = 5,
+  k_video_timer_jump_full_frame = 6,
 };
 
 enum {
@@ -218,6 +227,7 @@ struct video_struct {
   /* The last ordinary line's command (video_do_fast_line), which the next
    * lines of a steady character row repeat with their own bytes.
    */
+  int fast_is_teletext;
   uint32_t fast_arg;
   uint32_t fast_w1;
   uint32_t fast_n;
@@ -607,6 +617,12 @@ static void
 video_frame_skip_at_vsync(struct video_struct* p_video) {
   int was_active = p_video->is_rendering_active;
   int changed;
+
+#if BEEBJIT_RENDER_WIRE
+  if (g_beebjit_wire.p_vsync_hook != NULL) {
+    g_beebjit_wire.p_vsync_hook();
+  }
+#endif
 
   if (was_active) {
     /* The frame that just ended is drawn (or being drawn): the panel shows
@@ -1030,18 +1046,25 @@ video_get_char_run_length(struct video_struct* p_video,
                           int r7_hit) {
   uint32_t n;
   uint32_t d;
+#if !BEEBJIT_RENDER_WIRE
   int enabled;
+#endif
   uint8_t* p_regs = &p_video->crtc_registers[0];
 
   if (p_video->cursor_skew_counter >= 0) {
     return 0;
   }
+#if !BEEBJIT_RENDER_WIRE
+  /* The run has one DISPEN value; the wire's char run carries the skew
+   * pipeline's settling values for its first ticks, so it can start anywhere.
+   */
   enabled = (p_video->display_enable_bits == k_video_display_enable_all);
   if ((p_video->dispen_shifts[0] != enabled) ||
       (p_video->dispen_shifts[1] != enabled) ||
       (p_video->dispen_shifts[2] != enabled)) {
     return 0;
   }
+#endif
   if (is_1MHz) {
     ticks_left /= 2;
   }
@@ -1121,8 +1144,34 @@ video_do_char_run(struct video_struct* p_video,
     external_RA |= p_video->is_odd_frame;
   }
 #if BEEBJIT_RENDER_WIRE
+  /* External DISPEN over the run: the 6845 skew pipeline settles over its
+   * first ticks (tick i reads dispen_shifts[skew - i - 1] from before the
+   * run while i < skew, then the display enable), so the command carries
+   * those first values: bit 11 the steady value, bits 12-13 how many ticks
+   * settle, bits 14-16 their values (BEEBJIT_WIRE_CHAR_RUN_DISPEN).
+   */
+  uint32_t dispen_steady;
+  uint32_t dispen_settle = 0;
+  uint32_t dispen_pattern = 0;
+  uint32_t dispen_bits;
   (void) p_render;
   (void) p_teletext;
+  (void) dispen;
+  if (p_video->skew_dispen_index < 3) {
+    uint32_t skew = p_video->skew_dispen_index;
+    dispen_steady =
+        (p_video->display_enable_bits == k_video_display_enable_all);
+    for (i = 0; i < skew; ++i) {
+      uint32_t d = !!p_video->dispen_shifts[skew - i - 1];
+      if (d != dispen_steady) {
+        dispen_settle = (i + 1);
+      }
+      dispen_pattern |= (d << i);
+    }
+  } else {
+    dispen_steady = 0;
+  }
+  video_run_dispen_shifts(p_video, n);
   i = 0;
   while (i < n) {
     /* The renderer does the teletext and render calls (beebjit_wire.c);
@@ -1135,10 +1184,14 @@ video_do_char_run(struct video_struct* p_video,
     if (m > (n - i)) {
       m = (n - i);
     }
+    /* The settling ticks still ahead of this command, if any. */
+    dispen_bits = ((dispen_steady << 11) |
+                   (((dispen_settle > i) ? (dispen_settle - i) : 0) << 12) |
+                   (((dispen_pattern >> i) & 7) << 14));
     p_bytes = beebjit_wire_reserve_bytes(
         k_wire_char_run,
         (m | ((uint32_t) (ticks & 1) << 8) | ((uint32_t) !!is_1MHz << 9) |
-         (is_teletext_addressed << 10) | ((uint32_t) !!dispen << 11)),
+         (is_teletext_addressed << 10) | dispen_bits),
         m);
     if (is_teletext_addressed &&
         is_1MHz &&
@@ -1163,9 +1216,13 @@ video_do_char_run(struct video_struct* p_video,
         address_counter = ((address_counter + k) & 0x3FFF);
         j += k;
       }
-      for (j = 0; j < m; ++j) {
-        beebjit_wire_teletext_note(p_bytes[j], dispen);
-      }
+      beebjit_wire_teletext_note_run(p_bytes,
+                                     m,
+                                     dispen_steady,
+                                     ((dispen_settle > i) ?
+                                          (dispen_settle - i) : 0),
+                                     (dispen_pattern >> i),
+                                     0xFFFFFFFFu);
       data = p_bytes[m - 1];
       ticks += (m * 2);
       beebjit_wire_commit_bytes(m);
@@ -1182,7 +1239,10 @@ video_do_char_run(struct video_struct* p_video,
       p_bytes[j] = data;
       if (!is_odd_tick) {
         if (is_teletext_addressed) {
-          beebjit_wire_teletext_note(data, dispen);
+          beebjit_wire_teletext_note(
+              data,
+              BEEBJIT_WIRE_CHAR_RUN_DISPEN(dispen_steady, dispen_settle,
+                                           dispen_pattern, (i + j)));
         } else {
           beebjit_wire_teletext_note(0, 0);
         }
@@ -1335,6 +1395,14 @@ video_fetch_bitmap(struct video_struct* p_video,
   }
 }
 
+#if BEEBJIT_RENDER_WIRE
+static uint32_t video_do_teletext_line(struct video_struct* p_video,
+                                       uint8_t r0,
+                                       int is_1MHz,
+                                       int r7_hit,
+                                       int r9_hit);
+#endif
+
 /* An ordinary bitmap scanline, from its first tick to its last (R0, whose
  * rendering is done here; the caller does the rest of that tick, ending the
  * line): the shown bytes as one bitmap run, the rest as blank runs either
@@ -1372,6 +1440,10 @@ video_do_fast_line(struct video_struct* p_video,
   struct render_struct* p_render = p_video->p_render;
   uint32_t mul = (is_1MHz ? 2 : 1);
   uint32_t done = 0;
+#else
+  if (p_video->video_ula_control & k_ula_teletext) {
+    return video_do_teletext_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
+  }
 #endif
 
   if (p_video->in_hsync ||
@@ -1448,6 +1520,7 @@ video_do_fast_line(struct video_struct* p_video,
       video_fetch_bitmap(p_video, (p_bytes + 4), (start + shown_start), n);
     }
     beebjit_wire_commit_bytes(4 + n);
+    p_video->fast_is_teletext = 0;
     p_video->fast_arg = (n | ((uint32_t) !!is_1MHz << 8) |
                          ((uint32_t) has_hsync << 9));
     p_video->fast_w1 = w1;
@@ -1523,6 +1596,146 @@ video_do_fast_line(struct video_struct* p_video,
 }
 
 #if BEEBJIT_RENDER_WIRE
+/* The bytes of n teletext-addressed characters from the 1KB window (&7C00,
+ * or &3C00 with MA11 clear), from address_counter on.
+ */
+static void
+video_fetch_teletext(struct video_struct* p_video,
+                     uint8_t* p_bytes,
+                     uint32_t address_counter,
+                     uint32_t n) {
+  uint32_t j = 0;
+  while (j < n) {
+    uint32_t offset = (address_counter & 0x3FF);
+    uint32_t k = (0x400 - offset);
+    uint32_t base = ((address_counter & 0x800) ? 0x7C00 : 0x3C00);
+    if (k > (n - j)) {
+      k = (n - j);
+    }
+    (void) memcpy(&p_bytes[j], &p_video->p_bbc_mem[base | offset], k);
+    address_counter = ((address_counter + k) & 0x3FFF);
+    j += k;
+  }
+}
+
+/* As video_do_fast_line(), for a teletext scanline (1MHz, teletext addressed
+ * throughout, on a model B): one k_wire_teletext_line command with all of
+ * the line's bytes; beebjit_wire.c ticks the SAA5050 as this would. Returns
+ * r0 + 1, or 0 for a line that isn't ordinary.
+ */
+static uint32_t
+video_do_teletext_line(struct video_struct* p_video,
+                       uint8_t r0,
+                       int is_1MHz,
+                       int r7_hit,
+                       int r9_hit) {
+  uint8_t* p_regs = &p_video->crtc_registers[0];
+  uint32_t r1 = p_regs[k_crtc_reg_horiz_displayed];
+  uint32_t r2 = p_regs[k_crtc_reg_horiz_position];
+  uint32_t width = p_video->hsync_pulse_width;
+  uint32_t skew = p_video->skew_dispen_index;
+  uint32_t start = p_video->address_counter;
+  int is_enabled =
+      (p_video->display_enable_bits == k_video_display_enable_all);
+  int is_shown = (is_enabled && (skew != 3));
+  int has_hsync = ((width > 0) && (r2 < r0));
+  uint32_t hsync_ticks = (width << p_video->clock_tick_shift);
+  uint32_t n = ((uint32_t) r0 + 1);
+  uint32_t on_from = 0;
+  uint32_t off_from = 0;
+  uint32_t arg;
+  uint32_t w1;
+  int new_shifts[3];
+  uint32_t i;
+  uint8_t* p_bytes;
+
+  if (p_video->in_hsync ||
+      (p_video->cursor_skew_counter >= 0) ||
+      (p_video->p_shadow_mem != NULL) ||
+      r7_hit ||
+      p_video->is_even_vsync ||
+      !is_1MHz ||
+      (r1 == 0) ||
+      (r1 >= r0) ||
+      (r0 == 255) ||
+      ((width > 0) && (r2 == r0)) ||
+      !(start & 0x2000) ||
+      (((start & 0x1FFF) + n) > 0x2000)) {
+    return 0;
+  }
+  /* The pipeline reaching back before the line must be low. */
+  if (skew <= 2) {
+    for (i = 0; i < skew; ++i) {
+      if (p_video->dispen_shifts[i]) {
+        return 0;
+      }
+    }
+  }
+  if (is_shown) {
+    on_from = skew;
+    off_from = (r1 + skew);
+    /* (Shown up to R0 at most, so R0's own tick is blank.) */
+    if ((r1 <= skew) || (off_from > r0)) {
+      return 0;
+    }
+    if (has_hsync && (r2 < off_from)) {
+      return 0;
+    }
+  }
+  if (!p_video->cursor_disabled &&
+      p_video->has_hit_cursor_line_start &&
+      !p_video->has_hit_cursor_line_end) {
+    uint32_t cursor_addr = (p_regs[k_crtc_reg_cursor_high] << 8);
+    cursor_addr |= p_regs[k_crtc_reg_cursor_low];
+    if (((cursor_addr - start) & 0x3FFF) <= r0) {
+      return 0;
+    }
+  }
+  /* The display enable history at the end: ticks r0, r0 - 1, r0 - 2. */
+  for (i = 0; i < 3; ++i) {
+    int32_t t = ((int32_t) r0 - (int32_t) i);
+    if (t >= 0) {
+      new_shifts[i] = (is_enabled && ((uint32_t) t < r1));
+    } else {
+      new_shifts[i] = p_video->dispen_shifts[i - r0 - 1];
+    }
+  }
+
+  arg = (n | ((uint32_t) !!is_1MHz << 8) | ((uint32_t) has_hsync << 9));
+  w1 = (on_from | (off_from << 8) | ((has_hsync ? r2 : 0) << 16) |
+        (hsync_ticks << 24));
+  p_bytes = beebjit_wire_reserve_bytes(k_wire_teletext_line, arg, (4 + n));
+  (void) memcpy(p_bytes, &w1, 4);
+  video_fetch_teletext(p_video, (p_bytes + 4), start, n);
+  beebjit_wire_teletext_note_run((p_bytes + 4), n, 1, on_from, 0, off_from);
+  beebjit_wire_commit_bytes(4 + n);
+  p_video->fast_is_teletext = 1;
+  p_video->fast_arg = arg;
+  p_video->fast_w1 = w1;
+  p_video->fast_n = n;
+  p_video->fast_fetch_start = start;
+  p_video->fast_shifts[0] = new_shifts[0];
+  p_video->fast_shifts[1] = new_shifts[1];
+  p_video->fast_shifts[2] = new_shifts[2];
+
+  /* The R1 tick. */
+  if (r9_hit) {
+    p_video->address_counter_saved = ((start + r1) & 0x3FFF);
+  }
+  p_video->display_enable_bits &= ~k_video_display_enable_horiz;
+  /* Hsync: started at R2, counting down from the tick after, R0 included. */
+  if (has_hsync && ((r0 - r2) < width)) {
+    p_video->in_hsync = 1;
+    p_video->hsync_tick_counter = (width - (r0 - r2));
+  }
+  p_video->address_counter = ((start + n) & 0x3FFF);
+  p_video->data_byte = p_bytes[4 + n - 1];
+  p_video->dispen_shifts[0] = new_shifts[0];
+  p_video->dispen_shifts[1] = new_shifts[1];
+  p_video->dispen_shifts[2] = new_shifts[2];
+  return n;
+}
+
 /* The next line of a steady character row, after an ordinary line: the same
  * command as that line's, with this line's bytes, and the same state changes
  * (it starts at the same address, with the same registers, display enable
@@ -1554,14 +1767,26 @@ video_redo_fast_line(struct video_struct* p_video,
   if (p_video->is_interlace_sync_and_video) {
     external_RA |= p_video->is_odd_frame;
   }
-  p_bytes = beebjit_wire_reserve_bytes(k_wire_fast_line_ra,
-                                       (p_video->fast_arg | ra_bits),
-                                       (4 + n));
-  (void) memcpy(p_bytes, &p_video->fast_w1, 4);
-  if (n > 0) {
-    video_fetch_bitmap(p_video, (p_bytes + 4), p_video->fast_fetch_start, n);
+  if (p_video->fast_is_teletext) {
+    uint32_t w1 = p_video->fast_w1;
+    p_bytes = beebjit_wire_reserve_bytes(k_wire_teletext_line_ra,
+                                         (p_video->fast_arg | ra_bits),
+                                         (4 + n));
+    (void) memcpy(p_bytes, &w1, 4);
+    video_fetch_teletext(p_video, (p_bytes + 4), start, n);
+    beebjit_wire_teletext_note_run((p_bytes + 4), n, 1, (w1 & 0xFF), 0,
+                                   ((w1 >> 8) & 0xFF));
+    beebjit_wire_commit_bytes(4 + n);
+  } else {
+    p_bytes = beebjit_wire_reserve_bytes(k_wire_fast_line_ra,
+                                         (p_video->fast_arg | ra_bits),
+                                         (4 + n));
+    (void) memcpy(p_bytes, &p_video->fast_w1, 4);
+    if (n > 0) {
+      video_fetch_bitmap(p_video, (p_bytes + 4), p_video->fast_fetch_start, n);
+    }
+    beebjit_wire_commit_bytes(4 + n);
   }
-  beebjit_wire_commit_bytes(4 + n);
   /* The R1 tick, and the line's end (as video_do_fast_line()). */
   if (r9_hit) {
     p_video->address_counter_saved =
@@ -1643,6 +1868,9 @@ video_advance_crtc_timing(struct video_struct* p_video) {
   while (ticks < ticks_target) {
     int r0_hit;
     int is_odd_tick = (ticks & 1);
+#if BEEBJIT_VIDEO_FAST_RUNS
+    uint32_t fast_run;
+#endif
 
 #if BEEBJIT_VIDEO_FAST_RUNS
     if (p_video->is_rendering_active &&
@@ -1653,6 +1881,18 @@ video_advance_crtc_timing(struct video_struct* p_video) {
         render_prepare(p_video->p_render);
         is_render_prepared = 1;
       }
+#if BEEBJIT_RENDER_WIRE
+      if ((horiz_counter == 0) &&
+          ((ticks_target - ticks) >= ((uint64_t) (r0 + 1) << is_1MHz))) {
+        /* A whole ordinary line in one command (video_do_teletext_line()),
+         * then on as after a bitmap one, below.
+         */
+        fast_run = video_do_fast_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
+        if (fast_run == (uint32_t) (r0 + 1)) {
+          goto fast_line_done;
+        }
+      }
+#endif
       run = video_get_char_run_length(p_video,
                                       horiz_counter,
                                       r0,
@@ -1685,8 +1925,11 @@ video_advance_crtc_timing(struct video_struct* p_video) {
       }
       if ((horiz_counter == 0) &&
           ((ticks_target - ticks) >= ((uint64_t) (r0 + 1) << is_1MHz))) {
-        run = video_do_fast_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
-        if (run == (uint32_t) (r0 + 1)) {
+        fast_run = video_do_fast_line(p_video, r0, is_1MHz, r7_hit, r9_hit);
+        if (fast_run == (uint32_t) (r0 + 1)) {
+#if BEEBJIT_RENDER_WIRE
+        fast_line_done:
+#endif
           /* Rendered through R0: on to the rest of R0's (last) tick. */
           uint32_t i;
           for (i = 0; (i < r0) && start_of_line_state_checks; ++i) {
@@ -1816,6 +2059,7 @@ video_advance_crtc_timing(struct video_struct* p_video) {
 #endif
           goto rendered_tick;
         }
+        run = fast_run;
         if (run > 0) {
           uint32_t i;
           for (i = 0; (i < run) && start_of_line_state_checks; ++i) {
@@ -2238,6 +2482,28 @@ video_update_timer(struct video_struct* p_video) {
   clock_speed = p_video->is_ula_clock_fast;
 
   timer_value = video_calculate_timer(p_video, clock_speed);
+#if BEEBJIT_RENDER_WIRE
+  /* While a frame is being rendered, run the CRTC at least every 64
+   * scanlines (~4 ms; each run is a bounce through the interpreter and
+   * back, ~3k instructions, so not finer). Left to the vsync-to-vsync
+   * timer, a frame nothing touches is run whole at the vsync, and its lines
+   * reach the consumer in one burst; in slices they go at the beam's pace
+   * (as the host paces emulated time), which the frame lock on the panel
+   * (presto_beebjit.c) relies on, and the consumer's work is spread over the
+   * frame. In emulated time, so the output is the same on any host.
+   */
+  if (BEEBJIT_VIDEO_SLICE_LINES &&
+      p_video->is_rendering_active &&
+      (p_video->timer_fire_mode < k_video_timer_jump_to_vsync_raise)) {
+    uint64_t slice = (BEEBJIT_VIDEO_SLICE_LINES *
+                      (p_video->crtc_registers[k_crtc_reg_horiz_total] + 1));
+    slice <<= p_video->clock_tick_shift;
+    if (timer_value > slice) {
+      timer_value = slice;
+      p_video->timer_fire_mode = k_video_timer_slice;
+    }
+  }
+#endif
   if (p_video->log_timer) {
     log_do_log(k_log_video,
                k_log_info,
@@ -2418,7 +2684,18 @@ video_timer_fired(void* p) {
                p_video->vert_counter);
   }
 
-  video_check_go_active(p_video);
+  {
+    int was_active = p_video->is_rendering_active;
+    video_check_go_active(p_video);
+#if BEEBJIT_RENDER_WIRE
+    /* Now rendering: the timer, set above for not rendering, is a whole
+     * frame; re-set it for the slices.
+     */
+    if (!was_active && p_video->is_rendering_active) {
+      video_update_timer(p_video);
+    }
+#endif
+  }
 }
 
 static void
@@ -2567,7 +2844,7 @@ video_paint_timer_fired(void* p) {
   }
 }
 
-struct video_struct*
+BEEBJIT_COLD struct video_struct*
 video_create(uint8_t* p_bbc_mem,
              uint8_t* p_shadow_mem,
              int externally_clocked,
@@ -3219,6 +3496,9 @@ video_ula_write_ctrl_with_countdown(struct video_struct* p_video,
                                     uint64_t countdown) {
   struct timing_struct* p_timing = p_video->p_timing;
   (void) addr;
+  /* As video_ula_write() (the JIT's encoded callbacks come here). */
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->num_hw_writes++;
   timing_sync_countdown(p_timing, (countdown + 1));
   video_ula_write_ctrl(p_video, val);
   countdown = timing_advance_time_delta(p_timing, 1);
@@ -3232,6 +3512,8 @@ video_ula_write_palette_with_countdown(struct video_struct* p_video,
                                        uint64_t countdown) {
   struct timing_struct* p_timing = p_video->p_timing;
   (void) addr;
+  g_bbc_page_flags[k_bbc_page_flags_dirty] = k_bbc_page_flag_screen;
+  p_video->num_hw_writes++;
   timing_sync_countdown(p_timing, (countdown + 1));
   video_ula_write_palette(p_video, val);
 }

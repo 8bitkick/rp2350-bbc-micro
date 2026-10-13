@@ -123,6 +123,8 @@ target_include_directories(presto_beebjit PRIVATE
 
 target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_NO_MMU=1
+        # Set-up code tagged BEEBJIT_COLD (util.h) stays in flash (see the linker script below).
+        BEEBJIT_COLD_SECTION=1
         # The thumb2 JIT backend, and the smaller data structures it needs to fit
         # (used only in JIT mode; harmless otherwise).
         BEEBJIT_ASM_THUMB2=1
@@ -130,6 +132,7 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_DISC_COMPACT=1
         BEEBJIT_MALLOC_BIG=beebjit_embedded_malloc_big
         PRESTO_BOOT_GUARD=1 PRESTO_BOOT_GUARD_KEEP=$<BOOL:${PRESTO_BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (presto_boot.c)
+        PICO_PANIC_FUNCTION=presto_boot_panic   # an SDK panic (out of memory, hard_assert) is reported the same way
         BEEBJIT_HEADLESS=1
         BEEBJIT_MALLOC=beebjit_embedded_malloc
         BEEBJIT_REALLOC=beebjit_embedded_realloc
@@ -174,8 +177,11 @@ foreach(OBJ ${PRESTO_BEEBJIT_RAM_OBJECTS})
     string(APPEND RAM_EXCLUDES " *${OBJ}")
 endforeach()
 file(READ ${PICO_SDK_PATH}/src/rp2_common/pico_crt0/rp2350/memmap_default.ld MEMMAP)
+# newlib's memcpy / memset / memcmp / memmove are meant to be excluded too, but this toolchain
+# names them libg.a(libc_a-mem*.o), which the SDK's pattern misses: they ran from flash. And
+# set-up code in the RAM objects (BEEBJIT_COLD, section .flashtext) stays in flash.
 string(REPLACE "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*"
-        "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:${RAM_EXCLUDES}) .text*" MEMMAP_NEW "${MEMMAP}")
+        "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libg.a:*libc_a-mem*.o *libc.a:*libc_a-mem*.o *libm.a:${RAM_EXCLUDES}) .text*)\n        *(.flashtext*" MEMMAP_NEW "${MEMMAP}")
 if (MEMMAP_NEW STREQUAL MEMMAP)
     message(FATAL_ERROR "presto_beebjit: SDK linker script not as expected")
 endif()

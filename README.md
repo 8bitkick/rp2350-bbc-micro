@@ -12,8 +12,8 @@ and from a phone, tablet or laptop you can load other discs and type on a BBC ke
 
 - **Accurate:** beebjit emulates the BBC's 6502 and hardware cycle by cycle; it's the emulator the
   [BBC Micro Bot](https://www.bbcmicrobot.com/) ran on from 2020.
-- **Fast:** 7.6× real speed flat out on Elite; at real speed, core 0 is busy 13% of the time and
-  core 1 11%.
+- **Fast:** about 9× real speed flat out on Elite; at real speed, each core is busy 10% of the time.
+- **Smooth:** the panel refreshes at the BBC's own 50 Hz, locked to the emulation.
 - **Playable:** on-screen touch controls, or Pimoroni's optional
   [Qw/ST Pad](https://shop.pimoroni.com/products/qwst-pad) game controller plugged into the Presto's
   Qw/ST connector, with its buttons mapped to BBC keys (not built yet).
@@ -77,6 +77,9 @@ With an AI coding agent, the port went in stages, each one measured on the board
    in PSRAM; disc tracks built when the drive first reaches them.
 4. **Two cores:** core 0 runs the 6502 and the hardware, and sends its drawing to core 1 down a
    "render wire"; the PIO state machines scale, scan out and time the panel with no CPU help.
+5. **Smooth motion:** the panel refreshes at 50 Hz with the BBC's clock steered to it, and each frame
+   is emulated in slices that stay just ahead of the panel's scan, so the picture neither tears nor
+   repeats a frame.
 
 ### How the JIT works
 
@@ -101,35 +104,59 @@ On the RP2350:
   while the screen is static. Most pages are neither, and the check is four instructions.
 - **Self-modifying code and code that changes every time** run in beebjit's "inturbo", a generated
   interpreter with one handler per opcode, also in PSRAM.
-- **Hardware register access, BCD arithmetic, resets and interrupts** fall back to beebjit's C
-  interpreter, copied into SRAM at boot. There are no encoded callbacks on this backend yet, which
-  is where the next speed is.
+- **Hardware register accesses** at a known address are compiled into the JIT code as calls to
+  the register's own function (beebjit's "encoded callbacks"), so raster demos that hit the video
+  and VIA registers every scanline run at real speed.
+- **BCD arithmetic, resets and interrupts** fall back to beebjit's C interpreter, copied into SRAM
+  at boot.
 
 ### Agentic optimization
 
 The first JIT build ran Elite at 1.45× real speed with core 0 busy 69% of the time. The goal was
 headroom for sound, the web panel and controls, so the AI coding agent profiled the board, changed
-one thing at a time and measured it again. Twelve measured steps later, Elite runs at
-**7.6× flat out** (5.2× the first JIT build), and at real speed core 0 is busy 13% of the time and
-core 1 11%.
+one thing at a time and measured it again. Twelve measured steps later, on the first day, Elite ran
+at 7.6× flat out. Two more days of the same loop took it to **about 9× flat out** (over 6× the first
+JIT build), with each core busy about 10% of the time at real speed, and the panel locked to the
+BBC's 50 Hz for smooth motion.
 
-What still amazes me is that the port and the optimization all happened in less than a day:
+What still amazes me is that the port and the first 7.6× happened in less than a day:
 
-<img src="docs/presto/beebjit-hillclimb.svg" alt="Performance and CPU load across 12 optimization steps: throughput rising from 1.45× to 7.6× real time, and core 0's load at real speed falling from 69% to 13%.">
+<img src="docs/presto/beebjit-hillclimb.svg" alt="Performance and CPU load across 26 measured optimization steps over three days: throughput rising from 1.45× to about 9× real time, with a dip where the panel was locked to 50 Hz, and core 0's load at real speed falling from 69% to 10%.">
 
 Measured on Elite's title screen at 250 MHz. Throughput is the emulator running flat out with
 every frame drawn; load is the share of each core's time spent working at real speed. Dotted
-stretches weren't measured. (Before the JIT, beebjit's C interpreter ran the BASIC prompt at
-0.57×.)
+stretches weren't measured. The dip at the 50 Hz lock is the price of smooth motion: frames are
+emulated in slices that keep pace with the panel's scan. (Before the JIT, beebjit's C interpreter
+ran the BASIC prompt at 0.57×.)
 
 Most of the gains came from the video, not the CPU: beebjit emulates the 6845 CRTC cycle by
 cycle, which on a microcontroller costs far more than running the 6502. Two steps were about the
 JIT handling Elite's self-modifying code properly rather than about speed. The optimizations continue...
 
+Elite alone hid problems, so later steps were measured across a set of scenes (see
+[Testing](#testing)). Since v0.1:
+
+| Scene | v0.1 | Now |
+|---|---:|---:|
+| Elite, title screen | 7.7× | 9.1× |
+| Chuckie Egg, title screen | 10.9× | 23.2× |
+| Exile, in game | 6.7× | 7.8× |
+| MODE 7 BASIC prompt | 10.1× | 22.7× |
+| MODE 0 listing | 19.4× | 22.3× |
+| [Bitshifters](https://bitshifters.github.io/)' Wobble Colours | 0.7× (73% of real speed) | 3.5× |
+| Bitshifters' Bar Beeb | 0.8× (79% of real speed) | 1.7× |
+| MODE 7 scroll (`10 MODE 7 / 20 P."abc"; / 30 GOTO 20`) | 1.2×, first measured after v0.1 | 3.1× |
+| [Teletext Elite](https://elite.bbcelite.com/), title screen | not measured | 5.2× |
+
+Flat-out speed, every frame drawn; at real speed, every scene now keeps up (99–100%). The two
+demos rewrite the palette and CRTC registers mid-scanline, which v0.1 handled in the interpreter:
+compiling those register accesses into the JIT code is what brought them to real speed. The
+MODE 7 scenes gained most from a cache of teletext character runs on core 1.
+
 ### AI feedback loop
 
-Every step went round the same loop: the agent changed the code, ran the test harness (the same
-Cortex-M33 code on the Raspberry Pi and in QEMU, every frame checked against golden checksums),
+Every step went round the same loop: the agent changed the code, ran the [test harness](#testing) (the
+same Cortex-M33 code on the Raspberry Pi and in QEMU, every frame checked against golden checksums),
 then built and flashed the firmware, measured each core's load and the turbo speed over USB, and
 checked the picture two ways. A screenshot reads back the framebuffer, which is what the firmware
 meant to draw; only the panel shows what the PIO and DMA scanout actually delivers, so a webcam on
@@ -169,6 +196,39 @@ BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
+## Testing
+
+The test harness runs the firmware's own Cortex-M33 code off the board (natively on a Raspberry Pi
+5 in AArch32 mode, or in QEMU) and compares the panel image, and a checksum of every frame, against
+[`golden.txt`](src/pico/beebjit/harness/golden.txt). A change to the video, the renderer or the JIT
+isn't done until it's frame-exact. Each test runs four ways: beebjit's interpreter and the JIT,
+each drawing on one core or sending its drawing down the render wire to the other.
+
+| Test | What it validates |
+|---|---|
+| Boot | The MOS and BASIC start-up text; the MODE 7 picture |
+| BASIC over RS423 | `PRINT 6*7` answers 42; MODE 2 bars in all eight colours |
+| Teletext | Colours, double height, graphics, flashing, held graphics |
+| Teletext scroll | A scrolling screen of control codes, through the cached character runs |
+| Teletext mosaics | Contiguous and separated graphics beside text; double height on both row parities |
+| NMOS decimal mode | `ADC` / `SBC` with invalid BCD, which Exile's loader relies on |
+| Elite | Flicker-free Elite booted from disc |
+| Wobble Colours, Bar Beeb | [Bitshifters](https://bitshifters.github.io/)' raster demos: the palette and CRTC rewritten mid-scanline, every hardware register access compiled into JIT code |
+
+Elite and the demos aren't part of this repository; their tests run when the discs are in
+`discs/`. `setup.sh` fetches Elite, and `scripts/setup.sh --demos` the two demos.
+
+```sh
+src/pico/beebjit/harness/build.sh a32                       # build-a32/harness
+WIRE=1 src/pico/beebjit/harness/build.sh a32 build-a32-wire
+src/pico/beebjit/harness/tests.sh a32; JIT=1 src/pico/beebjit/harness/tests.sh a32-wire
+```
+
+On the board, `tools/scenes.py` measures a set of scenes over USB and the web panel: each core's
+load and the speed at real time, the turbo speed, and how many rows the panel would have shown
+before they were drawn. Its figures are in the table under
+[Agentic optimization](#agentic-optimization).
+
 ## Tools
 
 | Command | |
@@ -176,15 +236,14 @@ BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto
 | `presto.py shot out.png` | The framebuffer, read back as a PNG |
 | `presto.py stats` | Per-core load and emulation speed |
 | `presto.py raw turbo` | Run flat out |
+| `presto.py raw lock` | Rows drawn after the panel's scan passed them |
 | `presto.py key <sdl scancode> [ms]` | Press a BBC key |
 | `presto.py state <snapshot.json>` | Load a BBC Micro Bot snapshot |
 | `presto.py discs` / `disc <name>` / `put <file>` | The SD card's discs |
 | `presto.py wifi secrets.py` / `net` | Save the WiFi network / show the link |
 | `presto.py bootsel` | Reboot into the bootloader for flashing |
 
-The test harness runs the same Cortex-M33 code off the board (natively on a Raspberry Pi 5 in
-AArch32 mode, or in QEMU) and checks every frame of Elite against golden checksums, for the
-interpreter and the JIT. [AGENTS.md](AGENTS.md) has notes for developers and coding agents: how to
+[AGENTS.md](AGENTS.md) has notes for developers and coding agents: how to
 build and measure, where things are, and what hasn't been tried yet.
 
 ## Credits and licence

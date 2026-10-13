@@ -4,7 +4,7 @@
 # Compares the panel framebuffer (as the Presto would show it) against golden
 # checksums, so rendering changes must give identical pixels, and checks text
 # output: MOS boot, BASIC over RS423, NMOS decimal ADC/SBC edge cases.
-# GOLDEN=update rewrites harness/golden.txt.
+# GOLDEN=update rewrites harness/golden.txt (a wire build's entries end "-wire").
 # JIT=1 runs the JIT (-jit). JIT mode turns off beebjit's video memory sync
 # (see beebjit_embedded.c), so it's checked against the interpreter's results
 # without it too: NOSYNC=1 runs the interpreter that way, and
@@ -27,6 +27,9 @@ if [ "$JIT" = 1 ]; then
 elif [ "$NOSYNC" = 1 ]; then
   MODEARGS="-opt video:border-chars=0,video:no-deinterlace-bitmap,video:no-memory-sync"; SUFFIX="-nosync"
 fi
+# A wire build runs a rendered frame in slices (video.c, BEEBJIT_VIDEO_SLICE_LINES), so a frame
+# caught mid-update can differ from the other builds': its goldens are "-wire" entries.
+case "$TARGET$ELF" in *wire*) SUFFIX="$SUFFIX-wire" ;; esac
 run() { $RUN "$@" $MODEARGS; }
 
 check_text() { # name expected-substring file
@@ -73,6 +76,23 @@ run -cycles 12000000 -frame-crc -ppm "$OUT/tt.ppm" -type \
 check_image teletext "$OUT/tt.ppm"
 check_frames teletext "$OUT/tt.txt"
 
+# 2c. Teletext under load: a scrolling screen of control codes (colour, double
+#     height, graphics, flash, background), through the character-run paths.
+run -cycles 14000000 -frame-crc -ppm "$OUT/tt2.ppm" -type \
+  '10 MODE 7\n20 P.CHR$129;"abc";CHR$141;"DH";CHR$151;"#j";CHR$136;"F";CHR$157;CHR$132;"x";\n30 GOTO 20\nRUN\n' \
+  > "$OUT/tt2.txt" 2>&1
+check_image teletext-scroll "$OUT/tt2.ppm"
+check_frames teletext-scroll "$OUT/tt2.txt"
+
+# 2d. Mosaics beside text, single and double height, scrolling by one line a
+#     round so double-height pairs fall on both row parities: contiguous and
+#     separated graphics, held graphics, graphics colours, back to text.
+run -cycles 24000000 -frame-crc -ppm "$OUT/tt3.ppm" -type \
+  '10 MODE 7\n20 G$=CHR$255+CHR$53+CHR$106+CHR$127+CHR$32+CHR$63+CHR$124\n25 FOR I%=1 TO 5\n30 PRINT CHR$145;G$;CHR$135;"TEXT";CHR$146;G$\n40 PRINT CHR$154;CHR$145;G$;CHR$153;CHR$146;G$;CHR$135;"ALPHA"\n50 PRINT CHR$147;CHR$158;G$;CHR$131;CHR$148;G$;CHR$159;CHR$149;G$\n60 PRINT CHR$141;CHR$145;G$;CHR$135;"DBL";CHR$154;CHR$146;G$\n70 PRINT CHR$141;CHR$145;G$;CHR$135;"DBL";CHR$154;CHR$146;G$\n80 PRINT CHR$141;CHR$158;CHR$150;G$;CHR$131;CHR$151;G$;CHR$159;"END"\n90 PRINT CHR$141;CHR$158;CHR$150;G$;CHR$131;CHR$151;G$;CHR$159;"END"\n95 PRINT "ODD ";I%\n96 NEXT\n100 GOTO 100\nRUN\n' \
+  > "$OUT/tt3.txt" 2>&1
+check_image teletext-mosaics "$OUT/tt3.ppm"
+check_frames teletext-mosaics "$OUT/tt3.txt"
+
 # 3. NMOS decimal mode, invalid BCD included (Exile's loader relies on it):
 #    &92+&6E+C -> &67 C=1; &90+&90 -> &80 C=1; &00-&01 -> &99 C=0.
 run -cycles 16000000 -type \
@@ -86,6 +106,28 @@ if [ -f discs/elite-disc-flicker-free-sth.ssd ]; then
     -frame-crc -ppm "$OUT/elite.ppm" > "$OUT/elite.txt" 2>&1
   check_image elite "$OUT/elite.ppm"
   check_frames elite "$OUT/elite.txt"
+fi
+
+# 5. Register-heavy raster demos (Bitshifters'), if they're there: every
+#    hardware register access is compiled into JIT code (encoded callbacks).
+find_disc() {
+  for d in "discs/$1"; do
+    [ -f "$d" ] && { echo "$d"; return; }
+  done
+}
+D=$(find_disc bs-wobble-colours.ssd)
+if [ -n "$D" ]; then
+  run -disc "$D" -autoboot -cycles 30000000 -fake-time -frame-crc \
+    -ppm "$OUT/wobble.ppm" > "$OUT/wobble.txt" 2>&1
+  check_image wobble "$OUT/wobble.ppm"
+  check_frames wobble "$OUT/wobble.txt"
+fi
+D=$(find_disc bs-bar-beeb.ssd)
+if [ -n "$D" ]; then
+  run -disc "$D" -type '*RUN BARBEEB\n' -cycles 30000000 -fake-time -frame-crc \
+    -ppm "$OUT/barbeeb.ppm" > "$OUT/barbeeb.txt" 2>&1
+  check_image barbeeb "$OUT/barbeeb.ppm"
+  check_frames barbeeb "$OUT/barbeeb.txt"
 fi
 
 rm -rf "$OUT"
