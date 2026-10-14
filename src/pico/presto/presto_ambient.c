@@ -54,7 +54,7 @@ static int s_sm = -1;
 static volatile int s_mode = k_screen;
 static volatile int s_mode_before_test = k_screen;
 static volatile uint32_t s_bright = 40;     // percent
-static volatile bool s_locks_on = true;     // show CAPS LOCK and SHIFT LOCK
+static volatile bool s_locks_on = false;    // show CAPS LOCK and SHIFT LOCK (off by default)
 static volatile uint8_t s_locks;            // bit 0 CAPS LOCK, 1 SHIFT LOCK lit
 static volatile uint32_t s_frames;          // core 0's frame count
 static uint32_t s_updated_frames;           // at core 1's last update
