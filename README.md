@@ -19,8 +19,8 @@ All captured on the Presto, from the panel itself (`tools/presto.py shot`):
 |---|---|---|
 | ![Stunt Car Racer](docs/shot-scr.png) | ![Elite](docs/shot-elite.png) | ![Prince of Persia](docs/shot-pop.png) |
 | Stunt Car Racer, racing | Elite (flicker-free, Master), title | Prince of Persia |
-| ![Twisted Brain](docs/shot-tw.png) | ![Evil Influences](docs/shot-ev.png) | |
-| Twisted Brain | Evil Influences, late part | |
+| ![Twisted Brain](docs/shot-tw.png) | ![Evil Influences](docs/shot-ev.png) | ![Arcadians](docs/shot-arc.png) |
+| Twisted Brain | Evil Influences, late part | Arcadians, in play |
 
 On the board at 250 MHz. Speed is against a real Master: 100.0% is real time. Turbo is the
 same run with the throttle off, so it shows how much headroom is left.
@@ -32,8 +32,9 @@ same run with the throttle off, so it shows how much headroom is left.
 | Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.91× | 50% / 33% |
 | Twisted Brain (demo) | per-scanline raster effects | 100% | 1.27–1.58× (varies by part) | 54% / 34% |
 | Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **60%** | — | 98% / 49% |
+| Arcadians | software sprites: the convoy, divers, shots, all drawn by the CPU | 100% | 2.39× | 43% / 45% |
 
-- **Four of the five run in real time with room to spare.** The fifth, the late part of Evil
+- **Five of the six run in real time with room to spare.** The other, the late part of Evil
   Influences, reprograms the 6845 CRTC about a thousand times a frame in mini-frames a few
   scanlines tall. It runs at 60% of real speed here, held by core 0. The emulator doesn't keep up there on the hardware it
   was written for either.
@@ -80,7 +81,7 @@ scripts/setup.sh --disc=pop-beeb.ssd  # or another disc in discs/
 ```
 
 It fetches the pinned Arm toolchain and Pico SDK into `deps/`, the MOS 3.20 ROMs (from beebjit's
-ROM set) into `roms/`, and the five discs above into `discs/`. None of them are in this
+ROM set) into `roms/`, and the six discs above into `discs/`. None of them are in this
 repository. Then hold BOOT and tap RESET on the Presto, and copy `build/presto_master.uf2` to
 the RP2350 drive (or add `--flash`). After that, `python3 tools/presto.py bootsel` gets to the
 bootloader without the buttons.
@@ -115,7 +116,8 @@ reset), so a BASIC program in memory does not survive it.
 every 250 frames), `turbo`, `shot out.png`, `key <scancode> [ms]`, `bootsel`. The figures above
 come from one run per disc. SPACE, SPACE, RETURN at 43, 49 and 55 s after flashing get each game
 going; Stunt Car Racer takes five more RETURNs (Practise, Division 4, the Little Ramp, start)
-to reach the track. Speed is read at 100 s (135 s for Stunt Car), turbo 20 s later.
+to reach the track. Arcadians takes SPACE at 31 and 41 s and 1 at 57 s (its two instruction pages,
+then a one-player game), and is measured at 70 s, turbo at 80 s, while the game is still on. Speed is read at 100 s (135 s for Stunt Car), turbo 20 s later.
 
 ## History: beebjit on the Master first
 
