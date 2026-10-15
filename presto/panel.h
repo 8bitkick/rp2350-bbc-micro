@@ -9,7 +9,7 @@
 void panel_lcd_init(void);
 // The renderer's power-on state.
 void panel_init(void);
-// Core 1: renders everything in the stream so far.
+// Core 1: renders what is in the stream now (not what arrives meanwhile).
 void panel_consume(struct vstream *vs);
 // Core 0: writes "SHOT 480 480" and the panel's rows as RGB565 to stdout (as
 // they are, so a row core 1 is drawing may be half new).

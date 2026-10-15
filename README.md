@@ -27,15 +27,15 @@ same run with the throttle off, so it shows how much headroom is left.
 
 | Disc | What makes it hard | Speed | Turbo | Core 0 / core 1 at real speed |
 |---|---|---|---|---|
-| Stunt Car Racer, racing | 3D, sideways-RAM bank calls thousands of times a second | 100% | 1.70× | 57% / 37% |
-| Elite (flicker-free, Master) | shadow RAM switched around every line it plots | 100% | 1.92× | 50% / 42% |
-| Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.60× | 61% / 39% |
-| Twisted Brain (demo) | per-scanline raster effects | 100% | 1.05–1.42× (varies by part) | 65% / 42% |
-| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **56%** | — | 98% / 76% |
+| Stunt Car Racer, racing | 3D, sideways-RAM bank calls thousands of times a second | 100% | 2.03× | 47% / 37% |
+| Elite (flicker-free, Master) | shadow RAM switched around every line it plots | 100% | 2.33× (core 1 is the limit) | 39% / 42% |
+| Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.90× | 50% / 39% |
+| Twisted Brain (demo) | per-scanline raster effects | 100% | 1.07–1.42× (varies by part) | 54% / 42% |
+| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **59%** | — | 98% / 80% |
 
 - **Four of the five run in real time with room to spare.** The fifth, the late part of Evil
   Influences, reprograms the 6845 CRTC about a thousand times a frame in mini-frames a few
-  scanlines tall. It runs at 56% of real speed here. The emulator doesn't keep up there on the hardware it
+  scanlines tall. It runs at 59% of real speed here. The emulator doesn't keep up there on the hardware it
   was written for either.
 - **About 160 KB of the 520 KB of SRAM is free.** That's room for sound, a disc menu, or an SD
   card, without taking anything out.
@@ -52,10 +52,18 @@ same run with the throttle off, so it shows how much headroom is left.
 - **Memory:** the hot code, the CPU's tables, MOS and DFS in SRAM. The other ROMs, sideways RAM
   and the disc's track data in PSRAM. The disc image itself in flash.
 
-`core/` is Kieran's core, unmodified, from
-[his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230). `presto/` is the port:
-`main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the two halves, built to
-run from SRAM), and the panel and PSRAM drivers.
+`core/` is Kieran's core from [his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230),
+with two changes, each checked to give identical pictures on all five discs:
+
+- **A hang after 35.8 minutes fixed.** Two places counted the VIAs' 1 MHz ticks by shifting the
+  absolute cycle count, which went wrong when the 32-bit count wrapped at 2^32 cycles. They now
+  count from the chunk length. (`machine.c`)
+- **The CPU's registers and flags kept as 32-bit fields.** Byte-sized fields cost the M33 a
+  bit-field insert at every write. This took core 0's load at real speed down by about 10 points
+  on every disc, and turbo up by about a fifth. (`cpu6502.h`, `cpu6502.c`)
+
+`presto/` is the port: `main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the
+two halves, built to run from SRAM), and the panel and PSRAM drivers.
 
 ## Build and flash
 
@@ -110,12 +118,10 @@ them in upstream beebjit (decimal mode after SED/PLP in a JIT block).
   interpreter callbacks, and video timing on core 0. The beebjit Master build had 29 KB of
   SRAM free, so every further speed-up had to take something else out first.
 
-Kieran's emulator, ported in an afternoon, was faster on four of the five discs straight away,
-with five times the free SRAM. Flat out (turbo), with the line at real time:
+Kieran's emulator, ported in an afternoon and still unmodified, was faster on four of the five
+discs straight away, with five times the free SRAM:
 
-![turbo: beebjit vs Kieran Connell's emulator](docs/turbo-compare.png)
-
-| Disc | beebjit Master: speed / turbo | Kieran Connell's emulator: speed / turbo |
+| Disc | beebjit Master: speed / turbo | Kieran Connell's emulator as first ported: speed / turbo |
 |---|---|---|
 | Stunt Car Racer, racing | 100% / 1.09× | 100% / **1.70×** |
 | Elite | 100% / **2.56×** | 100% / 1.92× |
@@ -123,6 +129,11 @@ with five times the free SRAM. Flat out (turbo), with the line at real time:
 | Twisted Brain | 100% / 1.17–1.27× | 100% / **1.05–1.42×** |
 | Evil Influences, late part | 44% | **56%** |
 | SRAM free | 29 KB | **~160 KB** |
+
+Flat out (turbo) as it is now, with the two changes above, against beebjit (the line is real
+time):
+
+![turbo: beebjit vs Kieran Connell's emulator](docs/turbo-compare.png)
 
 **Why we stopped:** the JIT pays off when a program runs the same code for a long time in
 memory that stays put. That's most Model B software, which is why `main` stays on beebjit. Master

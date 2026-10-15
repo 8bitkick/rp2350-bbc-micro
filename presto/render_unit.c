@@ -148,11 +148,14 @@ void panel_init(void)
 void panel_consume(struct vstream *vs)
 {
     struct render *r = &s_render;
-    while (vs_available(vs) > 0) {
+    // Only what is there now, so that a producer that keeps the ring full
+    // (turbo) still lets the caller count core 1's busy time.
+    uint32_t end = vs->head;
+    while ((int32_t)(end - vs->tail) > 0) {
         uint16_t w = vs->ring[vs->tail & (VS_RING - 1)];
         if (!(w & VS_EVENT)) {
             int n = 0;
-            int avail = vs_available(vs);
+            int avail = (int)(end - vs->tail);
             while (n < avail && !(vs->ring[(vs->tail + n) & (VS_RING - 1)] & VS_EVENT)) {
                 n++;
             }
