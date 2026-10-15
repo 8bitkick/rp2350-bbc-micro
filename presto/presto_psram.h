@@ -12,6 +12,8 @@ extern "C" {
 size_t presto_psram_init(void);
 size_t presto_psram_size(void);
 uint8_t *presto_psram(void);    // its start, or NULL
+// where disc images from the card or the web arrive (PRESTO_DISC_MAX bytes; presto_machine.c)
+uint8_t *presto_disc_ram(void);
 
 
 #ifdef __cplusplus

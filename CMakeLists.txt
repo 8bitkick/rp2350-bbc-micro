@@ -33,14 +33,30 @@ add_executable(presto_master
         ${EMBED_C}
         ${PRESTO_DIR}/presto_lcd.c
         ${PRESTO_DIR}/presto_psram.c
+        ${PRESTO_DIR}/presto_machine.c
+        ${PRESTO_DIR}/presto_net.c
+        ${PRESTO_DIR}/presto_sd.c
+        ${PRESTO_DIR}/fatfs/ff.c
+        ${PRESTO_DIR}/fatfs/ffunicode.c
         )
+# The web panel's page, gzipped into flash.
+set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
+add_custom_command(OUTPUT ${WEB_C}
+        COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/tools/embed_web.py ${PRESTO_DIR}/web/index.html ${WEB_C}
+        DEPENDS ${PRESTO_DIR}/web/index.html ${CMAKE_CURRENT_LIST_DIR}/tools/embed_web.py)
+target_sources(presto_master PRIVATE ${WEB_C})
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_parallel.pio)
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_timing.pio)
-target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${CMAKE_CURRENT_LIST_DIR}/core)
+target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${PRESTO_DIR}/fatfs ${CMAKE_CURRENT_LIST_DIR}/core)
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
 set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 KB; 8 KB slowed Evil Influences 56 -> 51%")
-target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING})
-target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma hardware_pwm hardware_spi)
+target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
+        PRESTO_DISC_STAGE_OFFSET=0  # a disc is expanded into track data as it goes in (presto_machine.c)
+        CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
+target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma hardware_pwm hardware_spi
+        hardware_adc hardware_flash pico_flash
+        pico_cyw43_arch_lwip_poll   # WiFi, polled from core 0 (presto_net.c)
+        pico_lwip_mdns)
 
 # The machine and the renderer run from SRAM: the SDK's linker script keeps in flash what
 # it doesn't exclude; exclude these objects (and newlib's mem* functions, which this

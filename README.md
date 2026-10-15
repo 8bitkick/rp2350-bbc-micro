@@ -37,8 +37,8 @@ same run with the throttle off, so it shows how much headroom is left.
   Influences, reprograms the 6845 CRTC about a thousand times a frame in mini-frames a few
   scanlines tall. It runs at 60% of real speed here, held by core 0. The emulator doesn't keep up there on the hardware it
   was written for either.
-- **About 150 KB of the 520 KB of SRAM is free.** That's room for a disc menu, an SD card or
-  touch controls, without taking anything out.
+- **About 115 KB of the 520 KB of SRAM is still free** with WiFi and the web panel running (below),
+  and they cost no measurable speed.
 
 ## How it runs on the Presto
 
@@ -87,6 +87,27 @@ bootloader without the buttons.
 
 To rebuild by hand: `. deps/env.sh`, then
 `cmake -S . -B build -G Ninja -DBEEB_DISC=discs/<disc>.ssd && ninja -C build`.
+
+## Web panel
+
+Give the Presto your WiFi network once over USB (a Pimoroni-style `secrets.py` with `WIFI_SSID`
+and `WIFI_PASSWORD`), and it restarts and joins it:
+
+```
+python3 tools/presto.py wifi secrets.py
+```
+
+Then open **http://beeb.local/** (or its address, from `python3 tools/presto.py net`). The panel
+has a BBC keyboard (or uses your own keyboard's keys, by position), BREAK and SHIFT+BREAK, turbo,
+the speed and both cores' load, and loading discs: drop or choose a `.ssd`, `.dsd` or `.zip`, give
+it a link to one, or pick one from the SD card. A disc boots at once (a reset with SHIFT held);
+"Eject" goes back to the one built into the firmware. Behind it is a small JSON API
+(`/api/status`, `/api/keys`, `/api/disc`, `/api/eject`, ...; see `presto/presto_net.c`).
+
+The network is polled on core 0 in the gaps between the machine's runs, and requests act between
+frames, so nothing races the emulation. Over USB the same things are `presto.py discs`, `disc`
+and `put`. One difference from a real Master: BREAK is a power-on reset (the core has no warm
+reset), so a BASIC program in memory does not survive it.
 
 ## Measuring
 
@@ -158,6 +179,8 @@ leaves room for the next things (sound first).
   covered by this licence).
 - The teletext character set in `core/teletext_glyphs.h` is from
   [B-em](https://github.com/stardot/b-em) by Sarah Walker and others.
+- The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`presto/fatfs`, its
+  own licence); the network is the Pico SDK's lwIP and CYW43 driver.
 - The panel driver is adapted from Pimoroni's MIT-licensed
   [Presto ST7701 driver](https://github.com/pimoroni/presto).
 - The discs: [bitshifters](https://bitshifters.github.io/) (Prince of Persia, Stunt Car Racer,

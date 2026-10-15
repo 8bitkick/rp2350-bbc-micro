@@ -14,6 +14,15 @@
 //   !bootsel                   reboot to the USB bootloader
 //   !turbo                     toggle turbo: no waiting for real time (every
 //                              frame still drawn)
+//   !wifi <ssid> <password>    save the WiFi network (a quoted ssid may have
+//                              spaces) and restart to join it
+//   !net                       the WiFi link and address
+//   !discs                     the .ssd/.dsd images on the SD card
+//   !disc [name]               boot a disc from the card (no name: the
+//                              built-in one)
+//   !put <name> <size>         receive a disc image and write it to the card
+//
+// The web panel (presto_net.c) at http://beeb.local/ once on WiFi.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +30,7 @@
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
 #include "pico/bootrom.h"
+#include "pico/flash.h"
 #include "hardware/clocks.h"
 #include "hardware/vreg.h"
 #include "hardware/structs/qmi.h"
@@ -28,6 +38,10 @@
 
 #include "presto_lcd.h"
 #include "presto_psram.h"
+#include "presto_machine.h"
+#include "presto_main.h"
+#include "presto_net.h"
+#include "presto_sd.h"
 
 #include "machine.h"
 #include "disc.h"
@@ -73,6 +87,8 @@ static volatile uint64_t s_core1_busy_us;
 
 static void __not_in_flash_func(core1_main)(void)
 {
+    // Core 0 parks this core while it writes the flash (saving the WiFi).
+    flash_safe_execute_core_init();
     for (;;) {
         if (vs_available(&s_stream) == 0) {
             __wfe();
@@ -120,6 +136,44 @@ static uint32_t s_core0_pct, s_core1_pct, s_speed_permille;
 static uint32_t s_frames;
 static bool s_turbo;
 static bool s_turbo_ended;
+static bool s_was_reset;
+
+// For the web panel (presto_machine.h).
+bool presto_turbo_get(void)
+{
+    return s_turbo;
+}
+
+void presto_turbo_set(bool on)
+{
+    if (s_turbo && !on) {
+        s_turbo_ended = true;
+    }
+    s_turbo = on;
+}
+
+bool presto_overlay_get(void)
+{
+    return false;   // no load display on the panel in this build
+}
+
+void presto_overlay_set(bool on)
+{
+    (void)on;
+}
+
+void presto_perf_get(uint *core0, uint *core1, uint *speed)
+{
+    *core0 = s_core0_pct;
+    *core1 = s_core1_pct;
+    *speed = (s_speed_permille + 5) / 10;
+}
+
+void main_machine_was_reset(void)
+{
+    panel_machine_reset(&s_stream);
+    s_was_reset = true;
+}
 
 static void print_stats(void)
 {
@@ -134,9 +188,22 @@ static void run_command(const char *cmd)
     if (!strcmp(cmd, "stats")) {
         print_stats();
     } else if (!strcmp(cmd, "turbo")) {
-        s_turbo = !s_turbo;
-        s_turbo_ended = !s_turbo;
+        presto_turbo_set(!s_turbo);
         printf("TURBO %s\n", s_turbo ? "on" : "off");
+    } else if (!strncmp(cmd, "wifi ", 5)) {
+        presto_net_set_wifi(cmd + 5);
+    } else if (!strcmp(cmd, "net")) {
+        presto_net_print_status();
+    } else if (!strcmp(cmd, "discs")) {
+        presto_sd_list_discs();
+    } else if (!strcmp(cmd, "disc")) {
+        presto_sd_eject_disc();
+    } else if (!strncmp(cmd, "disc ", 5)) {
+        if (!presto_sd_load_disc(cmd + 5)) {
+            printf("DISC error: %s not loaded\n", cmd + 5);
+        }
+    } else if (!strncmp(cmd, "put ", 4)) {
+        presto_sd_put(cmd + 4);
     } else if (!strcmp(cmd, "shot")) {
         panel_shot();
     } else if (!strcmp(cmd, "bootsel")) {
@@ -150,7 +217,7 @@ static void run_command(const char *cmd)
 
 static void usb_poll(struct machine *m)
 {
-    static char s_cmd[64];
+    static char s_cmd[128];
     static int s_cmd_len = -1;
     static int s_key_state;
     int c;
@@ -205,16 +272,16 @@ static void run(void)
     m->vs = &s_stream;
     panel_init();
     machine_reset(m);
-    static struct disc disc0;
-    uint32_t *pulses = psram_alloc((size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
-    disc_init(&disc0, pulses, 1, 0);
-    disc_load_ssd(&disc0, disc_image, disc_image_size);
-    machine_set_disc(m, 0, &disc0);
-    machine_autoboot(m);
-    printf("# BBC Master on Presto: %lu MHz, machine %u bytes, free heap from %p\n",
-           (unsigned long)(clock_get_hz(clk_sys) / 1000000), (unsigned)sizeof *m, malloc(4));
-
+    // Drive 0's track data (two sides, for .dsd images) and where disc
+    // images from the card or the web arrive.
+    uint32_t *pulses = psram_alloc(2 * (size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
+    uint8_t *disc_ram = psram_alloc(PRESTO_DISC_MAX);
     multicore_launch_core1(core1_main);
+    presto_machine_init(m, pulses, disc_ram, disc_image, disc_image_size);
+    machine_autoboot(m);
+    s_was_reset = false;
+    printf("# BBC Master on Presto: %lu MHz, machine %u bytes, free heap from %p, PSRAM to %p\n",
+           (unsigned long)(clock_get_hz(clk_sys) / 1000000), (unsigned)sizeof *m, malloc(4), s_psram_next);
 
     uint64_t t0 = time_us_64();
     uint64_t next_frame = 40000;
@@ -222,6 +289,16 @@ static void run(void)
     uint64_t busy = 0;
     for (;;) {
         uint64_t now = time_us_64();
+        if (s_was_reset) {
+            // The cycle count started again: real time from here.
+            s_was_reset = false;
+            t0 = now;
+            next_frame = 40000;
+            stat_t = now;
+            stat_busy = busy;
+            stat_cycles = 0;
+            stat_core1 = s_core1_busy_us;
+        }
         if (s_turbo_ended) {
             // Real time from here: no catching up the time turbo ran ahead.
             s_turbo_ended = false;
@@ -230,6 +307,7 @@ static void run(void)
         uint64_t due = s_turbo ? (m->cpu.cycles + 40000) : (now - t0) * 2;   // 2 MHz
         if (m->cpu.cycles >= due) {
             usb_poll(m);
+            presto_machine_poll();
             sleep_us(100);
             continue;
         }
@@ -250,6 +328,7 @@ static void run(void)
         machine_run(m, target);
         busy += time_us_64() - b0;
         __sev();
+        bool new_frame = m->cpu.cycles >= next_frame;
         while (m->cpu.cycles >= next_frame) {
             next_frame += 40000;
             s_frames++;
@@ -270,6 +349,10 @@ static void run(void)
             }
         }
         usb_poll(m);
+        presto_machine_poll();
+        if (new_frame) {
+            presto_machine_frame();   // may reset the machine (s_was_reset)
+        }
     }
 }
 
@@ -279,6 +362,11 @@ int main(void)
     vreg_set_voltage(VREG_VOLTAGE_1_25);
     set_sys_clock_khz(250000, true);
     stdio_init_all();
+    // The piezo's MOSFET (GPIO 43): driven off. Left floating it picks up
+    // the WiFi chip's activity and buzzes.
+    gpio_init(43);
+    gpio_set_dir(43, GPIO_OUT);
+    gpio_put(43, 0);
     presto_psram_init();
     panel_lcd_init();
     run();

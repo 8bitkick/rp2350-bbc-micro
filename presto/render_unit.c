@@ -12,6 +12,7 @@
 #include "pico/stdio_usb.h"
 
 #include "pico.h"
+#include "hardware/sync.h"
 #include "presto_lcd.h"
 
 #define RENDER_INDEXED 1
@@ -160,9 +161,33 @@ void panel_init(void)
     panel_palette(&s_render);
 }
 
+// A machine reset (core 0) at stream position s_reset_mark: the renderer
+// starts again from its power-on state when it gets there, as the machine
+// did (a reset puts the video ULA back without a stream event, and a
+// renderer left in the old mode can stall on the new stream).
+static volatile uint32_t s_reset_mark;
+static volatile bool s_reset_pending;
+
+void panel_machine_reset(struct vstream *vs)
+{
+    s_reset_mark = vs->head;
+    __dmb();
+    s_reset_pending = true;
+}
+
 void panel_consume(struct vstream *vs)
 {
     struct render *r = &s_render;
+    if (s_reset_pending) {
+        __dmb();
+        int32_t before = (int32_t)(s_reset_mark - vs->tail);
+        if (before > 0) {
+            render_consume_n(r, vs, before);
+        }
+        render_init(r, NULL);
+        panel_palette(r);
+        s_reset_pending = false;
+    }
     // Only what is there now, so that a producer that keeps the ring full
     // (turbo) still lets the caller count core 1's busy time.
     // render_consume_n takes events in its stride, so no scan ahead for them.
