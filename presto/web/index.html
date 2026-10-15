@@ -57,17 +57,18 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 .empty { color: var(--muted); font-size: 14px; padding: 6px 8px; }
 /* the keyboard */
 #kbwrap { overflow-x: auto; }
-/* a grid of quarter keys, 16.75 keys wide: the key positions of a Model B (from the xr.bbcmic.ro model) */
-#kbcase { background: var(--bbc-case); border-radius: 12px; padding: 12px; min-width: 664px; }
+/* a grid of quarter keys, 21.5 keys wide: a Master 128's main keys (placed as on the BBC's case, from
+   the xr.bbcmic.ro model) and, to their right, its numeric keypad */
+#kbcase { background: var(--bbc-case); border-radius: 12px; padding: 12px; min-width: 852px; }
 #kb { background: var(--bbc-inlay); border-radius: 6px; padding: 10px; user-select: none; -webkit-user-select: none; touch-action: manipulation;
-      display: grid; grid-template-columns: repeat(67, 1fr); grid-auto-rows: 40px; gap: 4px 0; }
+      display: grid; grid-template-columns: repeat(86, 1fr); grid-auto-rows: 40px; gap: 4px 0; }
 #kb .frow { margin-bottom: 8px; }
 .k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 0 2px; font-size: 12px; line-height: 1.1; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; box-shadow: 0 2px 0 rgba(0,0,0,.45); white-space: pre-line; }
 .k.f { background: var(--bbc-fkey); }
 .k.b { background: var(--bbc-break); font-size: 10px; }
 .k.c { font-size: 10px; letter-spacing: .03em; }
 .k.a { background: var(--bbc-cursor); }
-/* the LEDs, as on a Model B: a row of three left of the space bar */
+/* the CAPS LOCK and SHIFT LOCK LEDs, left of the space bar */
 #leds { grid-row: 6; grid-column: 2 / span 12; display: flex; justify-content: space-around; align-items: center; }
 #leds div { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 8px; line-height: 1; color: var(--bbc-legend); letter-spacing: .05em; text-align: center; white-space: pre-line; }
 .led { width: 8px; height: 8px; border-radius: 50%; background: #4a1810; box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
@@ -121,17 +122,19 @@ const $ = id => document.getElementById(id);
 // --- keys, by their place in the BBC's keyboard matrix: row << 4 | column (hex)
 // [label, code, width in keys, class]: f function (red), b BREAK, c control (smaller legend), a cursor
 // keys and COPY (grey); a null code is a gap.
-// Positions as on a Model B, measured from the xr.bbcmic.ro model and rounded to quarter keys: the
-// red keys start 1.2 keys right of 1, with BREAK straight after f9; rows step in by 0.55, 0.73, 1.22.
+// The main keys sit as on the BBC's case, measured from the xr.bbcmic.ro model and rounded to
+// quarter keys: the red keys start 1.2 keys right of 1, with BREAK straight after f9; rows step in
+// by 0.55, 0.73, 1.22. The Master's numeric keypad is on the right, from 17.5 keys in: its keys are
+// matrix columns 10-12 (the Master's INKEY table: keypad 0 is &6A, RETURN &3C).
 const SHIFT = 0x00, CTRL = 0x01, BREAK = 'b';
 const F = 'f', C = 'c', B = 'b', A = 'a';
 const ROWS = [
   [['',null,2.5],['f0',0x20,1,F],['f1',0x71,1,F],['f2',0x72,1,F],['f3',0x73,1,F],['f4',0x14,1,F],['f5',0x74,1,F],['f6',0x75,1,F],['f7',0x16,1,F],['f8',0x76,1,F],['f9',0x77,1,F],['BREAK',BREAK,1,B]],
-  [['',null,.25],['ESC',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A]],
-  [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['↑',0x39,1,A],['↓',0x29,1,A]],
-  [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,1.75,C]],
-  [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.5,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.5,C],['DELETE',0x59,1,C],['COPY',0x69,1,A]],
-  [['',null,3.5],['',0x62,8]],
+  [['',null,.25],['ESC',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A],['',null,1.25],['+',0x3a],['-',0x3b],['/',0x4a],['*',0x5b]],
+  [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['↑',0x39,1,A],['↓',0x29,1,A],['',null,.75],['7',0x1b],['8',0x2a],['9',0x2b],['#',0x5a]],
+  [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,1.75,C],['',null,1.75],['4',0x7a],['5',0x7b],['6',0x1a],['DEL',0x4b,1,C]],
+  [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.5,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.5,C],['DELETE',0x59,1,C],['COPY',0x69,1,A],['',null,1.5],['1',0x6b],['2',0x7c],['3',0x6c],[',',0x5c]],
+  [['',null,3.5],['',0x62,8],['',null,6],['0',0x6a],['.',0x4c],['RETURN',0x3c,2,C]],
 ];
 const hex = c => c.toString(16);
 const down = c => c === BREAK ? 'b' : 'd' + hex(c), up = c => c === BREAK ? '' : 'u' + hex(c);
@@ -165,7 +168,7 @@ const kb = $('kb');
 const ledEls = {};
 const ledRow = document.createElement('div');
 ledRow.id = 'leds';
-for (const [bit, name] of [[4, 'CASSETTE\nMOTOR'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']]) {
+for (const [bit, name] of [[1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']]) {
   const d = document.createElement('div');
   const led = document.createElement('span');
   led.className = 'led';
@@ -217,7 +220,11 @@ const PC = {Escape: 0x70, Digit1: 0x30, Digit2: 0x31, Digit3: 0x11, Digit4: 0x12
   ShiftRight: SHIFT, KeyZ: 0x61, KeyX: 0x42, KeyC: 0x52, KeyV: 0x63, KeyB: 0x64, KeyN: 0x55, KeyM: 0x65,
   Comma: 0x66, Period: 0x67, Slash: 0x68, Backspace: 0x59, Delete: 0x59, End: 0x69, Space: 0x62,
   ArrowLeft: 0x19, ArrowRight: 0x79, ArrowUp: 0x39, ArrowDown: 0x29,
-  F1: 0x20, F2: 0x71, F3: 0x72, F4: 0x73, F5: 0x14, F6: 0x74, F7: 0x75, F8: 0x16, F9: 0x76, F10: 0x77, F12: BREAK};
+  F1: 0x20, F2: 0x71, F3: 0x72, F4: 0x73, F5: 0x14, F6: 0x74, F7: 0x75, F8: 0x16, F9: 0x76, F10: 0x77, F12: BREAK,
+  // the numeric keypad onto the Master's
+  Numpad0: 0x6a, Numpad1: 0x6b, Numpad2: 0x7c, Numpad3: 0x6c, Numpad4: 0x7a, Numpad5: 0x7b, Numpad6: 0x1a,
+  Numpad7: 0x1b, Numpad8: 0x2a, Numpad9: 0x2b, NumpadAdd: 0x3a, NumpadSubtract: 0x3b, NumpadDivide: 0x4a,
+  NumpadMultiply: 0x5b, NumpadDecimal: 0x4c, NumpadComma: 0x5c, NumpadEnter: 0x3c, NumLock: 0x5a};
 let capturing = false;
 const held = new Set();
 function flash(code, on) {
