@@ -69,12 +69,12 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
    slash drawn over it (.z). */
 @font-face { font-family: "Open Gorton"; font-weight: 400; src: url(fonts/OpenGorton-Regular.otf) format("opentype"); }
 @font-face { font-family: "Open Gorton"; font-weight: 700; src: url(fonts/OpenGorton-Bold.otf) format("opentype"); }
-/* a keycap: the legend sits on the top face, the darker skirt below it, as on the BBC's keys */
-.k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 2px 2px 11px; font: 400 14px/1.05 "Open Gorton", "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; box-shadow: inset 0 -9px 0 rgba(0,0,0,.42), 0 2px 0 rgba(0,0,0,.5); white-space: pre-line; }
+/* a key: flat, the legend centred */
+.k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 0 2px; font: 400 14px/1.05 "Open Gorton", "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; white-space: pre-line; }
 .k.f { background: var(--bbc-fkey); font-style: italic; }
 .k.b { background: var(--bbc-break); font-size: 8px; font-weight: 700; letter-spacing: .04em; }
 .k.c { font-size: 8px; font-weight: 700; letter-spacing: .04em; }
-.k.z::after { content: ""; position: absolute; width: 1.5px; height: 13px; background: var(--bbc-legend); transform: translateY(-1px) rotate(32deg); }
+.k.z::after { content: ""; position: absolute; width: 1.5px; height: 13px; background: var(--bbc-legend); transform: rotate(32deg); }
 .k { position: relative; }
 .k.a { background: var(--bbc-cursor); }
 /* POWER ON, CAPS LOCK and SHIFT LOCK: three LEDs at the left of the function keys */
@@ -82,7 +82,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #leds div { display: flex; flex-direction: column-reverse; align-items: center; gap: 4px; font-size: 7px; line-height: 1; color: var(--bbc-legend); letter-spacing: .05em; text-align: center; white-space: pre-line; }
 .led { width: 8px; height: 8px; border-radius: 50%; background: #4a1810; box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
 .led.on { background: #ff3b22; box-shadow: 0 0 6px 1px rgba(255,70,40,.8); }
-.k.down { transform: translateY(2px); box-shadow: none; filter: brightness(1.6); }
+.k.down { filter: brightness(1.6); }
 .k.latched { outline: 2px solid var(--accent); outline-offset: 1px; }
 #capture.active { border-color: var(--accent); }
 </style>
