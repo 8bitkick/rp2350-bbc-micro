@@ -7,6 +7,12 @@ serial device, or PRESTO_PORT). None of this is needed to use the Presto; it's f
   presto.py shot out.png           screenshot of the panel (480x480, as shown)
   presto.py key <sdl_scancode> [ms]   press a key (40 RETURN, 44 SPACE, 4-29 A-Z, 30-39 1-0)
   presto.py bootsel                reboot into the USB bootloader, ready for a new .uf2
+  presto.py wifi <secrets.py>      save the WiFi network (Pimoroni's WIFI_SSID / WIFI_PASSWORD) and
+                                   restart; the web panel is then at http://beeb.local/
+  presto.py net                    the WiFi link and address
+  presto.py discs                  the .ssd/.dsd images on the SD card
+  presto.py disc [name]            boot a disc from the card (no name: the built-in disc)
+  presto.py put <file.ssd> [name]  write a disc image to the card
 """
 import glob, os, struct, sys, time, zlib
 import serial
@@ -69,6 +75,52 @@ def main():
             data += chunk
         write_png(a[1], w, h, struct.unpack('<%dH' % (w * h), data))
         print('saved', a[1])
+    elif a[0] == 'wifi':
+        # read Pimoroni's secrets.py without running it; never echo the password
+        import ast
+        vals = {}
+        for node in ast.parse(open(a[1]).read()).body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+                for t in node.targets:
+                    if isinstance(t, ast.Name):
+                        vals[t.id] = node.value.value
+        ssid, pw = vals.get('WIFI_SSID', ''), vals.get('WIFI_PASSWORD', '')
+        if not ssid:
+            sys.exit('no WIFI_SSID in ' + a[1])
+        command(s, 'wifi "%s" %s' % (ssid, pw))
+        print(readline_prefix(s, 'WIFI'))
+    elif a[0] == 'net':
+        command(s, 'net')
+        print(readline_prefix(s, 'NET'))
+    elif a[0] == 'discs':
+        command(s, 'discs')
+        while True:
+            line = s.readline().decode().strip()
+            if not line:
+                raise TimeoutError('no reply')
+            print(line)
+            if line.startswith('DISCS'):
+                break
+    elif a[0] == 'disc':
+        s.timeout = 15
+        command(s, ('disc ' + ' '.join(a[1:])) if len(a) > 1 else 'disc')   # no name: the built-in disc
+        print(readline_prefix(s, 'DISC'))
+    elif a[0] == 'put':
+        data = open(a[1], 'rb').read()
+        name = a[2] if len(a) > 2 else os.path.basename(a[1])
+        s.timeout = 10
+        command(s, 'put %s %d' % (name, len(data)))
+        reply = readline_prefix(s, 'PUT')
+        if reply != 'PUT ready':
+            sys.exit(reply)
+        for i in range(0, len(data), 4096):
+            s.write(data[i:i + 4096])
+        s.timeout = 30
+        reply = readline_prefix(s, 'PUT')
+        print(reply)
+        want = '%08x' % (zlib.crc32(data) & 0xffffffff)
+        if not reply.startswith('PUT ok') or reply.split()[-1] != want:
+            sys.exit('upload failed or corrupted (expected crc %s)' % want)
     elif a[0] == 'key':
         sc, ms = int(a[1]), int(a[2]) if len(a) > 2 else 100
         s.write(bytes([0x1a, 0, sc])); time.sleep(ms / 1000); s.write(bytes([0x1a, 1, sc]))
