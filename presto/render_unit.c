@@ -79,6 +79,20 @@ static void panel_frame_done(void)
     s_frame++;
 }
 
+// Picture pixels [p0, p1) into a panel row one at a time (of each 4, 0-2).
+static inline void panel_emit_pixels(uint32_t *out, const render_px *px, const uint8_t *code,
+                                     int32_t p0, int32_t p1)
+{
+    for (int32_t p = p0; p < p1; p++) {
+        if ((p & 3) == 3) {
+            continue;
+        }
+        uint32_t d = (uint32_t)(p - (p >> 2));   // output pixel
+        uint32_t w = d >> 3, sh = (d & 7) * 4;
+        out[w] = (out[w] & ~(15u << sh)) | ((uint32_t)code[px[p]] << sh);
+    }
+}
+
 // The canvas span [first, first + count) of raster vert into its panel row.
 static void panel_emit(struct render *r, uint32_t first, uint32_t count, int32_t vert)
 {
@@ -88,41 +102,42 @@ static void panel_emit(struct render *r, uint32_t first, uint32_t count, int32_t
     }
     uint32_t row = (uint32_t)y >> 1;
     uint32_t *out = s_fb[row];
-    if (s_row_frame[row] != s_frame) {
-        s_row_frame[row] = s_frame;
-        memset(out, 0, (k_row_words - 1) * 4);
-    }
-    // The span in picture pixels, then in groups of 32 (3 output words).
+    // The span in picture pixels.
     int32_t p0 = (int32_t)first - k_pic_x0;
     int32_t p1 = p0 + (int32_t)count;
     if (p0 < 0) p0 = 0;
     if (p1 > 640) p1 = 640;
+    if (s_row_frame[row] != s_frame) {
+        // The row's first span this frame: black first, unless it is the
+        // whole line, which overwrites every word.
+        s_row_frame[row] = s_frame;
+        if (p0 != 0 || p1 != 640) {
+            memset(out, 0, (k_row_words - 1) * 4);
+        }
+    }
     if (p0 >= p1) {
         return;
     }
     const render_px *px = &r->line[k_pic_x0];
     const uint8_t *code = s_code;
-    if (p0 == 0 && p1 == 640) {
-        for (uint32_t g = 0; g < 20; g++) {
-            const render_px *s = px + g * 32;
-            uint32_t *o = out + g * 3;
-#define C(i) ((uint32_t)code[s[i]])
-            o[0] = C(0) | C(1) << 4 | C(2) << 8 | C(4) << 12 | C(5) << 16 | C(6) << 20 | C(8) << 24 | C(9) << 28;
-            o[1] = C(10) | C(12) << 4 | C(13) << 8 | C(14) << 12 | C(16) << 16 | C(17) << 20 | C(18) << 24 | C(20) << 28;
-            o[2] = C(21) | C(22) << 4 | C(24) << 8 | C(25) << 12 | C(26) << 16 | C(28) << 20 | C(29) << 24 | C(30) << 28;
-#undef C
-        }
+    // Whole groups of 32 (three whole output words) at once; pixel by pixel
+    // only before the first group boundary and after the last.
+    int32_t g0 = (p0 + 31) >> 5, g1 = p1 >> 5;
+    if (g0 >= g1) {
+        panel_emit_pixels(out, px, code, p0, p1);
         return;
     }
-    // A part line: pixel by pixel.
-    for (int32_t p = p0; p < p1; p++) {
-        if ((p & 3) == 3) {
-            continue;
-        }
-        uint32_t d = (uint32_t)(p - (p >> 2));   // output pixel
-        uint32_t w = d >> 3, sh = (d & 7) * 4;
-        out[w] = (out[w] & ~(15u << sh)) | ((uint32_t)code[px[p]] << sh);
+    panel_emit_pixels(out, px, code, p0, g0 * 32);
+    for (int32_t g = g0; g < g1; g++) {
+        const render_px *s = px + g * 32;
+        uint32_t *o = out + g * 3;
+#define C(i) ((uint32_t)code[s[i]])
+        o[0] = C(0) | C(1) << 4 | C(2) << 8 | C(4) << 12 | C(5) << 16 | C(6) << 20 | C(8) << 24 | C(9) << 28;
+        o[1] = C(10) | C(12) << 4 | C(13) << 8 | C(14) << 12 | C(16) << 16 | C(17) << 20 | C(18) << 24 | C(20) << 28;
+        o[2] = C(21) | C(22) << 4 | C(24) << 8 | C(25) << 12 | C(26) << 16 | C(28) << 20 | C(29) << 24 | C(30) << 28;
+#undef C
     }
+    panel_emit_pixels(out, px, code, g1 * 32, p1);
 }
 
 void panel_lcd_init(void)
@@ -150,20 +165,10 @@ void panel_consume(struct vstream *vs)
     struct render *r = &s_render;
     // Only what is there now, so that a producer that keeps the ring full
     // (turbo) still lets the caller count core 1's busy time.
-    uint32_t end = vs->head;
-    while ((int32_t)(end - vs->tail) > 0) {
-        uint16_t w = vs->ring[vs->tail & (VS_RING - 1)];
-        if (!(w & VS_EVENT)) {
-            int n = 0;
-            int avail = (int)(end - vs->tail);
-            while (n < avail && !(vs->ring[(vs->tail + n) & (VS_RING - 1)] & VS_EVENT)) {
-                n++;
-            }
-            render_consume_n(r, vs, n);
-            continue;
-        }
-        vs->tail++;
-        render_word(r, w);
+    // render_consume_n takes events in its stride, so no scan ahead for them.
+    int32_t n = (int32_t)(vs->head - vs->tail);
+    if (n > 0) {
+        render_consume_n(r, vs, n);
     }
 }
 

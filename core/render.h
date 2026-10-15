@@ -50,6 +50,15 @@ struct render {
     int table_mode[2];
     render_px table_2mhz[256][8] __attribute__((aligned(4)));
     render_px table_1mhz[256][16] __attribute__((aligned(4)));
+#ifdef RENDER_INDEXED
+    // Indexed, a table depends on the mode alone: a second one of each kind
+    // is kept, so a split-mode screen (Elite's MODE 4 top, MODE 5
+    // dashboard) builds none per frame. slot_mode: each slot's mode, -1
+    // none; [kind][slot], kind 0 the 2 MHz tables, 1 the 1 MHz ones.
+    render_px table_2mhz_b[256][8] __attribute__((aligned(4)));
+    render_px table_1mhz_b[256][16] __attribute__((aligned(4)));
+    int slot_mode[2][2];
+#endif
     // Which logical colours each byte's pixels use in the built table, so
     // a palette write rebuilds only the entries it changes (host; the
     // board's tables hold logical colour codes, see pixel.h).
