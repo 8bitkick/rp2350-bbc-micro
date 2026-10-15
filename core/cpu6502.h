@@ -26,10 +26,12 @@
 
 struct cpu6502 {
     uint16_t pc;
-    uint8_t a, x, y, s;
+    // Kept 32 bits wide (always 0-255): byte fields cost a bit-field insert
+    // at every write on the M33.
+    uint32_t a, x, y, s;
     // Flags kept unpacked. n holds bit 7 only (0 or 0x80), the rest are 0/1.
-    uint8_t n, z, c, v, i, d;
-    uint8_t cmos;  // 1: 65C12 (Master), 0: NMOS 6502 (Model B)
+    uint32_t n, z, c, v, i, d;
+    uint32_t cmos;  // 1: 65C12 (Master), 0: NMOS 6502 (Model B)
     // Interrupts. irq_hist holds one bit per cycle, newest in bit 0, of the
     // IRQ line level after that cycle; the machine appends to it when it
     // catches up (CPU6502_SYNC). nmi_pending is set by the machine on the
@@ -38,12 +40,12 @@ struct cpu6502 {
     // penultimate cycle) and I was clear at the instruction start (RTI: as
     // pulled); i_poll is that I value (the one-cycle NOPs set it, as they
     // are not polled).
-    uint8_t irq_line;
-    uint8_t nmi_pending;
+    uint32_t irq_line;
+    uint32_t nmi_pending;
     uint32_t nmi_cycle;   // cycle the NMI edge was latched on
     uint32_t stretch;     // 1 MHz stretch cycles in the current instruction
     uint32_t irq_hist;    // as of last_sync: the line has been irq_line since
-    uint8_t i_poll;
+    uint32_t i_poll;
     // Cycle count at which the machine next has an event that can change
     // the IRQ line or needs exact ordering; until then the instruction
     // boundary needs no catch-up and the history is just the current level

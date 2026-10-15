@@ -734,7 +734,9 @@ static MACHINE_NOINLINE uint32_t machine_advance_ex(struct machine *m, uint32_t 
         // VIAs over `done` cycles; the event tick, if this chunk ends on
         // it, is stepped exactly.
         if (!(skip & 2)) {
-            uint32_t k = ((s + done + 1) >> 1) - ((s + 1) >> 1);
+            // 1 MHz ticks (odd cycles) in s+1 .. s+done, without shifting the
+            // absolute count: that broke when it wrapped at 2^32 (35.8 minutes)
+            uint32_t k = (done + ((s + 1) & 1)) >> 1;
             uint64_t v0 = MACHINE_CYCLES();
             (void)v0;
             if (done == via_e) {
@@ -1053,7 +1055,7 @@ INLINE int io_quiet_window(struct machine *m, uint32_t end, uint32_t *mask, uint
     }
     uint32_t s = m->synced;
     uint32_t w = end - s;
-    uint32_t k = ((end + 1) >> 1) - ((s + 1) >> 1);
+    uint32_t k = (w + ((s + 1) & 1)) >> 1;   // wrap-safe, as in machine_advance_ex
     via_advance(&m->sysvia, k);
     via_advance(&m->usrvia, k);
     m->synced = end;

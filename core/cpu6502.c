@@ -140,12 +140,12 @@ INLINE void idle(struct cpu6502 *cpu)
 INLINE void push(struct cpu6502 *cpu, uint8_t v)
 {
     wr_cycle(cpu, 0x100 | cpu->s, v, 0);
-    cpu->s--;
+    cpu->s = (cpu->s - 1) & 0xff;
 }
 
 INLINE uint8_t pull(struct cpu6502 *cpu)
 {
-    cpu->s++;
+    cpu->s = (cpu->s + 1) & 0xff;
     return rd(cpu, 0x100 | cpu->s);
 }
 
@@ -925,12 +925,12 @@ uint64_t CPU6502_FN(cpu6502_run)(struct cpu6502 *cpu_in, uint64_t until)
         OPC(d6) RMW(am_zpi(cpu, cpu->x), op_dec); NEXT;
         OPC(ce) RMW(am_abs(cpu), op_dec); NEXT;
         OPC(de) RMW(am_absx_rmw(cpu, 0), op_dec); NEXT;
-        OPC(e8) (void)rd(cpu, cpu->pc); set_nz(cpu, ++cpu->x); NEXT;
-        OPC(ca) (void)rd(cpu, cpu->pc); set_nz(cpu, --cpu->x); NEXT;
-        OPC(c8) (void)rd(cpu, cpu->pc); set_nz(cpu, ++cpu->y); NEXT;
-        OPC(88) (void)rd(cpu, cpu->pc); set_nz(cpu, --cpu->y); NEXT;
-        OPC(1a) (void)rd(cpu, cpu->pc); set_nz(cpu, ++cpu->a); NEXT;
-        OPC(3a) (void)rd(cpu, cpu->pc); set_nz(cpu, --cpu->a); NEXT;
+        OPC(e8) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->x = (cpu->x + 1) & 0xff); NEXT;
+        OPC(ca) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->x = (cpu->x - 1) & 0xff); NEXT;
+        OPC(c8) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->y = (cpu->y + 1) & 0xff); NEXT;
+        OPC(88) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->y = (cpu->y - 1) & 0xff); NEXT;
+        OPC(1a) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->a = (cpu->a + 1) & 0xff); NEXT;
+        OPC(3a) (void)rd(cpu, cpu->pc); set_nz(cpu, cpu->a = (cpu->a - 1) & 0xff); NEXT;
 
         // ---- flags ----
         OPC(18) (void)rd(cpu, cpu->pc); cpu->c = 0; NEXT;
