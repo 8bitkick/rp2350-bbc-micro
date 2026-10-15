@@ -7,7 +7,8 @@
 #
 #   --apt        install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
 #   --disc=NAME  the disc to build in, from discs/ (default elite-master-flicker-free-sng47.ssd):
-#                pop-beeb.ssd, bs-scr-beeb.ssd, bs-twisted.ssd, EvilIn11.ssd, or your own .ssd
+#                pop-beeb.ssd, bs-scr-beeb.ssd, bs-twisted.ssd, EvilIn11.ssd, arcadians.ssd,
+#                or your own .ssd
 #   --no-build   fetch everything but don't build
 #   --flash      after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
 #
@@ -110,6 +111,11 @@ for u in \
   say "Fetching $d"
   curl -fsSL -o "$ROOT/discs/$d" "$u"
 done
+if [ ! -f "$ROOT/discs/arcadians.ssd" ]; then
+  say "Fetching arcadians.ssd"
+  curl -fsSL -A "Mozilla/5.0" -o "$ROOT/discs/arcadians.ssd" \
+    https://www.bbcmicro.co.uk/gameimg/discs/20/Disc002-Arcadians.ssd
+fi
 [ -f "$ROOT/discs/$DISC" ] || { echo "no discs/$DISC"; exit 1; }
 
 [ $DO_BUILD = 1 ] || { say "Fetched everything; build with: . deps/env.sh && cmake ... (see README)"; exit 0; }
