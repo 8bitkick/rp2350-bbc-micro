@@ -18,7 +18,7 @@ All captured on the Presto, from the panel itself (`tools/presto.py shot`):
 | | | |
 |---|---|---|
 | ![Stunt Car Racer](docs/shot-scr.png) | ![Elite](docs/shot-elite.png) | ![Prince of Persia](docs/shot-pop.png) |
-| Stunt Car Racer, racing | Elite (flicker-free, Master) | Prince of Persia |
+| Stunt Car Racer, racing | Elite (flicker-free, Master), title | Prince of Persia |
 | ![Twisted Brain](docs/shot-tw.png) | ![Evil Influences](docs/shot-ev.png) | |
 | Twisted Brain | Evil Influences, late part | |
 
@@ -27,18 +27,18 @@ same run with the throttle off, so it shows how much headroom is left.
 
 | Disc | What makes it hard | Speed | Turbo | Core 0 / core 1 at real speed |
 |---|---|---|---|---|
-| Stunt Car Racer, racing | 3D, sideways-RAM bank calls thousands of times a second | 100% | 2.03× | 47% / 37% |
-| Elite (flicker-free, Master) | shadow RAM switched around every line it plots | 100% | 2.33× (core 1 is the limit) | 39% / 42% |
-| Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.90× | 50% / 39% |
-| Twisted Brain (demo) | per-scanline raster effects | 100% | 1.07–1.42× (varies by part) | 54% / 42% |
-| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **59%** | — | 98% / 80% |
+| Stunt Car Racer, racing | 3D, sideways-RAM bank calls thousands of times a second | 100% | 2.05× | 47% / 32% |
+| Elite (flicker-free, Master) | shadow RAM switched around every line it plots | 100% | 2.45× | 38% / 32% |
+| Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.91× | 50% / 33% |
+| Twisted Brain (demo) | per-scanline raster effects | 100% | 1.27–1.58× (varies by part) | 54% / 34% |
+| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **60%** | — | 98% / 49% |
 
 - **Four of the five run in real time with room to spare.** The fifth, the late part of Evil
   Influences, reprograms the 6845 CRTC about a thousand times a frame in mini-frames a few
-  scanlines tall. It runs at 59% of real speed here. The emulator doesn't keep up there on the hardware it
+  scanlines tall. It runs at 60% of real speed here, held by core 0. The emulator doesn't keep up there on the hardware it
   was written for either.
-- **About 160 KB of the 520 KB of SRAM is free.** That's room for sound, a disc menu, or an SD
-  card, without taking anything out.
+- **About 150 KB of the 520 KB of SRAM is free.** That's room for a disc menu, an SD card or
+  touch controls, without taking anything out.
 
 ## How it runs on the Presto
 
@@ -53,7 +53,7 @@ same run with the throttle off, so it shows how much headroom is left.
   and the disc's track data in PSRAM. The disc image itself in flash.
 
 `core/` is Kieran's core from [his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230),
-with two changes, each checked to give identical pictures on all five discs:
+with three changes, each checked to give identical pictures on all five discs:
 
 - **A hang after 35.8 minutes fixed.** Two places counted the VIAs' 1 MHz ticks by shifting the
   absolute cycle count, which went wrong when the 32-bit count wrapped at 2^32 cycles. They now
@@ -61,9 +61,16 @@ with two changes, each checked to give identical pictures on all five discs:
 - **The CPU's registers and flags kept as 32-bit fields.** Byte-sized fields cost the M33 a
   bit-field insert at every write. This took core 0's load at real speed down by about 10 points
   on every disc, and turbo up by about a fifth. (`cpu6502.h`, `cpu6502.c`)
+- **Two pixel tables of each kind kept.** On the board the tables depend on the screen mode alone;
+  Elite's MODE 4 top and MODE 5 dashboard rebuilt a 4 KB table twice a frame. (`render.c`,
+  `render.h`; 6 KB more SRAM)
 
 `presto/` is the port: `main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the
-two halves, built to run from SRAM), and the panel and PSRAM drivers.
+two halves, built to run from SRAM), and the panel and PSRAM drivers. `render_unit.c` packs the
+renderer's lines into the panel's 4-bit rows 32 pixels at a time (part lines too, which Evil
+Influences' raster section is made of) and hands the renderer the whole backlog at once; with the
+tables above, core 1's load at real speed went from 37–42% to 32–34%, and from 80% to 49% on
+Evil.
 
 ## Build and flash
 

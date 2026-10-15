@@ -161,6 +161,11 @@ void render_reset(struct render *r)
         r->logical_to_physical[i] = 0;
     }
     r->tables_built = 0;
+#ifdef RENDER_INDEXED
+    r->slot_mode[0][0] = r->slot_mode[0][1] = r->slot_mode[1][0] = r->slot_mode[1][1] = -1;
+    r->cur_1mhz = r->table_1mhz_b;   // (so the first build goes to slot 0)
+    r->cur_2mhz = r->table_2mhz_b;
+#endif
     for (int i = 0; i < 8; i++) {
         r->palette[i] = PX_RGB(i & 1, (i >> 1) & 1, (i >> 2) & 1);
         r->palette[i + 8] = PX_BLACK;  // never read: see display_color
@@ -284,6 +289,35 @@ static RENDER_FN void prepare_tables(struct render *r)
     if (mode == RENDER_MODE7) {
         return;
     }
+#ifdef RENDER_INDEXED
+    {
+        int kind = !(mode == RENDER_MODE0 || mode == RENDER_MODE1 || mode == RENDER_MODE2 || mode == RENDER_MODE2_10);
+        int *sm = r->slot_mode[kind];
+        int slot = sm[0] == mode ? 0 : sm[1] == mode ? 1 : -1;
+        if (slot < 0) {
+            // Replace the slot not in use now.
+            const void *cur = kind ? (const void *)r->cur_1mhz : (const void *)r->cur_2mhz;
+            slot = (cur == (kind ? (const void *)r->table_1mhz : (const void *)r->table_2mhz)) ? 1 : 0;
+            if (kind) {
+                uint32_t n = mode == RENDER_MODE4_80 ? 16 : mode == RENDER_MODE4 ? 8 : mode == RENDER_MODE5 ? 4 : 2;
+                generate_1mhz(r, slot ? r->table_1mhz_b : r->table_1mhz, n);
+            } else {
+                static const uint32_t px[4] = {8, 4, 2, 1};
+                uint32_t n = px[mode == RENDER_MODE0 ? 0 : mode == RENDER_MODE1 ? 1 : mode == RENDER_MODE2 ? 2 : 3];
+                generate_2mhz(r, slot ? r->table_2mhz_b : r->table_2mhz, n);
+            }
+            sm[slot] = mode;
+            r->stat_tables++;
+            r->stat_clk_tables += RENDER_CYCLES() - c0;
+        }
+        if (kind) {
+            r->cur_1mhz = slot ? r->table_1mhz_b : r->table_1mhz;
+        } else {
+            r->cur_2mhz = slot ? r->table_2mhz_b : r->table_2mhz;
+        }
+        return;
+    }
+#endif
     if (r->palette_dirty) {
         palette_fixup(r);
         r->stat_tables++;
