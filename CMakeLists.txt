@@ -43,7 +43,8 @@ add_executable(presto_master
 set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
 add_custom_command(OUTPUT ${WEB_C}
         COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/tools/embed_web.py ${PRESTO_DIR}/web/index.html ${WEB_C}
-        DEPENDS ${PRESTO_DIR}/web/index.html ${CMAKE_CURRENT_LIST_DIR}/tools/embed_web.py)
+        DEPENDS ${PRESTO_DIR}/web/index.html ${PRESTO_DIR}/web/fonts/OpenGorton-Regular.otf
+                ${PRESTO_DIR}/web/fonts/OpenGorton-Bold.otf ${CMAKE_CURRENT_LIST_DIR}/tools/embed_web.py)
 target_sources(presto_master PRIVATE ${WEB_C})
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_parallel.pio)
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_timing.pio)

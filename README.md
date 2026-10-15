@@ -179,6 +179,8 @@ leaves room for the next things (sound first).
   covered by this licence).
 - The teletext character set in `core/teletext_glyphs.h` is from
   [B-em](https://github.com/stardot/b-em) by Sarah Walker and others.
+- The web keyboard's keycaps use [Open Gorton](https://github.com/dakotafelder/open-gorton) by Dakota
+  Felder (MIT, `presto/web/fonts`), after the Gorton Modified engraving on the real keys.
 - The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`presto/fatfs`, its
   own licence); the network is the Pico SDK's lwIP and CYW43 driver.
 - The panel driver is adapted from Pimoroni's MIT-licensed

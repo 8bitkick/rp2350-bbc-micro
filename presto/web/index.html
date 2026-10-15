@@ -63,11 +63,19 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #kb { background: var(--bbc-inlay); border-radius: 6px; padding: 10px; user-select: none; -webkit-user-select: none; touch-action: manipulation;
       display: grid; grid-template-columns: repeat(85, 1fr); grid-auto-rows: 40px; gap: 4px 0; }
 #kb .frow { margin-bottom: 8px; }
+/* the keycaps' engraving face: Open Gorton (MIT, Dakota Felder), after Signature Plastics' Gorton
+   Modified; tools/embed_web.py inlines the files. It has ASCII capitals only: the arrows, pound sign
+   and the function keys' italic f come from the fallback font, and the slashed zero is a 0 with the
+   slash drawn over it (.z). */
+@font-face { font-family: "Open Gorton"; font-weight: 400; src: url(fonts/OpenGorton-Regular.otf) format("opentype"); }
+@font-face { font-family: "Open Gorton"; font-weight: 700; src: url(fonts/OpenGorton-Bold.otf) format("opentype"); }
 /* a keycap: the legend sits on the top face, the darker skirt below it, as on the BBC's keys */
-.k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 2px 2px 11px; font: 600 13px/1.05 "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; box-shadow: inset 0 -9px 0 rgba(0,0,0,.42), 0 2px 0 rgba(0,0,0,.5); white-space: pre-line; }
-.k.f { background: var(--bbc-fkey); font: italic 500 14px/1 Georgia, "Times New Roman", serif; }
+.k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 2px 2px 11px; font: 400 14px/1.05 "Open Gorton", "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; box-shadow: inset 0 -9px 0 rgba(0,0,0,.42), 0 2px 0 rgba(0,0,0,.5); white-space: pre-line; }
+.k.f { background: var(--bbc-fkey); font-style: italic; }
 .k.b { background: var(--bbc-break); font-size: 8px; font-weight: 700; letter-spacing: .04em; }
 .k.c { font-size: 8px; font-weight: 700; letter-spacing: .04em; }
+.k.z::after { content: ""; position: absolute; width: 1.5px; height: 13px; background: var(--bbc-legend); transform: translateY(-1px) rotate(32deg); }
+.k { position: relative; }
 .k.a { background: var(--bbc-cursor); }
 /* POWER ON, CAPS LOCK and SHIFT LOCK: three LEDs at the left of the function keys */
 #leds { grid-row: 1; grid-column: 1 / span 8; display: flex; justify-content: space-around; align-items: center; }
@@ -132,15 +140,15 @@ const SHIFT = 0x00, CTRL = 0x01, BREAK = 'b';
 const F = 'f', C = 'c', B = 'b', A = 'a';
 const ROWS = [
   [['',null,2],['ƒ0',0x20,1,F],['ƒ1',0x71,1,F],['ƒ2',0x72,1,F],['ƒ3',0x73,1,F],['ƒ4',0x14,1,F],['ƒ5',0x74,1,F],['ƒ6',0x75,1,F],['ƒ7',0x16,1,F],['ƒ8',0x76,1,F],['ƒ9',0x77,1,F],
-   ['',null,1],['BREAK',BREAK,1,B],['',null,1],['↑',0x39,1,A],['',null,1.25],['+',0x3a],['−',0x3b],['/',0x4a],['*',0x5b]],
-  [['',null,.5],['ESCAPE',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['Ø',0x27],['=\n−',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A],
+   ['',null,1],['BREAK',BREAK,1,B],['',null,1],['↑',0x39,1,A],['',null,1.25],['+',0x3a],['-',0x3b],['/',0x4a],['*',0x5b]],
+  [['',null,.5],['ESCAPE',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27,1,'z'],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A],
    ['',null,.75],['7',0x1b],['8',0x2a],['9',0x2b],['#',0x5a]],
   [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['',null,.25],['↓',0x29,1,A],
    ['',null,1.25],['4',0x7a],['5',0x7b],['6',0x1a],['DELETE',0x4b,1,C]],
   [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,2.5,C],
    ['',null,.75],['1',0x6b],['2',0x7c],['3',0x6c],[',',0x5c]],
   [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.75,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.75,C],['DELETE',0x59,1,C],['COPY',0x69,1,A + ' ' + C],
-   ['',null,.75],['Ø',0x6a],['.',0x4c],['RETURN',0x3c,2,C]],
+   ['',null,.75],['0',0x6a,1,'z'],['.',0x4c],['RETURN',0x3c,2,C]],
   [['',null,3.5],['',0x62,8.25]],
 ];
 const hex = c => c.toString(16);
