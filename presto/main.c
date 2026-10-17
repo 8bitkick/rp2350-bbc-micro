@@ -226,7 +226,6 @@ static void run_command(const char *cmd)
 __attribute__((weak)) void machine_frame_hook(const struct machine_hook_io *io) { (void) io; }
 __attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size) { (void) cmd; (void) reply; (void) reply_size; return false; }
 __attribute__((weak)) const char *machine_program_json(void) { return NULL; }
-__attribute__((weak)) const char *machine_boot_title(void) { return NULL; }
 __attribute__((weak)) const struct machine_boot_image *machine_boot_image(void) { return NULL; }
 
 static struct machine *s_hook_m;
@@ -294,11 +293,11 @@ static void splash_disc_progress(int done, int total)
 static void run(void)
 {
     struct machine *m = &s_machine;
-    // the loading screen, until core 1 starts drawing the machine (PSRAM's up: main did that). How
-    // far: the ROMs into PSRAM, the first 30%; the disc's tracks going in, the rest
+    // a program's loading screen, if it has one, until core 1 starts drawing the machine: what's
+    // loading and how far (the ROMs into PSRAM the first 30%, the disc's tracks going in the rest)
     uint64_t boot_t0 = time_us_64();
-    panel_splash_picture(machine_boot_title());
-    panel_splash_status("ROMS INTO PSRAM", 0);
+    bool splash = panel_splash_picture();
+    if (splash) panel_splash_status("ROMS INTO PSRAM", 0);
     machine_init(m);
     for (int i = 0; i < MACHINE_SWRAM_SLOTS; i++) {
         m->swram[i] = psram_alloc(0x4000);
@@ -309,7 +308,7 @@ static void run(void)
     uint8_t *mos = malloc(16384), *dfs = malloc(16384);
     memcpy(mos, rom_mos, 16384);
     memcpy(dfs, rom_dfs, 16384);
-    panel_splash_status("ROMS INTO PSRAM", 2 * 300 / 8);
+    if (splash) panel_splash_status("ROMS INTO PSRAM", 2 * 300 / 8);
     m->mos = mos;
     m->rom[0x9] = dfs;
     const uint8_t *const others[6] = {rom_viewsht, rom_edit, rom_basic4, rom_adfs, rom_view, rom_terminal};
@@ -317,7 +316,7 @@ static void run(void)
         uint8_t *p = psram_alloc(16384);
         memcpy(p, others[i], 16384);
         m->rom[0xa + i] = p;
-        panel_splash_status("ROMS INTO PSRAM", (3 + i) * 300 / 8);
+        if (splash) panel_splash_status("ROMS INTO PSRAM", (3 + i) * 300 / 8);
     }
     m->vs = &s_stream;
     panel_init();
@@ -326,12 +325,13 @@ static void run(void)
     // images from the card or the web arrive.
     uint32_t *pulses = psram_alloc(2 * (size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
     uint8_t *disc_ram = psram_alloc(PRESTO_DISC_MAX);
-    presto_disc_progress(splash_disc_progress);
+    presto_disc_progress(splash ? splash_disc_progress : NULL);
     presto_machine_init(m, pulses, disc_ram, disc_image, disc_image_size);
     presto_disc_progress(NULL);
-    panel_splash_status("READY", 1000);
-    // (it's quick: held a moment so it's seen)
-    while (time_us_64() - boot_t0 < 3000000) sleep_ms(20);
+    if (splash) {
+        panel_splash_status("READY", 1000);
+        while (time_us_64() - boot_t0 < 3000000) sleep_ms(20);     // (it's quick: held a moment so it's seen)
+    }
     multicore_launch_core1(core1_main);
     machine_autoboot(m);
     s_was_reset = false;

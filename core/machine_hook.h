@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MACHINE_HOOK_VERSION 2
+#define MACHINE_HOOK_VERSION 3
 
 // which machine this is (a program built for one checks it's on it)
 enum machine_model {
@@ -46,11 +46,9 @@ bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size);
 //    "log": ["line", ...], "actions": [{"label": "...", "cmd": "...", "on": true|false}, ...]}
 // every member optional. Called between frames; the string has to last until the next call.
 const char *machine_program_json(void);
-// the program's line on the platform's loading screen ("ELITE AGENT", say), or NULL; or, used
-// instead if it gives one, its own loading screen picture with its title on it: 480 x 256 pixels,
-// two a byte (the left one in the low nibble), each bit 0 blue, 1 green, 2 red (bit 3 ignored);
-// tools/make_splash.py --screen makes one. The platform writes what's loading under it.
-const char *machine_boot_title(void);
+// the program's own loading screen, or NULL for none: a picture, 480 x 256 pixels, two a byte (the
+// left one in the low nibble), each bit 0 blue, 1 green, 2 red (bit 3 ignored), shown while the
+// ROMs and the disc go into memory, with the platform's line saying how far they've got under it
 struct machine_boot_image { uint16_t w, h; const uint8_t *px; };
 const struct machine_boot_image *machine_boot_image(void);
 
