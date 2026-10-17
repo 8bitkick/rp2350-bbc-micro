@@ -44,6 +44,7 @@
 #include "presto_sd.h"
 
 #include "machine.h"
+#include "machine_hook.h"
 #include "disc.h"
 #include "panel.h"
 
@@ -137,6 +138,7 @@ static uint32_t s_frames;
 static bool s_turbo;
 static bool s_turbo_ended;
 static bool s_was_reset;
+static struct machine_hook_io s_hook_io;     // what a program run alongside sees (frame_hook)
 
 // For the web panel (presto_machine.h).
 bool presto_turbo_get(void)
@@ -171,6 +173,7 @@ void presto_perf_get(uint *core0, uint *core1, uint *speed)
 
 void main_machine_was_reset(void)
 {
+    s_hook_io.resets++;
     panel_machine_reset(&s_stream);
     s_was_reset = true;
 }
@@ -196,6 +199,8 @@ static void run_command(const char *cmd)
         presto_net_print_status();
     } else if (!strcmp(cmd, "discs")) {
         presto_sd_list_discs();
+    } else if (!strcmp(cmd, "disc restore")) {
+        presto_disc_restore();
     } else if (!strcmp(cmd, "disc")) {
         presto_sd_eject_disc();
     } else if (!strncmp(cmd, "disc ", 5)) {
@@ -211,8 +216,38 @@ static void run_command(const char *cmd)
         sleep_ms(50);
         reset_usb_boot(0, 0);
     } else {
-        printf("? %s\n", cmd);
+        char reply[256] = "";
+        if (!machine_command_hook(cmd, reply, sizeof reply)) printf("? %s\n", cmd);
+        else if (reply[0]) printf("%s\n", reply);
     }
+}
+
+// a program run alongside the machine (core/machine_hook.h) supplies these; without one they do nothing
+__attribute__((weak)) void machine_frame_hook(const struct machine_hook_io *io) { (void) io; }
+__attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size) { (void) cmd; (void) reply; (void) reply_size; return false; }
+__attribute__((weak)) const char *machine_program_json(void) { return NULL; }
+__attribute__((weak)) const char *machine_boot_title(void) { return NULL; }
+__attribute__((weak)) const struct machine_boot_image *machine_boot_image(void) { return NULL; }
+
+static struct machine *s_hook_m;
+static void hook_key(int row, int col, bool down)
+{
+    machine_queue_key(s_hook_m, s_hook_m->synced + 2000, row, col, down);    // as key_bbc
+}
+static void frame_hook(struct machine *m)
+{
+    struct machine_hook_io *io = &s_hook_io;
+    if (!io->version) {
+        s_hook_m = m;
+        *io = (struct machine_hook_io) {
+            .version = MACHINE_HOOK_VERSION, .model = MACHINE_MODEL_MASTER_128, .mos = 320,
+            .ram = m->ram, .ram_size = sizeof m->ram, .shadow = m->lynne, .shadow_size = sizeof m->lynne,
+            .andy = m->andy, .andy_size = sizeof m->andy, .hazel = m->hazel, .hazel_size = sizeof m->hazel,
+            .key = hook_key, .resets = io->resets,
+        };
+    }
+    io->frame++;
+    machine_frame_hook(io);
 }
 
 static void usb_poll(struct machine *m)
@@ -248,9 +283,22 @@ static void usb_poll(struct machine *m)
 
 // ---- Core 0: the machine, paced to real time ----
 
+// the disc going into the drive, on the loading screen
+static void splash_disc_progress(int done, int total)
+{
+    char what[48];
+    snprintf(what, sizeof what, "DISC INTO PSRAM: %s", presto_disc_source());
+    panel_splash_status(what, 300 + 700 * done / total);
+}
+
 static void run(void)
 {
     struct machine *m = &s_machine;
+    // the loading screen, until core 1 starts drawing the machine (PSRAM's up: main did that). How
+    // far: the ROMs into PSRAM, the first 30%; the disc's tracks going in, the rest
+    uint64_t boot_t0 = time_us_64();
+    panel_splash_picture(machine_boot_title());
+    panel_splash_status("ROMS INTO PSRAM", 0);
     machine_init(m);
     for (int i = 0; i < MACHINE_SWRAM_SLOTS; i++) {
         m->swram[i] = psram_alloc(0x4000);
@@ -261,6 +309,7 @@ static void run(void)
     uint8_t *mos = malloc(16384), *dfs = malloc(16384);
     memcpy(mos, rom_mos, 16384);
     memcpy(dfs, rom_dfs, 16384);
+    panel_splash_status("ROMS INTO PSRAM", 2 * 300 / 8);
     m->mos = mos;
     m->rom[0x9] = dfs;
     const uint8_t *const others[6] = {rom_viewsht, rom_edit, rom_basic4, rom_adfs, rom_view, rom_terminal};
@@ -268,6 +317,7 @@ static void run(void)
         uint8_t *p = psram_alloc(16384);
         memcpy(p, others[i], 16384);
         m->rom[0xa + i] = p;
+        panel_splash_status("ROMS INTO PSRAM", (3 + i) * 300 / 8);
     }
     m->vs = &s_stream;
     panel_init();
@@ -276,8 +326,13 @@ static void run(void)
     // images from the card or the web arrive.
     uint32_t *pulses = psram_alloc(2 * (size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
     uint8_t *disc_ram = psram_alloc(PRESTO_DISC_MAX);
-    multicore_launch_core1(core1_main);
+    presto_disc_progress(splash_disc_progress);
     presto_machine_init(m, pulses, disc_ram, disc_image, disc_image_size);
+    presto_disc_progress(NULL);
+    panel_splash_status("READY", 1000);
+    // (it's quick: held a moment so it's seen)
+    while (time_us_64() - boot_t0 < 3000000) sleep_ms(20);
+    multicore_launch_core1(core1_main);
     machine_autoboot(m);
     s_was_reset = false;
     printf("# BBC Master on Presto: %lu MHz, machine %u bytes, free heap from %p, PSRAM to %p\n",
@@ -352,6 +407,7 @@ static void run(void)
         presto_machine_poll();
         if (new_frame) {
             presto_machine_frame();   // may reset the machine (s_was_reset)
+            frame_hook(m);
         }
     }
 }

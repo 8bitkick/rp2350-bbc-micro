@@ -180,6 +180,8 @@ static void drive_write_pulses(struct fdc_drive *d, uint32_t pulses)
         return;
     }
     uint32_t *p = disc_track(d->disc, d->side, d->track) + d->head_position;
+    d->disc->writes++;
+    d->disc->dirty[d->side][d->track] = 1;
     if (d->is_32us) {
         uint32_t have = *p;
         if (d->pulse_position == 0) {

@@ -110,6 +110,31 @@ frames, so nothing races the emulation. Over USB the same things are `presto.py 
 and `put`. One difference from a real Master: BREAK is a power-on reset (the core has no warm
 reset), so a BASIC program in memory does not survive it.
 
+## Saved games
+
+Games can save to the disc built into the firmware, and what they save survives a power-off. The
+built-in image stays as it came (the golden disc); a full copy of it, the save disc, lives in
+flash. At boot the save disc goes into the drive if there is one for this golden disc. When a
+game writes to the disc, a second after the drive goes quiet the tracks it wrote are read back
+and only the flash blocks that changed are rewritten (an Elite save: one or two). Nothing else
+writes flash. **Restore original disc** on the web panel (or `!disc restore` over USB) forgets
+the save disc and boots the golden one. Discs loaded from the card or the web keep their writes
+for the session only.
+
+## A program alongside the machine
+
+`core/machine_hook.h` is a small, versioned interface for a program built into the firmware that
+watches the machine and presses keys (the [Elite agent](https://github.com/8bitkick/elite-agent)
+is one). Once per emulated frame, between frames, it gets the machine model and MOS version,
+where the Master's RAM is (main, shadow, ANDY, HAZEL), a key function for the keyboard matrix
+and a reset count; commands the platform doesn't know (USB `!...` or `POST /api/command`) go to
+it; `GET /api/program` shows its own panel on the web page; and it can give the loading screen
+its own picture. All of it is weak, doing nothing unless a build supplies it: build one in with
+`-DMACHINE_EXTRA_SOURCES=...` (and `_INCLUDES`, `_DEFINES`).
+
+The loading screen (`tools/make_splash.py`, from `presto/splash/8bitkick-logo.png`) shows while
+the ROMs and the disc go into PSRAM, with how far they've got.
+
 ## Measuring
 
 `tools/presto.py` talks to the firmware over USB serial: `stats` (speed and both cores' load,

@@ -38,6 +38,7 @@ add_executable(presto_master
         ${PRESTO_DIR}/presto_sd.c
         ${PRESTO_DIR}/fatfs/ff.c
         ${PRESTO_DIR}/fatfs/ffunicode.c
+        ${PRESTO_DIR}/splash_logo.c
         )
 # The web panel's page, gzipped into flash.
 set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
@@ -50,6 +51,17 @@ pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_parallel.pio)
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_timing.pio)
 target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${PRESTO_DIR}/fatfs ${CMAKE_CURRENT_LIST_DIR}/core)
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
+# A program built in to run alongside the machine (e.g. a player that reads its RAM and presses
+# keys, through core/machine.h's machine_frame_hook and machine_command_hook): its sources and
+# include directories, given by the project that builds it. Empty: none.
+set(MACHINE_EXTRA_SOURCES "" CACHE STRING "extra sources built into the firmware (;-separated)")
+set(MACHINE_EXTRA_INCLUDES "" CACHE STRING "their include directories (;-separated)")
+set(MACHINE_EXTRA_DEFINES "" CACHE STRING "their compile definitions (;-separated NAME=value)")
+if (MACHINE_EXTRA_SOURCES)
+    target_sources(presto_master PRIVATE ${MACHINE_EXTRA_SOURCES})
+    target_include_directories(presto_master PRIVATE ${MACHINE_EXTRA_INCLUDES})
+    target_compile_definitions(presto_master PRIVATE ${MACHINE_EXTRA_DEFINES})
+endif()
 set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 KB; 8 KB slowed Evil Influences 56 -> 51%")
 target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
         PRESTO_DISC_STAGE_OFFSET=0  # a disc is expanded into track data as it goes in (presto_machine.c)

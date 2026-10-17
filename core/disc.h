@@ -8,7 +8,8 @@
 // just pulses here, and what the controller sees is what a real one sees.
 // .ssd/.dsd images are expanded into this at load, the standard DFS
 // layout with the standard gaps (disc_ssd.c there). Writes go into the
-// pulses and stay for the session; nothing is written back to the image.
+// pulses; the tracks written are marked dirty, and disc_read_sector reads a
+// sector back out of the pulses, for a platform that keeps what was saved.
 //
 // Memory: 12.5 KB a track, 1 MB a side; the board keeps it in PSRAM, which
 // the drive reads one word per 64 us.
@@ -34,6 +35,9 @@ struct disc {
     uint32_t length[2][DISC_TRACKS];
     int sides;             // 1 or 2
     int writeable;
+    uint32_t writes;                    // pulses written, all told
+    uint8_t dirty[2][DISC_TRACKS];      // tracks written since the platform last cleared these
+    void (*progress)(int done, int total);   // (optional) told as each track goes in, by disc_load_ssd
     // build state
     uint32_t *build;
     uint32_t build_index;
@@ -49,6 +53,10 @@ static inline uint32_t *disc_track(struct disc *d, int side, uint32_t track)
 {
     return d->pulses + ((uint32_t)side * DISC_TRACKS + track) * DISC_BYTES_PER_TRACK;
 }
+
+// A sector's 256 bytes as the drive would read them (FM: the ID field for this
+// track and sector, then its data field; both CRCs good). 1 if found.
+int disc_read_sector(struct disc *d, int side, int track, int sector, uint8_t *out);
 
 // CRC-CCITT as the 1770 and the disc format use it.
 uint16_t disc_crc_init(int is_mfm);
