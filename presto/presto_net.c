@@ -14,12 +14,16 @@
  *   POST /api/turbo, /overlay   "1" on, "0" off, empty toggles
  *   POST /api/boot              boot the disc in the drive (SHIFT+BREAK)
  *   POST /api/eject             back to the built-in disc
+ *   POST /api/disc/restore      the built-in disc as it came (what games saved to it forgotten), booted
  *   GET  /api/discs             the .ssd/.dsd images on the SD card
  *   POST /api/sd                body: a name on the card to load and boot
  *   POST /api/disc?name=&save=&boot=  body: a disc image to boot (save=1 also writes it to the card;
  *                               boot=0 only writes it to the card)
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
  *   POST /api/wifi              body: "<ssid>\n<password>": save, and restart to join it
+ *   GET  /api/program           a program run alongside the machine (core/machine_hook.h): its panel,
+ *                               as it describes it (404: none built in)
+ *   POST /api/command           body: a command for that program; {"reply": "..."} (404: not taken)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +45,7 @@
 #include "presto_machine.h"
 #include "presto_sd.h"
 #include "presto_psram.h"
+#include "machine_hook.h"
 #include "presto_boot.h"
 
 #define HOSTNAME "beeb"
@@ -562,7 +567,7 @@ static const char *fetch_start(const char *url, bool save) {
 // The web server
 
 enum { C_HEAD, C_BODY, C_WAIT, C_SEND };
-enum { R_404, R_PAGE, R_STATUS, R_KEYS, R_TURBO, R_OVERLAY, R_BOOT, R_EJECT, R_DISCS, R_SD, R_DISC, R_FETCH, R_WIFI, R_TOOBIG };
+enum { R_404, R_PAGE, R_STATUS, R_KEYS, R_TURBO, R_OVERLAY, R_BOOT, R_EJECT, R_DISCS, R_SD, R_DISC, R_FETCH, R_WIFI, R_PROGRAM, R_COMMAND, R_RESTORE, R_TOOBIG };
 
 typedef struct conn {
     struct tcp_pcb *pcb;
@@ -800,6 +805,10 @@ static void act(conn_t *c) {
             presto_sd_eject_disc();
             respond_json(c, 200, "{}");
             break;
+        case R_RESTORE:
+            presto_disc_restore();
+            respond_json(c, 200, "{}");
+            break;
         case R_DISCS: {
             list_ctx_t l = {.size = 8192};
             l.j = malloc(l.size);
@@ -843,6 +852,24 @@ static void act(conn_t *c) {
             const char *why = fetch_start(c->body, save);
             if (why) respond_error(c, 400, why);
             else respond_json(c, 200, "{}");
+            break;
+        }
+        case R_PROGRAM: {
+            const char *pj = machine_program_json();
+            if (pj) respond_json(c, 200, pj);
+            else respond_error(c, 404, "no program built in");
+            break;
+        }
+        case R_COMMAND: {
+            char reply[256] = "", q[300];
+            for (char *e = c->body + strlen(c->body); e > c->body && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' '); ) *--e = 0;
+            if (!machine_command_hook(c->body, reply, sizeof reply)) {
+                respond_error(c, 404, "command not taken");
+                break;
+            }
+            json_str(q, sizeof q, reply);
+            snprintf(j, sizeof j, "{\"reply\":%s}", q);
+            respond_json(c, 200, j);
             break;
         }
         case R_WIFI: {
@@ -897,6 +924,7 @@ static void route(conn_t *c) {
         {"/api/keys", true, R_KEYS}, {"/api/turbo", true, R_TURBO}, {"/api/overlay", true, R_OVERLAY},
         {"/api/boot", true, R_BOOT}, {"/api/eject", true, R_EJECT}, {"/api/discs", false, R_DISCS}, {"/api/sd", true, R_SD},
         {"/api/disc", true, R_DISC}, {"/api/fetch", true, R_FETCH}, {"/api/wifi", true, R_WIFI},
+        {"/api/program", false, R_PROGRAM}, {"/api/command", true, R_COMMAND}, {"/api/disc/restore", true, R_RESTORE},
     };
     c->route = R_404;
     for (uint i = 0; i < count_of(routes); i++) {

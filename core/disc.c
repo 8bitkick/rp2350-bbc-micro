@@ -103,7 +103,9 @@ DISC_API uint8_t disc_pulses_to_mfm(uint16_t pulses)
 
 void disc_init(struct disc *d, uint32_t *pulses, int sides, int writeable)
 {
+    void (*progress)(int, int) = d->progress;
     memset(d, 0, sizeof *d);
+    d->progress = progress;
     d->pulses = pulses;
     d->sides = sides;
     d->writeable = writeable;
@@ -183,5 +185,56 @@ void disc_load_ssd(struct disc *d, const uint8_t *image, uint32_t size)
             }
             put_fm_repeat(d, 0xff, DISC_BYTES_PER_TRACK - d->build_index);   // GAP 4
         }
+        if (d->progress) d->progress((int)track + 1, TRACKS);
     }
+}
+
+// ---- reading back (FM): the reverse of disc_load_ssd, for any layout the 1770 wrote ----
+
+int disc_read_sector(struct disc *d, int side, int track, int sector, uint8_t *out)
+{
+    if (side >= d->sides || track < 0 || track >= DISC_TRACKS) {
+        return 0;
+    }
+    const uint32_t *p = disc_track(d, side, (uint32_t)track);
+    uint32_t n = d->length[side][track];
+    // (the pulses sit a slot later in each cell than disc_pulses_to_fm takes them, as the drive
+    // reads them: look one slot on)
+#define AT(i) ((p[i] << 1) | ((i) + 1 < n ? p[(i) + 1] >> 31 : 0))
+    uint8_t clk, dat;
+    int iffy;
+    for (uint32_t i = 0; i + 7 < n; i++) {
+        disc_pulses_to_fm(&clk, &dat, &iffy, AT(i));
+        if (clk != DISC_MARK_CLOCKS || dat != DISC_ID_MARK) {
+            continue;
+        }
+        uint8_t id[6];
+        uint16_t crc = disc_crc_add(disc_crc_init(0), DISC_ID_MARK);
+        for (int k = 0; k < 6; k++) {
+            disc_pulses_to_fm(&clk, &id[k], &iffy, AT(i + 1 + k));
+            if (k < 4) crc = disc_crc_add(crc, id[k]);
+        }
+        if (id[0] != track || id[2] != sector || id[3] != 1 || crc != ((id[4] << 8) | id[5])) {
+            continue;
+        }
+        // the data mark within a gap's length, then 256 bytes and the CRC
+        for (uint32_t j = i + 7; j < i + 7 + 64 && j + 259 < n; j++) {
+            disc_pulses_to_fm(&clk, &dat, &iffy, AT(j));
+            if (clk != DISC_MARK_CLOCKS || (dat != DISC_DATA_MARK && dat != DISC_DELETED_DATA_MARK)) {
+                continue;
+            }
+            crc = disc_crc_add(disc_crc_init(0), dat);
+            for (int k = 0; k < 256; k++) {
+                disc_pulses_to_fm(&clk, &out[k], &iffy, AT(j + 1 + k));
+                crc = disc_crc_add(crc, out[k]);
+            }
+            uint8_t c1, c2;
+            disc_pulses_to_fm(&clk, &c1, &iffy, AT(j + 257));
+            disc_pulses_to_fm(&clk, &c2, &iffy, AT(j + 258));
+            return crc == ((c1 << 8) | c2);
+        }
+        return 0;
+    }
+    return 0;
+#undef AT
 }

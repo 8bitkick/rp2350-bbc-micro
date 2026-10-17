@@ -9,6 +9,10 @@
 void panel_lcd_init(void);
 // The renderer's power-on state.
 void panel_init(void);
+// the loading screen (render_unit.c): its picture (title: the program's line, if it has no picture
+// of its own), then what's loading and how far (of 1000), as often as that changes
+void panel_splash_picture(const char *title);
+void panel_splash_status(const char *what, int permille);
 // Core 1: renders what is in the stream now (not what arrives meanwhile).
 void panel_consume(struct vstream *vs);
 // Core 0, right after a machine reset: the renderer starts again from its

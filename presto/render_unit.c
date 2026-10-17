@@ -33,6 +33,7 @@ static void panel_frame_done(void);
 #include "../core/render.c"
 
 #include "panel.h"
+#include "../core/machine_hook.h"
 
 enum {
     k_rows = 256,
@@ -214,4 +215,85 @@ void panel_shot(void)
         fflush(stdout);
     }
     stdio_set_translate_crlf(&stdio_usb, true);
+}
+
+// ---- The loading screen: drawn into the framebuffer before core 1 starts rendering the machine ----
+//
+// Black, with tape-loading stripes in the borders (they run while loading, as a cassette loader's
+// did), 8BITKICK in the machine's own teletext letters (scaled up, a rainbow down them), what's
+// loading and how far it's got. The BBC's eight colours: bit 0 blue, 1 green, 2 red.
+
+static void splash_px(int x, int y, int c)
+{
+    if (x < 0 || x >= PRESTO_LCD_WIDTH || y < 0 || y >= k_rows) return;
+    uint32_t *w = &s_fb[y][x >> 3];
+    int sh = (x & 7) * 4;
+    *w = (*w & ~(0xfu << sh)) | ((uint32_t) (c & 7) << sh);
+}
+static void splash_rect(int x0, int y0, int w, int h, int c)
+{
+    for (int y = y0; y < y0 + h; y++) for (int x = x0; x < x0 + w; x++) splash_px(x, y, c);
+}
+// text in teletext glyphs (6 x 10), each glyph pixel sx by sy; colour per glyph row from rainbow
+// (if given: 10 colours, one a row) else c. Centred on cx when centre
+static void splash_text(int x, int y, const char *s, int sx, int sy, int c, const uint8_t *rainbow, int centre)
+{
+    int n = (int) strlen(s);
+    if (centre) x -= n * 6 * sx / 2;
+    for (int i = 0; i < n; i++) {
+        int ch = (unsigned char) s[i];
+        if (ch < 0x20 || ch > 0x7f) ch = '?';
+        const uint8_t *g = &teletext_characters[(ch - 0x20) * 60];
+        for (int gy = 0; gy < 10; gy++)
+            for (int gx = 0; gx < 6; gx++)
+                if (g[gy * 6 + gx]) splash_rect(x + (i * 6 + gx) * sx, y + gy * sy, sx, sy, rainbow ? rainbow[gy] : c);
+    }
+}
+
+// text in the Master's own character set (8 x 8, in the Terminal ROM from &B900: character 32
+// on), at MODE 1's size: 320 pixels across the panel's 480 (each 1.5 wide), a row a line
+extern const uint8_t rom_terminal[16384];
+static void splash_bbc_text(int cx, int y, const char *s, int c)
+{
+    int n = (int) strlen(s), x0 = cx - n * 12 / 2;
+    for (int i = 0; i < n; i++) {
+        int ch = (unsigned char) s[i];
+        if (ch < 0x20 || ch > 0x7e) ch = '?';
+        const uint8_t *g = &rom_terminal[0x3900 + (ch - 0x20) * 8];
+        for (int gy = 0; gy < 8; gy++)
+            for (int gx = 0; gx < 8; gx++)
+                if (g[gy] & (0x80 >> gx)) {
+                    int p = i * 8 + gx;
+                    for (int x = p * 3 / 2; x < (p + 1) * 3 / 2; x++) splash_px(x0 + x, y + gy, c);
+                }
+    }
+}
+
+// The loading screen's picture, drawn once: the program's (machine_boot_image: its title baked in)
+// or the platform's own (splash_logo.c), with title, if any, in teletext under the logo
+extern const uint8_t splash_logo[PRESTO_LCD_WIDTH * k_rows / 2];
+static int s_bar_x = 8, s_bar_w = PRESTO_LCD_WIDTH - 16;
+void panel_splash_picture(const char *title)
+{
+    const struct machine_boot_image *im = machine_boot_image();
+    const uint8_t *src = im && im->w == PRESTO_LCD_WIDTH && im->h == k_rows ? im->px : splash_logo;
+    for (int y = 0; y < k_rows; y++) {
+        const uint8_t *s = &src[y * PRESTO_LCD_WIDTH / 2];
+        for (int w = 0; w < k_row_words - 1; w++)      // (bit 3, "drawn", isn't a colour: masked off)
+            s_fb[y][w] = (s[w * 4] | s[w * 4 + 1] << 8 | s[w * 4 + 2] << 16 | (uint32_t) s[w * 4 + 3] << 24) & 0x77777777u;
+        s_fb[y][k_row_words - 1] = PRESTO_LCD_ROW_END;
+    }
+    if (src == splash_logo && title) splash_text(PRESTO_LCD_WIDTH / 2, 165, title, 6, 3, 6, NULL, 1);
+}
+
+// what's loading and how far (of 1000): the status line and the bar, across the screen
+void panel_splash_status(const char *what, int permille)
+{
+    enum { RED = 4, YELLOW = 6, WHITE = 7 };       // panel nibbles (b0 blue, b1 green, b2 red)
+    for (int y = 208; y < 240; y++) memset(s_fb[y], 0, (k_row_words - 1) * 4);
+    char line[72];
+    snprintf(line, sizeof line, "%.34s %3d%%", what, permille / 10);
+    splash_bbc_text(PRESTO_LCD_WIDTH / 2, 212, line, WHITE);
+    splash_rect(s_bar_x, 228, s_bar_w, 7, RED);
+    splash_rect(s_bar_x + 2, 230, (s_bar_w - 4) * (permille > 1000 ? 1000 : permille) / 1000, 3, YELLOW);
 }

@@ -1,0 +1,57 @@
+// The interface for a program run alongside the machine (a player: it reads the BBC's RAM and
+// presses keys, nothing else). The platform fills in a machine_hook_io and calls
+// machine_frame_hook once per emulated frame, between frames; passes any command it doesn't know
+// to machine_command_hook; and shows machine_program_json on its web page. All weak in the
+// platform, doing nothing unless a build supplies them (on the Presto: MACHINE_EXTRA_SOURCES).
+//
+// MACHINE_HOOK_VERSION goes up whenever this interface changes; a program checks io->version
+// against the version it was built for before trusting anything else in it.
+#ifndef MACHINE_HOOK_H
+#define MACHINE_HOOK_H
+#include <stdbool.h>
+#include <stdint.h>
+
+#define MACHINE_HOOK_VERSION 2
+
+// which machine this is (a program built for one checks it's on it)
+enum machine_model {
+    MACHINE_MODEL_BBC_B = 1,
+    MACHINE_MODEL_BBC_B_PLUS = 2,
+    MACHINE_MODEL_MASTER_128 = 3,
+};
+
+struct machine_hook_io {
+    uint32_t version;               // MACHINE_HOOK_VERSION the platform was built with
+    uint32_t model;                 // enum machine_model
+    uint32_t mos;                   // the MOS version, e.g. 320 for MOS 3.20
+    uint32_t frame;                 // emulated frames since boot
+    uint32_t resets;                // times the machine has been reset since boot (BREAK, a disc
+                                    // booted, a save state restored): its RAM starts over
+    // The Master's RAM, where it is in the platform's memory. The 6502 sees these through its
+    // paging (ACCCON, ROMSEL), which a program reading RAM has to follow itself.
+    uint8_t *ram;    uint32_t ram_size;      // main RAM, BBC &0000-&7FFF (32 KB)
+    uint8_t *shadow; uint32_t shadow_size;   // LYNNE, the shadow screen RAM at &3000-&7FFF (20 KB)
+    uint8_t *andy;   uint32_t andy_size;     // ANDY, &8000-&8FFF (4 KB)
+    uint8_t *hazel;  uint32_t hazel_size;    // HAZEL, &C000-&DFFF (8 KB)
+    // A key of the BBC's keyboard matrix down or up, from the next frame on
+    void (*key)(int row, int col, bool down);
+};
+
+void machine_frame_hook(const struct machine_hook_io *io);
+// a command for the program (over USB "!<cmd>", or the web's POST /api/command): true if it took
+// it, with any answer in reply (a line of text, may be left empty)
+bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size);
+// the program's panel on the web page (GET /api/program), as JSON, or NULL for none:
+//   {"title": "...", "fields": [["name", "value"], ...], "progress": {"label": "...", "value": n, "max": n},
+//    "log": ["line", ...], "actions": [{"label": "...", "cmd": "...", "on": true|false}, ...]}
+// every member optional. Called between frames; the string has to last until the next call.
+const char *machine_program_json(void);
+// the program's line on the platform's loading screen ("ELITE AGENT", say), or NULL; or, used
+// instead if it gives one, its own loading screen picture with its title on it: 480 x 256 pixels,
+// two a byte (the left one in the low nibble), each bit 0 blue, 1 green, 2 red (bit 3 ignored);
+// tools/make_splash.py --screen makes one. The platform writes what's loading under it.
+const char *machine_boot_title(void);
+struct machine_boot_image { uint16_t w, h; const uint8_t *px; };
+const struct machine_boot_image *machine_boot_image(void);
+
+#endif

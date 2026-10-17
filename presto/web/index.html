@@ -85,6 +85,13 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 .k.down { filter: brightness(1.6); }
 .k.latched { outline: 2px solid var(--accent); outline-offset: 1px; }
 #capture.active { border-color: var(--accent); }
+/* a program run alongside the machine (GET /api/program): its own panel, as it describes it */
+#program .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; font-size: 14px; font-variant-numeric: tabular-nums; }
+#program .fields div span { color: var(--muted); display: block; font-size: 12px; }
+#program .pbar { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+#program progress { margin-top: 4px; }
+#program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
+#program .row { margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -102,6 +109,13 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   </div>
 </section>
 
+<section id="program" hidden>
+  <h2 id="ptitle">Program</h2>
+  <div class="fields" id="pfields"></div>
+  <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
+  <div class="row" id="pactions"></div>
+  <div class="log" id="plog"></div>
+</section>
 <section>
   <h2>Disc</h2>
   <div class="discs">
@@ -109,6 +123,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
     <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
     <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
+    <button id="restore" title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
   </div>
   <progress id="prog" value="0" max="1" hidden></progress>
   <div id="msg"></div>
@@ -338,6 +353,7 @@ async function poll() {
 }
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
 $('boot').onclick = () => api('/api/boot');
+$('restore').onclick = () => { if (confirm('Forget everything saved to the built-in disc and boot it as it came?')) api('/api/disc/restore'); };
 
 // --- discs
 function msg(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
@@ -451,6 +467,32 @@ $('sdsel').onchange = async () => {
 
 poll();
 listDiscs();
+
+// --- a program run alongside the machine, if one's built in: its panel, every 2 s
+let progTimer;
+async function pollProgram() {
+  clearTimeout(progTimer);
+  let pj = null;
+  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 15000); return; } } catch (e) {}
+  if (pj) {
+    $('program').hidden = false;
+    $('ptitle').textContent = pj.title || 'Program';
+    $('pfields').innerHTML = (pj.fields || []).map(([k, v]) => `<div><span>${esc(String(k))}</span>${esc(String(v))}</div>`).join('');
+    const pr = pj.progress;
+    $('pbar').hidden = !pr;
+    if (pr) { $('plabel').textContent = pr.label || ''; $('pprog').max = pr.max || 1; $('pprog').value = Math.min(pr.value || 0, pr.max || 1); }
+    $('pactions').innerHTML = '';
+    for (const a of pj.actions || []) {
+      const b = document.createElement('button');
+      b.textContent = a.label; if (a.on) b.classList.add('on');
+      b.onclick = async () => { try { const r = await api('/api/command', a.cmd); if (r.reply) $('plog').textContent = r.reply + '\n' + $('plog').textContent; } catch (e) {} pollProgram(); };
+      $('pactions').appendChild(b);
+    }
+    $('plog').textContent = (pj.log || []).join('\n');
+  }
+  progTimer = setTimeout(pollProgram, 2000);
+}
+pollProgram();
 </script>
 </body>
 </html>
