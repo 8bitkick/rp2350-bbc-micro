@@ -820,11 +820,15 @@ static uint8_t acia_status(const struct machine *m)
 // on its read's tick before the read: a conversion ending on the next
 // cycle has ended as far as the read is concerned. (Twisted Brain polls
 // the status exactly 20000 cycles after starting a conversion.)
+// what's on each channel (an analogue joystick: centred until set). Kept outside struct machine so
+// its layout, and every save state made of it, stays as it was
+static uint16_t s_adc_value[4] = {0x8000, 0x8000, 0x8000, 0x8000};
+
 static uint8_t adc_status(const struct machine *m)
 {
     int busy = m->adc_busy && m->adc_countdown > 1;
     uint8_t st = m->adc_ctrl & 0x0f;  // channel, input flag, 12-bit mode
-    st |= 0x20;                         // MSB of the 0x8000 centre value
+    st |= (s_adc_value[m->adc_ctrl & 3] >> 10) & 0x30;    // the conversion's top two bits (bits 5, 4)
     if (!busy) {
         st |= 0x40;
     }
@@ -832,6 +836,12 @@ static uint8_t adc_status(const struct machine *m)
         st |= 0x80;
     }
     return st;
+}
+
+void machine_set_analogue(struct machine *m, int channel, uint16_t value)
+{
+    (void) m;
+    s_adc_value[channel & 3] = value;
 }
 
 static void adc_write(struct machine *m, uint8_t val)
@@ -887,8 +897,8 @@ static MACHINE_NOINLINE uint8_t sheila_read(struct machine *m, uint16_t addr)
     case 0xfe18:
         switch (addr & 3) {
         case 0: ret = adc_status(m); break;
-        case 1: ret = 0x80; break;  // high byte of the 0x8000 centre value
-        case 2: ret = 0x00; break;
+        case 1: ret = s_adc_value[m->adc_ctrl & 3] >> 8; break;             // the conversion's high byte
+        case 2: ret = s_adc_value[m->adc_ctrl & 3] & 0xf0; break;           // and its low four bits
         default: ret = 0; break;
         }
         break;

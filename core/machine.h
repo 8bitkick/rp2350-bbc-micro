@@ -126,5 +126,7 @@ void machine_autoboot(struct machine *m);
 // queued for a cycle already past is never applied). Returns 0 if the
 // queue is full.
 int machine_queue_key(struct machine *m, uint32_t cycle, int row, int col, int down);
+// an analogue input (the joystick port: channels 0-3, 0..0xFFFF, 0x8000 centred), from its next conversion
+void machine_set_analogue(struct machine *m, int channel, uint16_t value);
 
 #endif
