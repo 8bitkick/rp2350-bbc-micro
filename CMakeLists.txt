@@ -38,7 +38,6 @@ add_executable(presto_master
         ${PRESTO_DIR}/presto_sd.c
         ${PRESTO_DIR}/fatfs/ff.c
         ${PRESTO_DIR}/fatfs/ffunicode.c
-        ${PRESTO_DIR}/splash_logo.c
         )
 # The web panel's page, gzipped into flash.
 set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
