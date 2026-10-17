@@ -233,6 +233,10 @@ static void hook_key(int row, int col, bool down)
 {
     machine_queue_key(s_hook_m, s_hook_m->synced + 2000, row, col, down);    // as key_bbc
 }
+static void hook_analogue(int channel, uint16_t value)
+{
+    machine_set_analogue(s_hook_m, channel, value);
+}
 static void frame_hook(struct machine *m)
 {
     struct machine_hook_io *io = &s_hook_io;
@@ -242,7 +246,7 @@ static void frame_hook(struct machine *m)
             .version = MACHINE_HOOK_VERSION, .model = MACHINE_MODEL_MASTER_128, .mos = 320,
             .ram = m->ram, .ram_size = sizeof m->ram, .shadow = m->lynne, .shadow_size = sizeof m->lynne,
             .andy = m->andy, .andy_size = sizeof m->andy, .hazel = m->hazel, .hazel_size = sizeof m->hazel,
-            .key = hook_key, .resets = io->resets,
+            .key = hook_key, .analogue = hook_analogue, .resets = io->resets,
         };
     }
     io->frame++;

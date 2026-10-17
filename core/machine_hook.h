@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define MACHINE_HOOK_VERSION 3
+#define MACHINE_HOOK_VERSION 4
 
 // which machine this is (a program built for one checks it's on it)
 enum machine_model {
@@ -35,6 +35,9 @@ struct machine_hook_io {
     uint8_t *hazel;  uint32_t hazel_size;    // HAZEL, &C000-&DFFF (8 KB)
     // A key of the BBC's keyboard matrix down or up, from the next frame on
     void (*key)(int row, int col, bool down);
+    // An analogue input: the joystick port's channel 0-3 at 0..0xFFFF (0x8000 centred), from its
+    // next conversion: a joystick held where the program wants it
+    void (*analogue)(int channel, uint16_t value);
 };
 
 void machine_frame_hook(const struct machine_hook_io *io);
