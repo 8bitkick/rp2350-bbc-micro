@@ -37,7 +37,7 @@
 #endif
 
 #include "machine.h"
-#include "machine_hook.h"
+#include "app.h"
 #include "disc.h"
 #include "panel.h"
 
@@ -249,8 +249,7 @@ static void frame_hook(struct machine *m)
             .key = hook_key, .analogue = hook_analogue, .resets = io->resets,
         };
     }
-    io->frame++;
-    machine_frame_hook(io);
+    app_frame(io);
 }
 
 // ---- Core 0: the machine, paced to real time ----

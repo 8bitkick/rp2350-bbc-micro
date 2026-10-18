@@ -2,10 +2,15 @@
 // presses keys, nothing else). The platform fills in a machine_hook_io and calls
 // machine_frame_hook once per emulated frame, between frames; passes any command it doesn't know
 // to machine_command_hook; and shows machine_program_json on its web page. All weak in the
-// platform, doing nothing unless a build supplies them (on the Presto: MACHINE_EXTRA_SOURCES).
+// platform (src/common/app.c), doing nothing unless a build supplies them: -DAPP_SOURCES=...
+// (and _INCLUDES, _DEFINES; first called MACHINE_EXTRA_SOURCES ...).
 //
-// MACHINE_HOOK_VERSION goes up whenever this interface changes; a program checks io->version
-// against the version it was built for before trusting anything else in it.
+// Either machine (-DMACHINE=beeb|master) runs a program: io->model says which it is, and a program
+// built for one machine checks it before trusting anything else (the Model B has no shadow RAM,
+// ANDY or HAZEL: those are NULL, size 0). MACHINE_HOOK_VERSION goes up whenever this interface
+// changes; a program checks io->version against the version it was built for, too.
+// machine_boot_image (a loading screen) is the Master's only: the Model B boots too quickly to
+// show one.
 #ifndef MACHINE_HOOK_H
 #define MACHINE_HOOK_H
 #include <stdbool.h>
@@ -27,8 +32,8 @@ struct machine_hook_io {
     uint32_t frame;                 // emulated frames since boot
     uint32_t resets;                // times the machine has been reset since boot (BREAK, a disc
                                     // booted, a save state restored): its RAM starts over
-    // The Master's RAM, where it is in the platform's memory. The 6502 sees these through its
-    // paging (ACCCON, ROMSEL), which a program reading RAM has to follow itself.
+    // The machine's RAM, where it is in the platform's memory. On the Master the 6502 sees these
+    // through its paging (ACCCON, ROMSEL), which a program reading RAM has to follow itself.
     uint8_t *ram;    uint32_t ram_size;      // main RAM, BBC &0000-&7FFF (32 KB)
     uint8_t *shadow; uint32_t shadow_size;   // LYNNE, the shadow screen RAM at &3000-&7FFF (20 KB)
     uint8_t *andy;   uint32_t andy_size;     // ANDY, &8000-&8FFF (4 KB)

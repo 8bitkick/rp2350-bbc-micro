@@ -33,15 +33,6 @@ common_setup(presto_master)     # the command layer, the USB channel, the front 
 board_setup(presto_master)      # the board: panel, PSRAM, SD card, network and web page, LEDs
 target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${MASTER_CORE_DIR})
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
-# A program built in to run alongside the machine (e.g. a player that reads its RAM and presses
-# keys, through src/common/machine_hook.h's machine_frame_hook and machine_command_hook): its
-# sources and include directories, given by the project that builds it. Empty: none.
-# (MACHINE_EXTRA_SOURCES, _INCLUDES and _DEFINES are declared in the top-level CMakeLists.txt.)
-if (MACHINE_EXTRA_SOURCES)
-    target_sources(presto_master PRIVATE ${MACHINE_EXTRA_SOURCES})
-    target_include_directories(presto_master PRIVATE ${MACHINE_EXTRA_INCLUDES})
-    target_compile_definitions(presto_master PRIVATE ${MACHINE_EXTRA_DEFINES})
-endif()
 # -DSOUND=ON (common_setup): the bytes the core's SN76489 takes go to presto_audio.c through the
 # core's own hook (MACHINE_SOUND_WRITE, machine_unit.c); made on core 1. -DAMBIENT=ON
 # (board_setup): the LEDs, on core 1 when it's idle (main.c).

@@ -19,6 +19,7 @@
 #include "romfs.h"
 #include "os_embedded.h"
 
+#include "adc.h"
 #include "bbc.h"
 #include "cpu_driver.h"
 #include "keyboard.h"
@@ -27,6 +28,7 @@
 #include "via.h"
 #include "video.h"
 
+#include "app.h"
 #include "drive.h"
 #include "frontend.h"
 #include "machine_if.h"
@@ -35,7 +37,6 @@
 #include "presto_sd.h"
 #include "presto_state.h"
 
-#include "hardware/adc.h"
 #include "hardware/watchdog.h"
 #include "hardware/clocks.h"
 #include "pico/bootrom.h"
@@ -508,9 +509,42 @@ presto_state_apply_pending(void) {
 
 /* ---- The reset hook ---- */
 
+/* ---- A program built in alongside the machine (src/common/machine_hook.h) ---- */
+
+static struct machine_hook_io s_app_io;
+
+static void
+app_key(int row, int col, bool down) {
+  machine_key(((row & 7) << 4) | (col & 15), down);
+}
+
+static void
+app_analogue(int channel, uint16_t value) {
+  adc_set_channel_value(bbc_get_adc(s_bbc), (uint32_t) (channel & 3), value);
+}
+
+static void
+app_frame_beeb(void) {
+  struct machine_hook_io* p_io = &s_app_io;
+  if (p_io->version == 0) {
+    /* The Model B: 32 KB of RAM at &0000 (the flat memory's bottom half); no
+     * shadow RAM, ANDY or HAZEL.
+     */
+    p_io->version = MACHINE_HOOK_VERSION;
+    p_io->model = MACHINE_MODEL_BBC_B;
+    p_io->mos = 120;
+    p_io->ram = bbc_get_mem_read(s_bbc);
+    p_io->ram_size = 0x8000;
+    p_io->key = app_key;
+    p_io->analogue = app_analogue;
+  }
+  app_frame(p_io);
+}
+
 static void
 reset_hook(void* p, uint32_t flags) {
   (void) p;
+  s_app_io.resets++;
   if (flags & k_cpu_flag_hard_reset) {
     roms_apply();
     if (s_boot_shift_frames != 0) {
@@ -630,6 +664,7 @@ presto_machine_frame(void) {
   }
   presto_state_apply_pending();
   frontend_frame();
+  app_frame_beeb();
 }
 
 void

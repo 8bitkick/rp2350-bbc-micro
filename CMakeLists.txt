@@ -57,13 +57,17 @@ if (MACHINE STREQUAL "beeb")
 endif()
 pico_sdk_init()
 
-# A program built into the firmware to run alongside the machine (src/common/machine_hook.h; the
-# Master build only, for now): its sources, include directories and definitions. Empty: none.
-set(MACHINE_EXTRA_SOURCES "" CACHE STRING "extra sources built into the firmware (;-separated)")
-set(MACHINE_EXTRA_INCLUDES "" CACHE STRING "their include directories (;-separated)")
-set(MACHINE_EXTRA_DEFINES "" CACHE STRING "their compile definitions (;-separated NAME=value)")
-if (MACHINE STREQUAL "beeb" AND MACHINE_EXTRA_SOURCES)
-    message(FATAL_ERROR "MACHINE_EXTRA_SOURCES (a program alongside the machine) is the Master build's: add -DMACHINE=master")
-endif()
+# A program built into the firmware to run alongside the machine (src/common/machine_hook.h), on
+# either machine: its sources, include directories and definitions (;-separated). Empty: none.
+# (-DMACHINE_EXTRA_SOURCES / _INCLUDES / _DEFINES, their first names, are the same.)
+foreach(F SOURCES INCLUDES DEFINES)
+    if (DEFINED MACHINE_EXTRA_${F})
+        set(APP_${F} "${MACHINE_EXTRA_${F}}" CACHE STRING "" FORCE)
+        unset(MACHINE_EXTRA_${F} CACHE)
+    endif()
+endforeach()
+set(APP_SOURCES "" CACHE STRING "a program's sources, built into the firmware (;-separated)")
+set(APP_INCLUDES "" CACHE STRING "its include directories (;-separated)")
+set(APP_DEFINES "" CACHE STRING "its compile definitions (;-separated NAME=value)")
 
 include(${MACHINE_DIR}/machine.cmake)

@@ -633,10 +633,11 @@ void net_status_json(char *j, size_t size) {
 
 // between frames: act on a request whose body has all arrived
 static void act(conn_t *c) {
-    static char j[2048];
     switch (c->route) {
         case R_API: {
-            api_req_t r = {.args = c->body, .query = c->query, .json = true, .out = j, .size = sizeof(j)};
+            size_t size;
+            char *j = api_buffer(&size);
+            api_req_t r = {.args = c->body, .query = c->query, .json = true, .out = j, .size = size};
             api_run(c->cmd, &r);
             respond_json(c, r.code, j);
             break;

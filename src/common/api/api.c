@@ -22,18 +22,13 @@
 #include "presto_ambient.h"
 #endif
 
-// ---- A program run alongside the machine (machine_hook.h): weak, doing nothing unless a build
-// supplies it (APP_SOURCES / MACHINE_EXTRA_SOURCES)
-
-__attribute__((weak)) void machine_frame_hook(const struct machine_hook_io *io) { (void) io; }
-__attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size) {
-    (void) cmd; (void) reply; (void) reply_size;
-    return false;
-}
-__attribute__((weak)) const char *machine_program_json(void) { return NULL; }
-__attribute__((weak)) const struct machine_boot_image *machine_boot_image(void) { return NULL; }
-
 // ---- Replies
+
+char *api_buffer(size_t *size) {
+    static char s_buf[2048];
+    *size = sizeof s_buf;
+    return s_buf;
+}
 
 void api_reply(api_req_t *r, int code, const char *fmt, ...) {
     r->code = code;
@@ -178,8 +173,9 @@ static void cmd_status(api_req_t *r) {
         status_json(r->out, r->size);
         r->code = 200;
     } else {
-        static char j[1024];
-        status_json(j, sizeof j);
+        size_t size;
+        char *j = api_buffer(&size);
+        status_json(j, size);
         printf("STATUS %s\n", j);
     }
 }
