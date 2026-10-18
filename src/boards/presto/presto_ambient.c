@@ -6,7 +6,7 @@
  * its cell of a 3x3 grid over the picture (the middle and the bottom middle have no LED).
  *
  * The panel's framebuffer makes this cheap: a pixel is 4 bits, B, G and R (the BBC's 8 colours,
- * see presto_lcd.h), so an average is a count of each bit. Every 8th row and one pixel in 8 is
+ * see board.h), so an average is a count of each bit. Every 8th row and one pixel in 8 is
  * plenty (3600 samples). The grid is over the picture rather than the panel, or the BBC's black
  * border dulls everything: the extent of what's lit, over the last 2 s, no smaller than half the
  * panel.
@@ -32,14 +32,13 @@
 #include "hardware/clocks.h"
 #include "hardware/pio.h"
 #include "hardware/sync.h"
-#include "presto_ambient.h"
-#include "presto_lcd.h"
+#include "board.h"
 #include "ws2812.pio.h"
 
 #define LED_PIN         33
 #define NUM_LEDS        7
 #define ROW_STEP        8                   // sample every 8th row ...
-#define ROW_WORDS       (PRESTO_LCD_WIDTH / 8)  // ... and the first pixel of each word
+#define ROW_WORDS       (BOARD_DISPLAY_WIDTH / 8)  // ... and the first pixel of each word
 #define GLOW            3                   // the least a LED shows (of 255): a faint glow
 #define BOX_UPDATES     50                  // the picture's extent: over this many (2 s)
 #define TEST_US         1000000             // !leds test: each LED this long
@@ -65,11 +64,11 @@ static uint8_t s_gamma[256];
 static uint8_t s_sqrt[256];
 static uint32_t s_level[NUM_LEDS][3];       // smoothed, 0 .. 255 << 8
 // the grid's box over the picture: words (columns of 8 pixels) and rows, end exclusive
-static uint32_t s_box_w0, s_box_w1 = ROW_WORDS, s_box_y0, s_box_y1 = PRESTO_LCD_HEIGHT;
+static uint32_t s_box_w0, s_box_w1 = ROW_WORDS, s_box_y0, s_box_y1 = BOARD_DISPLAY_HEIGHT;
 // what's been lit since the box last changed
 static uint32_t s_seen_w0 = ~0u, s_seen_w1, s_seen_y0 = ~0u, s_seen_y1, s_box_updates;
 
-void presto_ambient_init(void) {
+void board_leds_init(void) {
     for (int i = 0; i < 256; i++) {
         s_gamma[i] = (uint8_t) lroundf(255.0f * powf(i / 255.0f, 2.2f));
         s_sqrt[i] = (uint8_t) lroundf(255.0f * sqrtf(i / 255.0f));
@@ -95,13 +94,13 @@ void presto_ambient_init(void) {
     for (int i = 0; i < NUM_LEDS; i++) pio_sm_put(s_pio, (uint) s_sm, 0);
 }
 
-void presto_ambient_frame(uint8_t locks) {
+void board_leds_frame(uint8_t locks) {
     s_locks = locks;
     s_frames++;
     __sev();
 }
 
-bool __not_in_flash_func(presto_ambient_due)(void) {
+bool __not_in_flash_func(board_leds_due)(void) {
     return (s_sm >= 0) && ((s_frames - s_updated_frames) >= 2);
 }
 
@@ -130,7 +129,7 @@ static void __not_in_flash_func(show_locks)(uint8_t rgb[NUM_LEDS][3]) {
     }
 }
 
-void __not_in_flash_func(presto_ambient_update)(void) {
+void __not_in_flash_func(board_leds_update)(void) {
     static uint16_t counts[9][8];           // samples of each colour, in each cell
     static int8_t word_cell[ROW_WORDS];     // each word's column of the grid, or -1
     uint8_t rgb[NUM_LEDS][3];
@@ -162,8 +161,8 @@ void __not_in_flash_func(presto_ambient_update)(void) {
         word_cell[w] = ((w < bw0) || (w >= bw1)) ? -1 : (int8_t) (((w - bw0) * 3) / (bw1 - bw0));
     }
     uint32_t seen_w0 = s_seen_w0, seen_w1 = s_seen_w1, seen_y0 = s_seen_y0, seen_y1 = s_seen_y1;
-    for (uint32_t y = ROW_STEP / 2; y < PRESTO_LCD_HEIGHT; y += ROW_STEP) {
-        const uint32_t *row = (const uint32_t *) presto_lcd_row_raw((int) y);
+    for (uint32_t y = ROW_STEP / 2; y < BOARD_DISPLAY_HEIGHT; y += ROW_STEP) {
+        const uint32_t *row = (const uint32_t *) board_display_row((int) y);
         if (row == NULL) continue;
         int cell_row = ((y < by0) || (y >= by1)) ? -1 : (int) (((y - by0) * 3) / (by1 - by0));
         bool lit = false;
@@ -193,9 +192,9 @@ void __not_in_flash_func(presto_ambient_update)(void) {
                 if (w0 > 0) w0--;
                 if (w1 < ROW_WORDS) w1++;
             }
-            while ((y1 - y0) < (PRESTO_LCD_HEIGHT / 2)) {
+            while ((y1 - y0) < (BOARD_DISPLAY_HEIGHT / 2)) {
                 if (y0 > 0) y0--;
-                if (y1 < PRESTO_LCD_HEIGHT) y1++;
+                if (y1 < BOARD_DISPLAY_HEIGHT) y1++;
             }
             s_box_w0 = w0; s_box_w1 = w1; s_box_y0 = y0; s_box_y1 = y1;
         }
@@ -244,17 +243,17 @@ void __not_in_flash_func(presto_ambient_update)(void) {
     send(rgb);
 }
 
-bool presto_ambient_ready(void) {
+bool board_leds_ready(void) {
     return s_sm >= 0;
 }
 
-void presto_ambient_get(bool *on, unsigned *bright, bool *locks) {
+void board_leds_get(bool *on, unsigned *bright, bool *locks) {
     *on = (s_mode == k_screen) || ((s_mode == k_test) && (s_mode_before_test == k_screen));
     *bright = (unsigned) s_bright;
     *locks = s_locks_on;
 }
 
-void presto_ambient_set(int on, int bright, int locks) {
+void board_leds_set(int on, int bright, int locks) {
     if (on >= 0) {
         if (s_mode == k_test) s_mode_before_test = on ? k_screen : k_off;
         else s_mode = on ? k_screen : k_off;
@@ -263,7 +262,7 @@ void presto_ambient_set(int on, int bright, int locks) {
     if (locks >= 0) s_locks_on = (locks != 0);
 }
 
-void presto_ambient_command(const char *args) {
+void board_leds_command(const char *args) {
     unsigned percent;
     while (*args == ' ') args++;
     if (s_sm < 0) {
@@ -271,13 +270,13 @@ void presto_ambient_command(const char *args) {
         return;
     }
     if (!strcmp(args, "off")) {
-        presto_ambient_set(0, -1, -1);
+        board_leds_set(0, -1, -1);
     } else if (!strcmp(args, "screen")) {
-        presto_ambient_set(1, -1, -1);
+        board_leds_set(1, -1, -1);
     } else if (!strcmp(args, "locks on")) {
-        presto_ambient_set(-1, -1, 1);
+        board_leds_set(-1, -1, 1);
     } else if (!strcmp(args, "locks off")) {
-        presto_ambient_set(-1, -1, 0);
+        board_leds_set(-1, -1, 0);
     } else if (!strcmp(args, "test")) {
         s_test_start = time_us_32();
         if (s_mode != k_test) s_mode_before_test = s_mode;
@@ -285,7 +284,7 @@ void presto_ambient_command(const char *args) {
         printf("LEDS test: each LED in turn for 1 s, 0 to 6 (expected: bottom right, right, "
                "top right, top, top left, left, bottom left)\n");
     } else if (sscanf(args, "bright %u", &percent) == 1) {
-        presto_ambient_set(-1, (int) percent, -1);
+        board_leds_set(-1, (int) percent, -1);
     } else if (*args != '\0') {
         printf("LEDS usage: leds [off|screen|test|bright <percent>|locks on|locks off]\n");
         return;

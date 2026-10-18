@@ -14,7 +14,7 @@
 #include "hardware/pwm.h"
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
-#include "presto_lcd.h"
+#include "board.h"
 
 #ifndef PRESTO_LCD_TIMING_DMA
 #define PRESTO_LCD_TIMING_DMA 1
@@ -39,18 +39,18 @@
 // The vertical front porch sets the refresh rate: PRESTO_LCD_V_FRONT_PORCH lines of 530 dot
 // clocks at 15.625 MHz (clk_sys 250 MHz / 16). 5 lines gave 59.2 Hz; 96 give 50.05 Hz, the
 // BBC's frame rate (312 lines of 64 us: 50.08 Hz), so an emulator locked to the frame
-// interrupt (presto_lcd_frame_time_us) shows each of its frames once, whole.
+// interrupt (board_display_frame_time_us) shows each of its frames once, whole.
 #ifndef PRESTO_LCD_V_FRONT_PORCH
 #define PRESTO_LCD_V_FRONT_PORCH 96
 #endif
 #define TIMING_V_PULSE   8
 #define TIMING_V_BACK    (5 + TIMING_V_PULSE)
-#define TIMING_V_DISPLAY (PRESTO_LCD_HEIGHT + TIMING_V_BACK)
+#define TIMING_V_DISPLAY (BOARD_DISPLAY_HEIGHT + TIMING_V_BACK)
 #define TIMING_V_FRONT   (PRESTO_LCD_V_FRONT_PORCH + TIMING_V_DISPLAY)
 #define TIMING_H_FRONT   4
 #define TIMING_H_PULSE   16
 #define TIMING_H_BACK    30
-#define TIMING_H_DISPLAY PRESTO_LCD_WIDTH
+#define TIMING_H_DISPLAY BOARD_DISPLAY_WIDTH
 #ifndef TIMING_H_DATA_LEAD
 #define TIMING_H_DATA_LEAD 1    // dots the data SM's irq leads the panel's first pixel
 #endif
@@ -240,7 +240,7 @@ static void lcd_panel_init(void) {
     sleep_ms(50);
 }
 
-void presto_lcd_set_backlight(uint8_t brightness) {
+void board_display_backlight(uint8_t brightness) {
     uint16_t value;
     if (brightness == 0) value = 0;
     else if (brightness == 255) value = BACKLIGHT_PWM_TOP;
@@ -248,14 +248,14 @@ void presto_lcd_set_backlight(uint8_t brightness) {
     pwm_set_gpio_level(LCD_BACKLIGHT, value);
 }
 
-void presto_lcd_init(const uint16_t *const *rows) {
+void board_display_init(const uint16_t *const *rows) {
     row_table = rows;
 
     pwm_config cfg = pwm_get_default_config();
     pwm_config_set_wrap(&cfg, BACKLIGHT_PWM_TOP);
     pwm_init(pwm_gpio_to_slice_num(LCD_BACKLIGHT), &cfg, true);
     gpio_set_function(LCD_BACKLIGHT, GPIO_FUNC_PWM);
-    presto_lcd_set_backlight(0);
+    board_display_backlight(0);
 
     parallel_sm = pio_claim_unused_sm(lcd_pio, true);
     timing_sm = pio_claim_unused_sm(timing_pio, true);
@@ -312,7 +312,7 @@ void presto_lcd_init(const uint16_t *const *rows) {
     sm_config_set_clkdiv_int_frac8(&c, clk_div, 0);
     pio_sm_init(timing_pio, timing_sm, timing_offset, &c);
     pio_sm_set_enabled(timing_pio, timing_sm, true);
-    // for presto_lcd_frame_time_us / presto_lcd_scan_row: the timing program takes two of its
+    // for board_display_frame_time_us / board_display_scan_row: the timing program takes two of its
     // cycles per dot; the frame interrupt comes at the start of the front porch
     line_ns = (uint32_t) (((uint64_t) (TIMING_H_FRONT + TIMING_H_PULSE + TIMING_H_BACK + TIMING_H_DISPLAY)
                            * clk_div * 2 * 1000000000ull) / clock_get_hz(clk_sys));
@@ -325,7 +325,7 @@ void presto_lcd_init(const uint16_t *const *rows) {
     channel_config_set_high_priority(&dc, true);   // the panel must never wait for other DMA
     channel_config_set_dreq(&dc, pio_get_dreq(lcd_pio, parallel_sm, true));
     channel_config_set_chain_to(&dc, lcd_dma2);
-    dma_channel_configure(lcd_dma, &dc, &lcd_pio->txf[parallel_sm], NULL, PRESTO_LCD_ROW_WORDS, false);
+    dma_channel_configure(lcd_dma, &dc, &lcd_pio->txf[parallel_sm], NULL, BOARD_DISPLAY_ROW_WORDS, false);
 
     // reloads lcd_dma's read address (and retriggers it) from the row table
     dc = dma_channel_get_default_config(lcd_dma2);
@@ -369,10 +369,10 @@ void presto_lcd_init(const uint16_t *const *rows) {
     irq_set_enabled(pio_get_irq_num(lcd_pio, 0), true);
 
     sleep_ms(50);
-    presto_lcd_set_backlight(255);
+    board_display_backlight(255);
 }
 
-void presto_lcd_set_rows(const uint16_t *const *rows) {
+void board_display_set_rows(const uint16_t *const *rows) {
     row_table = rows;
 }
 
@@ -381,37 +381,37 @@ static uint16_t rgb_for(uint code) {
     return (uint16_t) ((code & 4 ? 0xf800 : 0) | (code & 2 ? 0x07e0 : 0) | (code & 1 ? 0x001f : 0));
 }
 
-const uint16_t *presto_lcd_row(int row, uint16_t *buf) {
+const uint16_t *board_display_row_rgb565(int row, uint16_t *buf) {
     // expand a row to what the panel shows, as byte swapped RGB565
     const uint32_t *src = (const uint32_t *) row_table[row];
-    for (int x = 0; x < PRESTO_LCD_WIDTH; x++)
+    for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++)
         buf[x] = __builtin_bswap16(rgb_for((src[x >> 3] >> ((x & 7) * 4)) & 7));
     return buf;
 }
 
-const uint16_t *__not_in_flash_func(presto_lcd_row_raw)(int row) {
+const uint16_t *__not_in_flash_func(board_display_row)(int row) {
     return row_table[row];
 }
 
-uint32_t presto_lcd_frame_count(void) {
+uint32_t board_display_frames(void) {
     return frame_count;
 }
 
-uint32_t presto_lcd_frame_time_us(void) {
+uint32_t board_display_frame_time_us(void) {
     return frame_time_us;
 }
 
-int32_t presto_lcd_scan_row(uint32_t now_us) {
+int32_t board_display_scan_row(uint32_t now_us) {
     int32_t dt_us = (int32_t) (now_us - frame_time_us);
     if (dt_us < 0) return -(int32_t) (((uint32_t) -dt_us * 1000u) / line_ns) - 1;
     return (int32_t) (((uint32_t) dt_us * 1000u) / line_ns);
 }
 
-uint32_t presto_lcd_frame_lines(void) {
+uint32_t board_display_frame_lines(void) {
     return TIMING_V_FRONT;
 }
 
-uint32_t presto_lcd_frame_period_us(void) {
+uint32_t board_display_frame_period_us(void) {
     // dot clocks a frame over the dot clock (clk_sys / clk_div / 2: the timing program takes
     // two of its cycles per dot)
     const uint32_t max_pio_clk = 34 * MHZ;
@@ -421,7 +421,7 @@ uint32_t presto_lcd_frame_period_us(void) {
     return (uint32_t) ((dots * clk_div * 2 * 1000000ull) / clock_get_hz(clk_sys));
 }
 
-void presto_lcd_debug(void) {
+void board_display_debug(void) {
     printf("LCD rgbe_ok=%d sm_pc=%u txlevel=%u stalled=%d dma_ctrl=%08x count=%08x read=%08x busy=%d frames=%u\n",
            rgbe_ok, pio_sm_get_pc(lcd_pio, parallel_sm),
            pio_sm_get_tx_fifo_level(lcd_pio, parallel_sm),

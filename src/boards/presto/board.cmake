@@ -6,13 +6,13 @@
 set(PICO_BOARD pimoroni_presto CACHE STRING "Board")
 set(PICO_PLATFORM rp2350 CACHE STRING "Platform")
 list(APPEND PICO_BOARD_HEADER_DIRS ${BOARD_DIR})
-set(BOARD_HAS_NET ON)       # WiFi and the web page (presto_net.c)
 # -DBOARD_FLASH_SAVE_SHIFT=<bytes>: the save disc that much lower in the flash (board_config.h), to
 # test saving without touching the real one
 set(BOARD_FLASH_SAVE_SHIFT 0 CACHE STRING "Move the save disc down the flash by this much (testing)")
 
 function(board_setup TARGET)
     target_sources(${TARGET} PRIVATE
+            ${BOARD_DIR}/presto_board.c     # board_init
             ${BOARD_DIR}/presto_lcd.c       # the panel: 4-bit rows, scanned out by PIO and DMA
             ${BOARD_DIR}/presto_psram.c
             ${BOARD_DIR}/presto_sd.c        # the SD card and the disc in drive 0
@@ -24,8 +24,6 @@ function(board_setup TARGET)
     pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_timing.pio)
     target_include_directories(${TARGET} PRIVATE ${BOARD_DIR} ${BOARD_DIR}/fatfs)
     target_compile_definitions(${TARGET} PRIVATE
-            BOARD_NAME="presto"
-            BOARD_HAS_NET=1
             BOARD_FLASH_SAVE_SHIFT=${BOARD_FLASH_SAVE_SHIFT}
             CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
     target_link_libraries(${TARGET} PRIVATE

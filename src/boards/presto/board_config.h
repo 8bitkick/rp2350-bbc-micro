@@ -6,6 +6,24 @@
 #include "pico.h"
 #include "hardware/flash.h"
 
+#define BOARD_NAME "presto"
+
+// ---- What it has
+#define BOARD_HAS_NET 1             // WiFi (presto_net.c: the HTTP server, the web page)
+#define BOARD_HAS_SD 1              // an SD card (presto_sd.c)
+#define BOARD_HAS_LEDS 1            // seven WS2812 LEDs on its back (presto_ambient.c)
+
+// ---- The display: the ST7701 480x480 panel (presto_lcd.c), packed 4-bit rows. A row is 480
+// pixels, then an end of row code (bit 3, E: see st7701_parallel.pio).
+#define BOARD_DISPLAY_FORMAT BOARD_DISPLAY_PACKED4_ROWS
+#define BOARD_DISPLAY_WIDTH 480
+#define BOARD_DISPLAY_HEIGHT 480
+#define BOARD_DISPLAY_ROW_WORDS (BOARD_DISPLAY_WIDTH / 8 + 1)
+#define BOARD_DISPLAY_ROW_END 0x8u
+
+// ---- Audio out: the piezo, through a MOSFET on GPIO 43 (PWM slice 9; the backlight on 45 is 10)
+#define BOARD_AUDIO_PWM_PIN 43
+
 // ---- The flash layout (16 MB), the board's one table of it (src/common/mem.h's regions).
 // The firmware from the bottom; at the top, down from the end: the WiFi network (a sector), a
 // spare sector, the save disc (80 tracks x 10 sectors x 256 bytes), its header (a sector).

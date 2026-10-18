@@ -31,8 +31,7 @@
 #include "machine_if.h"
 #include "machine_hook.h"
 #include "boot_guard.h"
-#include "presto_lcd.h"
-#include "presto_sd.h"
+#include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
 #endif
@@ -66,15 +65,15 @@ static void binary_out(const void *data, uint32_t len) {
 
 // the panel's rows as shown, RGB565, big-endian
 static void shot(const char *args) {
-    static uint16_t s_out[PRESTO_LCD_WIDTH];
+    static uint16_t s_out[BOARD_DISPLAY_WIDTH];
     unsigned hold_ms = 0;
     (void) sscanf(args, "%u", &hold_ms);
-    printf("SHOT %d %d\n", PRESTO_LCD_WIDTH, PRESTO_LCD_HEIGHT);
+    printf("SHOT %d %d\n", BOARD_DISPLAY_WIDTH, BOARD_DISPLAY_HEIGHT);
     fflush(stdout);
-    for (int y = 0; y < PRESTO_LCD_HEIGHT; y++) {
-        const uint16_t *src = presto_lcd_row(y, s_out);
-        for (int x = 0; x < PRESTO_LCD_WIDTH; x++) s_out[x] = __builtin_bswap16(src[x]);
-        binary_out(s_out, PRESTO_LCD_WIDTH * sizeof(uint16_t));
+    for (int y = 0; y < BOARD_DISPLAY_HEIGHT; y++) {
+        const uint16_t *src = board_display_row_rgb565(y, s_out);
+        for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++) s_out[x] = __builtin_bswap16(src[x]);
+        binary_out(s_out, BOARD_DISPLAY_WIDTH * sizeof(uint16_t));
     }
     if (hold_ms > 10000) hold_ms = 10000;
     while (hold_ms > 0) {
@@ -125,15 +124,15 @@ static void usb_command(char *cmd) {
         sleep_ms(100);
         reset_usb_boot(0, 0);
     } else if (is(cmd, "put")) {
-        presto_sd_put(after(cmd, "put"));
+        board_sd_put(after(cmd, "put"));
     } else if (is(cmd, "temp")) {
         int centi = frontend_temp_centi();
         printf("TEMP %d.%02dC\n", centi / 100, centi % 100);
 #if WITH_SOUND
     } else if (is(cmd, "audio")) {
-        presto_audio_command(after(cmd, "audio"));
+        audio_command(after(cmd, "audio"));
     } else if (is(cmd, "beep")) {
-        presto_audio_test(after(cmd, "beep"));
+        audio_test(after(cmd, "beep"));
 #endif
     // the first spellings
     } else if (!strcmp(cmd, "disc")) {
@@ -142,7 +141,7 @@ static void usb_command(char *cmd) {
         text_call("restore", "");
     } else if (is(cmd, "disc")) {
         const char *name = after(cmd, "disc");
-        if (!presto_sd_load_disc(name)) printf("DISC error: %s not loaded\n", name);
+        if (!board_sd_load_disc(name)) printf("DISC error: %s not loaded\n", name);
     } else if (!strcmp(cmd, "perf")) {
         text_call("overlay", "");
     } else if (is(cmd, "leds")) {
@@ -213,7 +212,7 @@ void frontend_poll(void) {
 
 void frontend_frame(void) {
     static unsigned frames;
-    if (frames < 100 && ++frames == 100) presto_boot_ok();     // running: disarm the boot guard (boot_guard.c)
+    if (frames < 100 && ++frames == 100) boot_guard_ok();     // running: disarm the boot guard (boot_guard.c)
     usb_poll();
     api_frame();
     drive0_frame();     // the save disc

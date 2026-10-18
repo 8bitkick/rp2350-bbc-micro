@@ -13,8 +13,7 @@
 #include "hardware/watchdog.h"
 #include "ff.h"
 #include "diskio.h"
-#include "presto_psram.h"
-#include "presto_sd.h"
+#include "board.h"
 #include "drive.h"
 
 #define SD_SPI      spi0
@@ -192,7 +191,7 @@ static bool is_disc_name(const char *name) {
     return dot && (!strcasecmp(dot, ".ssd") || !strcasecmp(dot, ".dsd"));
 }
 
-int presto_sd_each_disc(void (*fn)(const char *name, uint32_t size, void *ctx), void *ctx) {
+int board_sd_each_disc(void (*fn)(const char *name, uint32_t size, void *ctx), void *ctx) {
     if (!mount()) return -1;
     DIR dir;
     FILINFO info;
@@ -212,8 +211,8 @@ static void print_disc(const char *name, uint32_t size, void *ctx) {
     printf("DISC %s %u\n", name, (uint) size);
 }
 
-void presto_sd_list_discs(void) {
-    int n = presto_sd_each_disc(print_disc, NULL);
+void board_sd_list_discs(void) {
+    int n = board_sd_each_disc(print_disc, NULL);
     if (n < 0) printf("DISCS no card\n");
     else printf("DISCS %d\n", n);
 }
@@ -239,7 +238,7 @@ static bool find_disc(const char *want, char *found, size_t found_size) {
 
 static bool safe_disc_name(const char *name);
 
-bool presto_sd_load_disc(const char *want) {
+bool board_sd_load_disc(const char *want) {
     uint8_t *ram = drive0_staging();
     if (!ram) {
         printf("DISC no PSRAM\n");
@@ -276,7 +275,7 @@ bool presto_sd_load_disc(const char *want) {
     return true;
 }
 
-bool presto_sd_save(const char *name, const uint8_t *data, uint32_t size) {
+bool board_sd_save(const char *name, const uint8_t *data, uint32_t size) {
     if (!safe_disc_name(name) || !mount()) return false;
     FIL f;
     if (f_open(&f, name, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) return false;
@@ -305,7 +304,7 @@ static bool safe_disc_name(const char *name) {
     return true;
 }
 
-void presto_sd_put(const char *args) {
+void board_sd_put(const char *args) {
     // "<name> <size>", then exactly <size> bytes of the file (the name may contain spaces)
     char name[72];
     const char *sp = strrchr(args, ' ');

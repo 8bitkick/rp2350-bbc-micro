@@ -1,7 +1,7 @@
 /*
  * Turns beebjit's rendered rows (ARGB, 640 visible pixels) into the Presto
  * panel's framebuffer format: 480 4-bit colour codes per row (bit 0 blue,
- * 1 green, 2 red), 8 to a word, then an end-of-row word (see presto_lcd.h).
+ * 1 green, 2 red), 8 to a word, then an end-of-row word (see board.h: BOARD_DISPLAY_PACKED4_ROWS).
  * Plain C with no hardware dependencies, so the test harness can run it too.
  *
  * Part of the RP2350 port of beebjit. beebjit is copyright Chris Evans and

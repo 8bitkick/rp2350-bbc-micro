@@ -72,7 +72,7 @@ if ((SOUND OR AMBIENT) AND NOT PRESTO_BEEBJIT_WIRE)
     message(FATAL_ERROR "SOUND and AMBIENT need core 1 (PRESTO_BEEBJIT_WIRE)")
 endif()
 if (SOUND)
-    target_compile_definitions(presto_beebjit PRIVATE BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
+    target_compile_definitions(presto_beebjit PRIVATE BEEBJIT_SOUND_WRITE_HOOK=audio_sn_write)
 endif()
 # -DPRESTO_BEEBJIT_TERMINAL=ON: the USB serial port is the BBC's RS423 (no "!" commands)
 if (PRESTO_BEEBJIT_TERMINAL)
@@ -124,8 +124,8 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_JIT_COMPACT=1
         BEEBJIT_DISC_COMPACT=1
         BEEBJIT_MALLOC_BIG=beebjit_embedded_malloc_big
-        PRESTO_BOOT_GUARD=1 PRESTO_BOOT_GUARD_KEEP=$<BOOL:${PRESTO_BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (boot_guard.c)
-        PICO_PANIC_FUNCTION=presto_boot_panic   # an SDK panic (out of memory, hard_assert) is reported the same way
+        BOOT_GUARD=1 BOOT_GUARD_KEEP=$<BOOL:${BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (boot_guard.c)
+        PICO_PANIC_FUNCTION=boot_guard_panic   # an SDK panic (out of memory, hard_assert) is reported the same way
         BEEBJIT_HEADLESS=1
         BEEBJIT_MALLOC=beebjit_embedded_malloc
         BEEBJIT_REALLOC=beebjit_embedded_realloc

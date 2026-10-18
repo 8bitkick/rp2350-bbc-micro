@@ -166,7 +166,7 @@ beebjit_embedded_malloc(size_t size) {
   }
   if (p_ret == NULL) {
     /* (an out-of-memory panic then reports this size and the SRAM total) */
-    presto_boot_note(size, s_small_live);
+    boot_guard_note(size, s_small_live);
     p_ret = malloc(size);
     if (p_ret != NULL) {
       s_small_live += size;

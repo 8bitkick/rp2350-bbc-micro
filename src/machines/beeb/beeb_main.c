@@ -22,15 +22,13 @@
 #include "timing.h"
 
 #include "sound.h"
-#if WITH_AMBIENT
-#include "presto_ambient.h"
+#include "board.h"
+#if BOARD_DISPLAY_FORMAT != BOARD_DISPLAY_PACKED4_ROWS || BOARD_DISPLAY_WIDTH != 480
+#error "the Model B's panel code packs 640-pixel lines into 480-pixel packed 4-bit rows"
 #endif
 #include "boot_guard.h"
-#include "presto_lcd.h"
 #include "machine_if.h"
-#include "presto_psram.h"
 #include "drive.h"
-#include "presto_sd.h"
 
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
@@ -74,14 +72,14 @@
 #define PRESTO_BEEBJIT_TERMINAL 0
 #endif
 
-static_assert(k_beebjit_panel_row_words == PRESTO_LCD_ROW_WORDS,
+static_assert(k_beebjit_panel_row_words == BOARD_DISPLAY_ROW_WORDS,
               "panel row format");
-static_assert(k_beebjit_panel_row_end == PRESTO_LCD_ROW_END,
+static_assert(k_beebjit_panel_row_end == BOARD_DISPLAY_ROW_END,
               "panel row format");
 
 /* One row per BBC scanline; the panel's row table stretches them to 480. */
 static uint32_t s_fb[k_beebjit_panel_rows][k_beebjit_panel_row_words];
-static const uint16_t* s_row_table[PRESTO_LCD_HEIGHT + 1];
+static const uint16_t* s_row_table[BOARD_DISPLAY_HEIGHT + 1];
 static struct beebjit_panel s_panel;
 
 #if PRESTO_BEEBJIT_PANEL_PIO
@@ -221,8 +219,8 @@ static void __not_in_flash_func(panel_pio_row)(void* p,
    */
   {
     uint32_t now = time_us_32();
-    int32_t scan = presto_lcd_scan_row(now);
-    int32_t margin = (scan - (int32_t) (row * PRESTO_LCD_HEIGHT / p_panel->num_rows));
+    int32_t scan = board_display_scan_row(now);
+    int32_t margin = (scan - (int32_t) (row * BOARD_DISPLAY_HEIGHT / p_panel->num_rows));
     if (row <= s_lock_span_last_row) {
       /* A new frame: the previous one's span. */
       if (s_lock_rows != 0) {
@@ -241,7 +239,7 @@ static void __not_in_flash_func(panel_pio_row)(void* p,
     }
     s_lock_span_last_us = now;
     s_lock_span_last_row = row;
-    int32_t lines = (int32_t) presto_lcd_frame_lines();
+    int32_t lines = (int32_t) board_display_frame_lines();
     /* To the nearest scan of this row: the one before (negative: the row
      * was drawn that many lines ahead of it) or the one after.
      */
@@ -323,7 +321,7 @@ static void __not_in_flash_func(core1_main)(void) {
   (void) flash_safe_execute_core_init();
 #if WITH_SOUND
   /* The sound: its DMA interrupt runs here. */
-  presto_audio_init();
+  audio_init();
 #endif
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
@@ -335,8 +333,8 @@ static void __not_in_flash_func(core1_main)(void) {
     uint32_t t0 = systick_hw->cvr;
     if (beebjit_wire_drain() == 0) {
 #if WITH_AMBIENT
-      if (presto_ambient_due()) {
-        presto_ambient_update();
+      if (board_leds_due()) {
+        board_leds_update();
         s_core1_busy_cycles += ((t0 - systick_hw->cvr) & 0xFFFFFF);
         continue;
       }
@@ -367,9 +365,9 @@ beebjit_host_time_us(void) {
 
 static void
 lock_frame(void) {
-  int32_t period = (int32_t) presto_lcd_frame_period_us();
+  int32_t period = (int32_t) board_display_frame_period_us();
   /* Where in the panel's frame this vsync fell, against where it should. */
-  int32_t phase = (int32_t) (time_us_32() - presto_lcd_frame_time_us());
+  int32_t phase = (int32_t) (time_us_32() - board_display_frame_time_us());
   int32_t err = (phase - (period - s_lock_lead_us));
   int32_t step;
   if (s_turbo || (period == 0)) {
@@ -410,7 +408,7 @@ presto_beebjit_lock(const char* p_arg) {
                 "rows %lu: late %lu, near %lu, lines from the scan min %ld avg %ld max %ld; "
                 "a frame's rows span %lu/%lu/%lu us, first at scan line %ld, over %lu frames\n",
                 (long) s_lock_lead_us,
-                (unsigned long) presto_lcd_frame_period_us(),
+                (unsigned long) board_display_frame_period_us(),
                 (long) s_lock_err_us,
                 (long) s_lock_err_min_us,
                 (long) s_lock_err_max_us,
@@ -490,18 +488,18 @@ beebjit_host_term_write(uint8_t byte) {
 
 uint8_t*
 presto_beebjit_disc_ram(void) {
-  size_t size = presto_psram_size();
-  if ((presto_psram() == NULL) || (size < (8u << 20))) {
+  size_t size = board_psram_size();
+  if ((board_psram() == NULL) || (size < (8u << 20))) {
     return NULL;
   }
-  return (presto_psram() + size - PRESTO_DISC_RAM_SIZE);
+  return (board_psram() + size - PRESTO_DISC_RAM_SIZE);
 }
 
 void*
 beebjit_host_fixed_region(void* p_addr, size_t size) {
   uintptr_t start = (uintptr_t) p_addr;
-  if ((presto_psram() == NULL) ||
-      (presto_psram_size() < (8u << 20)) ||
+  if ((board_psram() == NULL) ||
+      (board_psram_size() < (8u << 20)) ||
       (start < PRESTO_JIT_REGION_START) ||
       ((start + size) > PRESTO_JIT_REGION_END)) {
     return NULL;
@@ -511,9 +509,9 @@ beebjit_host_fixed_region(void* p_addr, size_t size) {
 
 size_t
 beebjit_host_big_region(uint8_t** p_base) {
-  size_t size = presto_psram_size();
-  if ((presto_psram() == NULL) || (size < (8u << 20))) {
-    *p_base = presto_psram();
+  size_t size = board_psram_size();
+  if ((board_psram() == NULL) || (size < (8u << 20))) {
+    *p_base = board_psram();
     return size;
   }
   *p_base = (uint8_t*) PRESTO_JIT_REGION_END;
@@ -839,7 +837,7 @@ machine_print_stats(void) {
   (void) printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 "
                 "core0=%lu%% core1=%lu%% speed=%lu%%%s\n",
                 (unsigned long) s_frames,
-                (unsigned long) presto_lcd_frame_count(),
+                (unsigned long) board_display_frames(),
                 (unsigned long) s_perf_core0,
                 (unsigned long) s_perf_core1,
                 (unsigned long) s_perf_speed,
@@ -864,11 +862,11 @@ frame_callback(void* p, uint64_t cycles) {
   watchdog_update();
   perf_frame(cycles);
 #if WITH_SOUND
-  presto_audio_frame(cycles, s_turbo);
+  audio_frame(cycles, s_turbo);
 #endif
 #if WITH_AMBIENT
   /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
-  presto_ambient_frame((uint8_t) (machine_leds() & 3));
+  board_leds_frame((uint8_t) (machine_leds() & 3));
 #endif
   presto_machine_frame();
 #if PRESTO_BEEBJIT_PROF
@@ -978,10 +976,10 @@ run_beebjit(void) {
   config.p_row_callback_object = &s_panel;
   config.p_frame_callback = frame_callback;
 
-  presto_boot_step(4);
+  boot_guard_step(4);
 #if PRESTO_BEEBJIT_WIRE
 #if WITH_SOUND
-  presto_audio_set_ring(beebjit_embedded_malloc_big(presto_audio_ring_size()));
+  audio_set_ring(beebjit_embedded_malloc_big(audio_ring_size()));
 #endif
   beebjit_wire_init(s_wire_buf, 0);
   g_beebjit_wire.p_wait_hook = wire_wait_hook;
@@ -995,7 +993,7 @@ run_beebjit(void) {
                                       sizeof(s_core1_stack));
   }
 #endif
-  presto_boot_step(5);
+  boot_guard_step(5);
   if (p_bbc == NULL) {
     (void) printf("#beebjit_embedded_create failed\n");
   } else {
@@ -1020,9 +1018,10 @@ int
 main(void) {
   uint32_t i;
 
-  presto_boot_begin();   /* reports instead, if the last boot died */
+  boot_guard_begin();   /* reports instead, if the last boot died */
   setup_clock();
   stdio_init_all();
+  board_init();
 #if PRESTO_BEEBJIT_LOG_ALLOCS
   /* Diagnosis (build with -DPRESTO_BEEBJIT_LOG_ALLOCS=1): wait for the USB
    * console, then log every allocation, with the SRAM heap's state. */
@@ -1031,27 +1030,27 @@ main(void) {
   }
   beebjit_embedded_log_allocs = 1;
 #endif
-  presto_boot_step(1);
+  boot_guard_step(1);
 
-  s_psram = presto_psram_init();
-  presto_boot_step(2);
+  s_psram = board_psram_init();
+  boot_guard_step(2);
 
   beebjit_panel_init(&s_panel, s_fb, k_beebjit_panel_rows);
   /* 256 BBC lines over 480 panel rows. */
-  for (i = 0; i < PRESTO_LCD_HEIGHT; ++i) {
-    s_row_table[i] = (const uint16_t*) s_fb[(i * 256) / PRESTO_LCD_HEIGHT];
+  for (i = 0; i < BOARD_DISPLAY_HEIGHT; ++i) {
+    s_row_table[i] = (const uint16_t*) s_fb[(i * 256) / BOARD_DISPLAY_HEIGHT];
   }
-  s_row_table[PRESTO_LCD_HEIGHT] = NULL;
-  presto_lcd_init(s_row_table);
+  s_row_table[BOARD_DISPLAY_HEIGHT] = NULL;
+  board_display_init(s_row_table);
 #if PRESTO_BEEBJIT_PANEL_PIO
 #if WITH_AMBIENT
   /* First: it moves PIO0 to GPIO 16-47, which it can only do before PIO0 has a program. */
-  presto_ambient_init();
+  board_leds_init();
 #endif
   panel_pio_init();
 #endif
-  presto_lcd_set_backlight(255);
-  presto_boot_step(3);
+  board_display_backlight(255);
+  boot_guard_step(3);
 
   (void) printf("#beebjit on Presto: %lu MHz, PSRAM %lu KB\n",
                 (unsigned long) (clock_get_hz(clk_sys) / 1000000),
