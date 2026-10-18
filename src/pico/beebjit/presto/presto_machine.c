@@ -27,6 +27,7 @@
 #include "via.h"
 #include "video.h"
 
+#include "presto_audio.h"
 #include "presto_lcd.h"
 #include "presto_machine.h"
 #include "presto_net.h"
@@ -624,6 +625,12 @@ run_command(char* p_cmd) {
     (void) printf("PERF overlay %s\n", presto_overlay_get() ? "on" : "off");
   } else if (!strncmp(p_cmd, "wifi ", 5)) {
     presto_net_set_wifi(p_cmd + 5);
+#if PRESTO_BEEBJIT_SOUND
+  } else if (!strncmp(p_cmd, "audio", 5)) {
+    presto_audio_command(p_cmd + 5);
+  } else if (!strncmp(p_cmd, "beep", 4)) {
+    presto_audio_test(p_cmd + 4);
+#endif
   } else if (!strcmp(p_cmd, "net")) {
     presto_net_print_status();
   } else if (!strncmp(p_cmd, "peek ", 5)) {
