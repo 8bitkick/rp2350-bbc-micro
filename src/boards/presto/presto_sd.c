@@ -15,7 +15,6 @@
 #include "diskio.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
-#include "presto_state.h"
 
 #define SD_SPI      spi0
 #define SD_SCK      34

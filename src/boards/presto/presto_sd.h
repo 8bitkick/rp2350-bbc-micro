@@ -15,6 +15,12 @@ bool presto_sd_load_disc(const char *name);
 bool presto_sd_reinsert_disc(void);
 // forget it, and reset to the built-in disc
 void presto_sd_eject_disc(void);
+// the built-in disc's golden image back (what games saved to it forgotten), and boot it
+void presto_disc_restore(void);
+// what's in the drive: "ORIGINAL", "SAVED GAMES (n SAVES)" or a disc's name (the loading screen)
+const char *presto_disc_source(void);
+// told as each track of a disc goes into the drive (NULL: no one); for the loading screen
+void presto_disc_progress(void (*fn)(int done, int total));
 // call fn for each .ssd / .dsd on the card; the count, or -1 with no card
 int presto_sd_each_disc(void (*fn)(const char *name, uint32_t size, void *ctx), void *ctx);
 // the image already at the start of the PSRAM goes in drive 0 as <name> (.ssd/.dsd says which
