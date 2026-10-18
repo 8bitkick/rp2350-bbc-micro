@@ -195,6 +195,23 @@ BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
+### The BBC Master 128
+
+The same tree also builds a BBC Master 128, on [Kieran Connell's emulator](https://github.com/kieranhj/esp32-beeb)
+(`src/master/`) rather than beebjit: one machine per build, chosen with `-DPRESTO_MACHINE`
+(`beeb`, the default, or `master`).
+
+```sh
+scripts/setup.sh --master   # MOS 3.20 ROMs and the Master discs too; builds build-master/presto_master.uf2
+. deps/env.sh && cmake -S . -B build-master -G Ninja -DPRESTO_MACHINE=master && ninja -C build-master
+```
+
+It boots flicker-free Elite for the Master (`--disc=<name>` or `-DBEEB_DISC=<path>` for another).
+[docs/master/README.md](docs/master/README.md) has how it runs, its measurements, and why the Master
+isn't on beebjit. A program can be built into the Master firmware to run alongside the machine
+(`src/master/machine_hook.h`; `-DMACHINE_EXTRA_SOURCES=...`, `_INCLUDES`, `_DEFINES`), as the
+[Elite agent](https://github.com/8bitkick/elite-agent) is.
+
 ## Testing
 
 The test harness runs the firmware's own Cortex-M33 code off the board (natively on a Raspberry Pi
@@ -250,12 +267,13 @@ build and measure, where things are, and what hasn't been tried yet.
 - **[beebjit](https://github.com/scarybeasts/beebjit):** Chris Evans.
 - **[Graham Sanderson](https://github.com/kilograham/b-em/tree/pico):** the BBC Micro on the
   RP2040, which showed it could be done on a microcontroller at all.
-- **[Kieran Connell](https://github.com/kieranhj):** for inspiring me to hack small devices again.
+- **[Kieran Connell](https://github.com/kieranhj):** for inspiring me to hack small devices again,
+  and for the [BBC Master 128 emulator](https://github.com/kieranhj/esp32-beeb) in `src/master/` (GPL v3).
 - **ST7701 driver:** adapted from [Pimoroni's](https://github.com/pimoroni/presto) MIT-licensed driver.
 - **[Flicker-free Elite](https://github.com/markmoxon/elite-source-code-bbc-micro-disc):** Mark
   Moxon. Elite is © Ian Bell and David Braben. The release `.uf2` includes it; the source tree
   doesn't.
 - **Screenshots:** Exile © Superior Software; Wobble Colours by Tom Seddon of [Bitshifters](https://bitshifters.github.io/).
 
-beebjit is licensed under the GNU GPL v3, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The BBC Micro
+beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The BBC Micro
 ROMs in `roms/` are not covered by the GPL; see [roms/README.md](roms/README.md).

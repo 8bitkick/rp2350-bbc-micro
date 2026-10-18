@@ -9,6 +9,12 @@ where things are, what has already been tried, and the traps that cost time.
 the Pimoroni Presto (RP2350, two Cortex-M33 cores at 250 MHz, 520 KB SRAM, 8 MB PSRAM, 480×480
 ST7701 RGB panel), with a new Thumb-2 JIT backend. The firmware target is `presto_beebjit`.
 
+The same tree builds a BBC Master 128 instead with `-DPRESTO_MACHINE=master` (target
+`presto_master`, `build-master/presto_master.uf2`): Kieran Connell's cycle-stepped emulator in
+`src/master/` (kept as upstream, with the changes listed in docs/master/README.md), its own Presto
+port in `src/pico/master/` and `src/pico/master/master.cmake`. For now the Master has its own copy
+of the Presto layer (panel, PSRAM, SD, net, web panel) and no sound or ambient LEDs.
+
 ## Build, flash, run
 
 ```sh
@@ -59,6 +65,8 @@ A change to video, render or the JIT isn't done until those are frame-exact. For
 | `src/pico/presto/presto_lcd.c`, `st7701_*.pio` | Panel driver: ST7701 init, PIO2 timing, PIO1 scanout of a 4-bit framebuffer, row-table DMA |
 | `src/pico/presto/presto_net.c`, `web/` | WiFi, the JSON API and the web control panel |
 | `src/pico/presto/presto_sd.c`, `presto_psram.c` | SD card (FatFs) and PSRAM |
+| `src/master/` | The Master 128: Kieran Connell's emulator core (`machine_hook.h`: the interface for a program built in alongside) |
+| `src/pico/master/` | The Master's Presto port: `main.c` (pacing, USB, stats), `machine_unit.c` / `render_unit.c` (run from SRAM), its own panel, PSRAM, SD, net and web panel |
 | `tools/beebjit_hillclimb.py` | The optimization graph, with each step's measurements |
 
 Memory: hot code (interpreter, video, render, JIT compiler...) is copied to SRAM at boot

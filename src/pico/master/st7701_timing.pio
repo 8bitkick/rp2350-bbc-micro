@@ -1,0 +1,20 @@
+; Set two sync pins and then wait for a number of cycles based on input word:
+; 31: VSync
+; 30: HSync
+; 29-16: Delay duration in pixel clocks, total loop duration is delay + 3
+; 15-0:  Instruction to run after delay, sensible options are:
+;        nop   : 0xb042 ; Do nothing
+;        irq n : 0xd00n ; Signal to CPU or a data PIO
+; Side set is data clock, which runs continuously
+.program st7701_timing
+.side_set 1
+.origin 0
+
+.wrap_target
+  out pins, 2         side 0    ; Set VS & HS
+  out x, 14           side 1    ; Loop count
+sync_loop:
+  nop                 side 0
+  jmp x--, sync_loop  side 1
+  out exec, 16        side 0
+.wrap
