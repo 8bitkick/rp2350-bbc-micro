@@ -21,7 +21,7 @@
  *                               boot=0 only writes it to the card)
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
  *   POST /api/wifi              body: "<ssid>\n<password>": save, and restart to join it
- *   GET  /api/program           a program run alongside the machine (src/master/machine_hook.h): its panel,
+ *   GET  /api/program           a program run alongside the machine (src/common/machine_hook.h): its panel,
  *                               as it describes it (404: none built in)
  *   POST /api/command           body: a command for that program; {"reply": "..."} (404: not taken)
  */

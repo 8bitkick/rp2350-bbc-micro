@@ -1,9 +1,9 @@
 #!/bin/sh
 # Builds the beebjit test harness (harness_main.c) without the board:
-#   src/pico/beebjit/harness/build.sh a32    [outdir]  # Cortex-M33 code as a 32-bit Linux
+#   src/machines/beeb/harness/build.sh a32    [outdir]  # Cortex-M33 code as a 32-bit Linux
 #                                                      # process (Arm64 host with AArch32, e.g. Pi 5)
-#   src/pico/beebjit/harness/build.sh qemu   [outdir]  # bare metal for QEMU mps2-an505 (Cortex-M33)
-#   src/pico/beebjit/harness/build.sh native [outdir]  # the host's own compiler, for profiling
+#   src/machines/beeb/harness/build.sh qemu   [outdir]  # bare metal for QEMU mps2-an505 (Cortex-M33)
+#   src/machines/beeb/harness/build.sh native [outdir]  # the host's own compiler, for profiling
 # a32 and qemu use the same compiler and CPU flags as the RP2350 firmware.
 # PACKED4=0 renders ARGB pixels instead of the Presto's packed 4-bit codes.
 # WIRE=1 sends video's render calls through the render wire (beebjit_wire.h),
@@ -44,7 +44,7 @@ CFLAGS="$ARCHFLAGS \
   -DBEEBJIT_ALLOC_CALLER=beebjit_embedded_alloc_caller \
   -DBEEBJIT_REALLOC=beebjit_embedded_realloc -DBEEBJIT_FREE=beebjit_embedded_free \
   -DBEEBJIT_HEADLESS=1 ${ASMFLAGS} -DBEEBJIT_RENDER_PACKED4=${PACKED4:-1} -DBEEBJIT_INTERP_COUNTDOWN32=1 -DBEEBJIT_VIDEO_FAST_RUNS=1 -DBEEBJIT_RENDER_WIRE=${WIRE:-0} ${EXTRA_CFLAGS} \
-  -I$ROOT/src/beebjit -I$HERE/.."
+  -I$ROOT/src/cores/beebjit -I$HERE/.."
 
 SOURCES=$(grep -v '^#' "$HERE/../beebjit_sources.txt")
 if [ "$TARGET" = native ]; then
@@ -55,7 +55,7 @@ fi
 OBJS=""
 for f in $SOURCES; do
   o="$OUT/obj/$(echo "$f" | tr / _ | sed 's/\.c$/.o/')"
-  $CC $CFLAGS -c "$ROOT/src/beebjit/$f" -o "$o" &
+  $CC $CFLAGS -c "$ROOT/src/cores/beebjit/$f" -o "$o" &
   OBJS="$OBJS $o"
 done
 for f in os_embedded.c beebjit_embedded.c beebjit_panel.c beebjit_wire.c harness/harness_main.c $HOSTSRC; do

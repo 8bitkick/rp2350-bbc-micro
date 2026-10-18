@@ -179,7 +179,7 @@ fi
 # ---- Build
 if [ $MASTER = 1 ]; then
   say "Building presto_master with $DISC"
-  cmake -S "$ROOT" -B "$ROOT/build-master" $GEN -DPRESTO_MACHINE=master \
+  cmake -S "$ROOT" -B "$ROOT/build-master" $GEN -DMACHINE=master \
     -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release -DBEEB_DISC="$ROOT/discs/$DISC" $SDK_TOOLS >/dev/null
   cmake --build "$ROOT/build-master" --target presto_master
   UF2=$ROOT/build-master/presto_master.uf2
@@ -189,7 +189,7 @@ else
   cmake -S "$ROOT" -B "$ROOT/build" $GEN \
     -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release $SDK_TOOLS >/dev/null
   cmake --build "$ROOT/build" --target presto_beebjit
-  UF2=$ROOT/build/src/pico/beebjit/presto_beebjit.uf2
+  UF2=$ROOT/build/presto_beebjit.uf2
   BOOTS="Elite"
 fi
 say "Built $UF2"

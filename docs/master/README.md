@@ -1,6 +1,6 @@
 # BBC Master 128 on the Pimoroni Presto
 
-(`-DPRESTO_MACHINE=master`, or `scripts/setup.sh --master`; this page was the `bbc-master`
+(`-DMACHINE=master`, or `scripts/setup.sh --master`; this page was the `bbc-master`
 branch's README, merged here with its history.)
 
 A BBC Master 128 on a [Pimoroni Presto](https://shop.pimoroni.com/products/presto): one RP2350
@@ -56,7 +56,7 @@ same run with the throttle off, so it shows how much headroom is left.
 - **Memory:** the hot code, the CPU's tables, MOS and DFS in SRAM. The other ROMs, sideways RAM
   and the disc's track data in PSRAM. The disc image itself in flash.
 
-`src/master/` is Kieran's core from [his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230),
+`src/cores/kc-beeb/` is Kieran's core from [his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230),
 with three changes, each checked to give identical pictures on all five discs:
 
 - **A hang after 35.8 minutes fixed.** Two places counted the VIAs' 1 MHz ticks by shifting the
@@ -69,7 +69,7 @@ with three changes, each checked to give identical pictures on all five discs:
   Elite's MODE 4 top and MODE 5 dashboard rebuilt a 4 KB table twice a frame. (`render.c`,
   `render.h`; 6 KB more SRAM)
 
-`src/pico/master/` is the port: `main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the
+`src/machines/master/` is the port: `main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the
 two halves, built to run from SRAM), and the panel and PSRAM drivers. `render_unit.c` packs the
 renderer's lines into the panel's 4-bit rows 32 pixels at a time (part lines too, which Evil
 Influences' raster section is made of) and hands the renderer the whole backlog at once; with the
@@ -90,8 +90,8 @@ the RP2350 drive (or add `--flash`). After that, `python3 tools/presto.py bootse
 bootloader without the buttons.
 
 To rebuild by hand: `. deps/env.sh`, then
-`cmake -S . -B build-master -G Ninja -DPRESTO_MACHINE=master -DBEEB_DISC=$PWD/discs/<disc>.ssd && ninja -C build-master`.
-(Without `-DPRESTO_MACHINE=master` the same tree builds the Model B.)
+`cmake -S . -B build-master -G Ninja -DMACHINE=master -DBEEB_DISC=$PWD/discs/<disc>.ssd && ninja -C build-master`.
+(Without `-DMACHINE=master` the same tree builds the Model B.)
 
 ## Web panel
 
@@ -107,7 +107,7 @@ has a BBC keyboard (or uses your own keyboard's keys, by position), BREAK and SH
 the speed and both cores' load, and loading discs: drop or choose a `.ssd`, `.dsd` or `.zip`, give
 it a link to one, or pick one from the SD card. A disc boots at once (a reset with SHIFT held);
 "Eject" goes back to the one built into the firmware. Behind it is a small JSON API
-(`/api/status`, `/api/keys`, `/api/disc`, `/api/eject`, ...; see `src/pico/master/presto_net.c`).
+(`/api/status`, `/api/keys`, `/api/disc`, `/api/eject`, ...; see `src/machines/master/presto_net.c`).
 
 The network is polled on core 0 in the gaps between the machine's runs, and requests act between
 frames, so nothing races the emulation. Over USB the same things are `presto.py discs`, `disc`
@@ -127,7 +127,7 @@ for the session only.
 
 ## A program alongside the machine
 
-`src/master/machine_hook.h` is a small, versioned interface for a program built into the firmware that
+`src/common/machine_hook.h` is a small, versioned interface for a program built into the firmware that
 watches the machine and presses keys (the [Elite agent](https://github.com/8bitkick/elite-agent)
 is one). Once per emulated frame, between frames, it gets the machine model and MOS version,
 where the Master's RAM is (main, shadow, ANDY, HAZEL), a key function for the keyboard matrix
@@ -204,15 +204,15 @@ leaves room for the next things (sound first).
 
 ## Credits
 
-- [Kieran Connell](https://github.com/kieranhj/esp32-beeb): the emulator in `src/master/`.
+- [Kieran Connell](https://github.com/kieranhj/esp32-beeb): the emulator in `src/cores/kc-beeb/`.
 - [beebjit](https://github.com/scarybeasts/beebjit) by Chris Evans: the reference Kieran's
   emulator is checked against, and the MOS 3.20 ROM set `setup.sh` fetches (Acorn's ROMs; not
   covered by this licence).
-- The teletext character set in `src/master/teletext_glyphs.h` is from
+- The teletext character set in `src/cores/kc-beeb/teletext_glyphs.h` is from
   [B-em](https://github.com/stardot/b-em) by Sarah Walker and others.
 - The web keyboard's keycaps use [Open Gorton](https://github.com/dakotafelder/open-gorton) by Dakota
-  Felder (MIT, `src/pico/master/web/fonts`), after the Gorton Modified engraving on the real keys.
-- The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`src/pico/master/fatfs`, its
+  Felder (MIT, `src/machines/master/web/fonts`), after the Gorton Modified engraving on the real keys.
+- The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`src/machines/master/fatfs`, its
   own licence); the network is the Pico SDK's lwIP and CYW43 driver.
 - The panel driver is adapted from Pimoroni's MIT-licensed
   [Presto ST7701 driver](https://github.com/pimoroni/presto).

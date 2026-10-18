@@ -5,16 +5,16 @@
  * scan out with no CPU help (presto_lcd.c). With PRESTO_BEEBJIT_WIRE, the
  * drawing moves to core 1: video hands it its render calls through the render
  * wire (beebjit_wire.h). The front end (the web panel, the SD card, the USB
- * channel) is in src/pico/presto, through presto_machine.c.
+ * channel) is in src/boards/presto and src/common, through presto_machine.c.
  *
  * Part of the RP2350 port of beebjit. beebjit is copyright Chris Evans and
  * licensed under the GNU GPL v3; this file is under the same licence.
  */
 #include "presto_beebjit.h"
-#include "../beebjit_embedded.h"
-#include "../beebjit_host.h"
-#include "../beebjit_panel.h"
-#include "../os_embedded.h"
+#include "beebjit_embedded.h"
+#include "beebjit_host.h"
+#include "beebjit_panel.h"
+#include "os_embedded.h"
 
 #include "bbc.h"
 #include "cpu_driver.h"
@@ -43,7 +43,7 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 #if PRESTO_BEEBJIT_WIRE
-#include "../beebjit_wire.h"
+#include "beebjit_wire.h"
 #include "pico/multicore.h"
 #include "pico/flash.h"
 #include "hardware/structs/systick.h"

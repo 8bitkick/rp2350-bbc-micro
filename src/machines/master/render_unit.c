@@ -28,12 +28,12 @@ static void panel_frame_done(void);
 #define RENDER_FRAME_HOOK(r) panel_frame_done()
 #define RENDER_LINE2_WANTED(r) 0
 
-#include "../../master/vstream.h"
-#include "../../master/teletext.c"
-#include "../../master/render.c"
+#include "../../cores/kc-beeb/vstream.h"
+#include "../../cores/kc-beeb/teletext.c"
+#include "../../cores/kc-beeb/render.c"
 
 #include "panel.h"
-#include "../../master/machine_hook.h"
+#include "../../common/machine_hook.h"
 
 enum {
     k_rows = 256,

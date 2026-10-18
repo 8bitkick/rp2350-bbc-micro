@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs the QEMU build of the harness (harness/build.sh qemu) on mps2-an505:
-#   src/pico/beebjit/harness/run_qemu.sh [harness options...]
+#   src/machines/beeb/harness/run_qemu.sh [harness options...]
 # Run it from the repository root: semihosting opens roms/... relative to the
 # current directory. -icount shift=0 makes the instruction counts exact and
 # runs deterministic. GDB=1 waits for gdb-multiarch on port 1234:
