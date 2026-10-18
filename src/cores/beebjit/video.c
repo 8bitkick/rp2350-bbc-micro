@@ -2489,7 +2489,7 @@ video_update_timer(struct video_struct* p_video) {
    * timer, a frame nothing touches is run whole at the vsync, and its lines
    * reach the consumer in one burst; in slices they go at the beam's pace
    * (as the host paces emulated time), which the frame lock on the panel
-   * (presto_beebjit.c) relies on, and the consumer's work is spread over the
+   * (src/machines/beeb/beeb_main.c) relies on, and the consumer's work is spread over the
    * frame. In emulated time, so the output is the same on any host.
    */
   if (BEEBJIT_VIDEO_SLICE_LINES &&

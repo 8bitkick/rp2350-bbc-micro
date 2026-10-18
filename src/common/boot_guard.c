@@ -16,7 +16,7 @@
 #include "hardware/watchdog.h"
 #include "hardware/structs/watchdog.h"
 #include "hardware/structs/scb.h"
-#include "presto_boot.h"
+#include "boot_guard.h"
 
 #define BOOT_STARTING 0xb00757a7u
 #define BOOT_FAULTED  0xb007fa17u

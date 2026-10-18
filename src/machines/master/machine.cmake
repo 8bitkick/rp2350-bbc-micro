@@ -27,18 +27,18 @@ add_executable(presto_master
         ${PRESTO_DIR}/machine_unit.c
         ${PRESTO_DIR}/render_unit.c
         ${EMBED_C}
-        ${PRESTO_DIR}/presto_machine.c
+        ${PRESTO_DIR}/master_machine.c
         )
 common_setup(presto_master)     # the command layer, the USB channel, the front end, the sound
 board_setup(presto_master)      # the board: panel, PSRAM, SD card, network and web page, LEDs
 target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${MASTER_CORE_DIR})
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
-# -DSOUND=ON (common_setup): the bytes the core's SN76489 takes go to presto_audio.c through the
+# -DSOUND=ON (common_setup): the bytes the core's SN76489 takes go to sound.c through the
 # core's own hook (MACHINE_SOUND_WRITE, machine_unit.c); made on core 1. -DAMBIENT=ON
 # (board_setup): the LEDs, on core 1 when it's idle (main.c).
 set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 KB; 8 KB slowed Evil Influences 56 -> 51%")
 target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
-        PRESTO_DISC_STAGE_OFFSET=0) # a disc is expanded into track data as it goes in (presto_machine.c)
+        PRESTO_DISC_STAGE_OFFSET=0) # a disc is expanded into track data as it goes in (master_machine.c)
 target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_flash pico_flash)
 
 # The machine and the renderer run from SRAM: the SDK's linker script keeps in flash what

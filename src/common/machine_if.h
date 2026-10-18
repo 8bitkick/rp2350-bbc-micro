@@ -9,8 +9,8 @@ extern "C" {
 #endif
 
 // What the common code (the command layer, src/common/api; the USB channel; a board's network)
-// asks of the emulated machine. Each machine provides these: src/machines/beeb/presto_machine.c
-// and presto_beebjit.c; src/machines/master/presto_machine.c and main.c. All are called on core 0,
+// asks of the emulated machine. Each machine provides these: src/machines/beeb/beeb_machine.c
+// and beeb_main.c; src/machines/master/master_machine.c and main.c. All are called on core 0,
 // between the machine's own work (from frontend_frame / frontend_poll, frontend.h).
 
 // "beeb" (BBC Model B) or "master" (BBC Master 128): /api/status's "machine"

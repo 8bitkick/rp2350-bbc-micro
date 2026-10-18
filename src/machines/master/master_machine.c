@@ -22,7 +22,7 @@
 #include "frontend.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
-#include "presto_main.h"
+#include "master_main.h"
 #include "drive.h"
 
 #include "machine.h"

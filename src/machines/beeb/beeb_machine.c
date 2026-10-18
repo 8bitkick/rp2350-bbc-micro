@@ -2,7 +2,7 @@
  * What the front end asks of the machine, for beebjit: the hooks in
  * machine_if.h and presto_sd.h (the command layer, the USB channel, the web
  * panel and the SD card are common to the machines), the Model B's own USB "!"
- * commands (machine_usb_command) and BBC Micro Bot snapshots (presto_state.h).
+ * commands (machine_usb_command) and BBC Micro Bot snapshots (beeb_state.h).
  *
  * All of it runs in the emulator's thread on core 0, in its frame callback or
  * while it waits (presto_machine_frame, presto_machine_poll): inside one of
@@ -15,7 +15,7 @@
  * Part of the RP2350 port of beebjit. beebjit is copyright Chris Evans and
  * licensed under the GNU GPL v3; this file is under the same licence.
  */
-#include "presto_beebjit.h"
+#include "beeb_main.h"
 #include "romfs.h"
 #include "os_embedded.h"
 
@@ -35,7 +35,7 @@
 #include "presto_lcd.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
-#include "presto_state.h"
+#include "beeb_state.h"
 
 #include "hardware/watchdog.h"
 #include "hardware/clocks.h"
@@ -562,7 +562,7 @@ reset_hook(void* p, uint32_t flags) {
  *   !crtc                      the CRTC registers
  *   !state <size>              load a BBC Micro Bot snapshot
  *   !peek <hex addr> [len], !mem, !psram, !clk, !lcd
- *   !lock [lead us]            the frame lock's phase error (presto_beebjit.c)
+ *   !lock [lead us]            the frame lock's phase error (beeb_main.c)
  *   !prof, !profdump           (PRESTO_BEEBJIT_PROF) sample core 0 again,
  *                              fetch the samples (tools/prof.py)
  */

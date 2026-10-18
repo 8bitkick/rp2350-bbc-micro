@@ -32,7 +32,7 @@
 
 #include "beebjit_host.h"
 #include "os_embedded.h"
-#include "../../common/presto_boot.h"
+#include "../../common/boot_guard.h"
 
 #include <assert.h>
 #include <malloc.h>

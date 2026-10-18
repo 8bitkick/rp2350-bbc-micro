@@ -57,8 +57,8 @@ A change to video, render or the JIT isn't done until those are frame-exact. For
 |---|---|
 | `src/cores/beebjit/` | beebjit, ported to the RP2350: Thumb-2 JIT backend and memory/render changes, on upstream 2ff70a0 (listed in `UPSTREAM`) |
 | `src/cores/beebjit/asm/thumb2/` | The Thumb-2 JIT backend and inturbo (one handler per opcode, for self-modifying code) |
-| `src/machines/beeb/presto_beebjit.c` | Firmware main: clocks, panel, PIO 640→480 scaler, pacing and turbo, statistics, profiler |
-| `src/machines/beeb/presto_machine.c` | The front end's machine hooks: keys, BREAK, discs, ROM sockets, snapshots, USB `!` commands |
+| `src/machines/beeb/beeb_main.c` | Firmware main: clocks, panel, PIO 640→480 scaler, pacing and turbo, statistics, profiler |
+| `src/machines/beeb/beeb_machine.c` | The front end's machine hooks: keys, BREAK, discs, ROM sockets, snapshots, USB `!` commands |
 | `src/machines/beeb/beebjit_wire.c` | The render wire: core 0's video sends render calls to core 1 |
 | `src/machines/beeb/os_embedded.c`, `beebjit_embedded.c` | beebjit's OS layer and setup for a host with no OS; the SRAM / PSRAM allocator |
 | `src/machines/beeb/harness/` | The off-board test harness, golden checksums, benchmarks |

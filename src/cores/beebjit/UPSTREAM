@@ -37,7 +37,7 @@ that the default (upstream) build is unchanged:
   serial_ula_is_motor_on().
 - util.c: BEEBJIT_MALLOC / BEEBJIT_REALLOC / BEEBJIT_FREE hooks.
 - sound.c: BEEBJIT_SOUND_WRITE_HOOK (each byte the SN76489 takes, with its
-  timer ticks, handed to the host's own sound: src/common/presto_audio.c).
+  timer ticks, handed to the host's own sound: src/common/sound.c).
 - state.c, debug.c: int32_t where int was passed as int32_t* (an upstream
   portability bug where int32_t is long).
 - Added from upstream, unmodified: test-*.c (included by their modules),

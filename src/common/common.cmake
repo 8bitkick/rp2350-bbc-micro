@@ -9,15 +9,15 @@ function(common_setup TARGET)
             ${COMMON_DIR}/frontend.c
             ${COMMON_DIR}/drive.c           # the disc in drive 0, the save disc
             ${COMMON_DIR}/mem.c             # the flash, by the board's layout
-            ${COMMON_DIR}/presto_boot.c
+            ${COMMON_DIR}/boot_guard.c
             ${COMMON_DIR}/app.c             # a program built in alongside (machine_hook.h)
             )
     target_include_directories(${TARGET} PRIVATE ${COMMON_DIR} ${COMMON_DIR}/api)
     target_link_libraries(${TARGET} PRIVATE pico_stdlib pico_multicore hardware_adc hardware_flash pico_flash)
-    # -DSOUND=ON: the BBC's SN76489, made on core 1 (presto_audio.c), from the bytes the machine
+    # -DSOUND=ON: the BBC's SN76489, made on core 1 (sound.c), from the bytes the machine
     # hands it (each machine wires its core's sound writes to presto_audio_sn_write)
     if (SOUND)
-        target_sources(${TARGET} PRIVATE ${COMMON_DIR}/presto_audio.c)
+        target_sources(${TARGET} PRIVATE ${COMMON_DIR}/sound.c)
         target_compile_definitions(${TARGET} PRIVATE WITH_SOUND=1)
     endif()
     # -DAPP_SOURCES=... (and _INCLUDES, _DEFINES): a program built in to run alongside the machine

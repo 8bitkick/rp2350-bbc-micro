@@ -1,4 +1,4 @@
-// Between main.c (the machine's pacing, on core 0) and presto_machine.c (the
+// Between main.c (the machine's pacing, on core 0) and master_machine.c (the
 // web panel, the SD card and the USB commands' view of the machine).
 #ifndef PRESTO_MAIN_H
 #define PRESTO_MAIN_H
@@ -8,7 +8,7 @@
 
 struct machine;
 
-// presto_machine.c: put the built-in disc in drive 0 and start the network.
+// master_machine.c: put the built-in disc in drive 0 and start the network.
 // pulses: two sides of track data (2 x DISC_TRACKS x DISC_BYTES_PER_TRACK
 // words); disc_ram: DRIVE_IMAGE_MAX bytes, where images arrive.
 void presto_machine_init(struct machine *m, uint32_t *pulses, uint8_t *disc_ram,

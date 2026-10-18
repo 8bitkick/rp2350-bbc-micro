@@ -30,14 +30,14 @@
 #include "api.h"
 #include "machine_if.h"
 #include "machine_hook.h"
-#include "presto_boot.h"
+#include "boot_guard.h"
 #include "presto_lcd.h"
 #include "presto_sd.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
 #endif
 #if WITH_SOUND
-#include "presto_audio.h"
+#include "sound.h"
 #endif
 
 // In hundredths of a degree (RP2350 datasheet: 27C at 0.706V, -1.721mV/C).
@@ -213,7 +213,7 @@ void frontend_poll(void) {
 
 void frontend_frame(void) {
     static unsigned frames;
-    if (frames < 100 && ++frames == 100) presto_boot_ok();     // running: disarm the boot guard (presto_boot.c)
+    if (frames < 100 && ++frames == 100) presto_boot_ok();     // running: disarm the boot guard (boot_guard.c)
     usb_poll();
     api_frame();
     drive0_frame();     // the save disc
