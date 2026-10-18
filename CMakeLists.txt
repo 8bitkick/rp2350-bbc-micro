@@ -17,6 +17,11 @@ if (DEFINED PRESTO_MACHINE)
     set(MACHINE ${PRESTO_MACHINE} CACHE STRING "" FORCE)
     unset(PRESTO_MACHINE CACHE)
 endif()
+# MACHINE_EXTRA_SOURCES (a program built in, below) was the Master build's alone: given with no
+# machine named, it means the Master, so a project that built one that way still does.
+if (DEFINED MACHINE_EXTRA_SOURCES AND NOT DEFINED MACHINE)
+    set(MACHINE master CACHE STRING "" FORCE)
+endif()
 set(MACHINE beeb CACHE STRING "The machine to build: beeb (BBC Model B, beebjit) or master (BBC Master 128)")
 set_property(CACHE MACHINE PROPERTY STRINGS beeb master)
 # Features, for either machine (each made on core 1; see docs/cores.md):
