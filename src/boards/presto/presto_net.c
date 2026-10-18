@@ -1,28 +1,22 @@
 /*
- * The web control panel (see presto_net.h).
+ * The Presto's network (net_if.h): WiFi through its RM2 module (CYW43439), DHCP, mDNS (beeb.local),
+ * the WiFi network saved in flash, and a small HTTP server: the web page and /api/<name>, each
+ * request carried out by the command layer (src/common/api), so the page and the USB channel
+ * (tools/presto.py) share every command.
  *
- * WiFi through the Presto's RM2 module (CYW43439) in the SDK's "poll" mode: no interrupt handler
- * and no background work, lwIP only ever runs inside presto_net_poll / presto_net_frame on core 0.
- * A request is read in as packets arrive, then left until the gap between frames to act on it,
- * where it may press keys, load a disc or reset the machine without any locking.
+ * The SDK's "poll" mode: no interrupt handler and no background work, lwIP only ever runs inside
+ * net_poll / net_frame on core 0. A request is read in as packets arrive, then left until the gap
+ * between frames to act on it, where it may press keys, load a disc or reset the machine without
+ * any locking.
  *
- * The page (web/index.html, gzipped into flash at build time) talks to a small JSON API:
- *   GET  /                      the page
- *   GET  /api/status            turbo, overlay, speed and load, the disc, a fetch's progress
- *   POST /api/keys              "d41 u41 b": keys down/up by BBC matrix code (hex, row << 4 | column);
- *                               b is BREAK
- *   POST /api/turbo, /overlay   "1" on, "0" off, empty toggles
- *   POST /api/boot              boot the disc in the drive (SHIFT+BREAK)
- *   POST /api/eject             back to the built-in disc
- *   GET  /api/discs             the .ssd/.dsd images on the SD card
- *   POST /api/sd                body: a name on the card to load and boot
+ *   GET  /                      the page (src/common/api/web/index.html, gzipped into flash)
+ *   GET|POST /api/<name>        a command (api.c's table: status, keys, turbo, overlay, boot,
+ *                               eject, discs, sd, disc/restore, wifi, ambient, program, command, ...),
+ *                               its JSON reply; the body is its arguments
+ * and two that move a disc image in, so are the transport's own:
  *   POST /api/disc?name=&save=&boot=  body: a disc image to boot (save=1 also writes it to the card;
  *                               boot=0 only writes it to the card)
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
- *   POST /api/wifi              body: "<ssid>\n<password>": save, and restart to join it
- *   POST /api/ambient           body: any of "on=0|1", "bright=<percent>", "locks=0|1", joined by
- *                               "&" (builds with -DAMBIENT=ON; /api/status then has
- *                               "ambient": the LEDs on the back)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,18 +35,15 @@
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
 #include "lwip/apps/mdns.h"
-#include "presto_net.h"
-#include "presto_machine.h"
+#include "net_if.h"
+#include "api.h"
 #include "presto_sd.h"
 #include "presto_psram.h"
 #include "presto_boot.h"
-#if WITH_AMBIENT
-#include "presto_ambient.h"
-#endif
 
 #define HOSTNAME "beeb"
 
-extern const uint8_t presto_web_page[];     // web/index.html, gzipped (presto_web_page.c, generated)
+extern const uint8_t presto_web_page[];     // src/common/api/web/index.html, gzipped (presto_web_page.c, generated)
 extern const uint32_t presto_web_page_len;
 
 // downloads and uploads land here in the disc RAM, clear of the disc in drive 0 at its start
@@ -90,7 +81,7 @@ static void __no_inline_not_in_flash_func(write_cred)(void *page) {
     qmi_hw->m[0].timing = timing;
 }
 
-static bool save_cred(const char *ssid, const char *pass) {
+bool net_wifi_save(const char *ssid, const char *pass) {
     static uint8_t page[FLASH_PAGE_SIZE];
     if (!*ssid || strlen(ssid) > 32 || strlen(pass) > 64) return false;
     memset(page, 0xff, sizeof(page));
@@ -110,38 +101,11 @@ static void restart_soon(void) {
     while (true) tight_loop_contents();
 }
 
-void presto_net_set_wifi(const char *args) {
-    char ssid[34], pass[66];
-    const char *p = args;
-    size_t n;
-    while (*p == ' ') p++;
-    if (*p == '"') {
-        const char *q = strchr(p + 1, '"');
-        if (!q) {
-            printf("WIFI error: usage wifi <ssid> <password>\n");
-            return;
-        }
-        n = (size_t) (q - p - 1);
-        p++;
-        if (n >= sizeof(ssid)) n = sizeof(ssid) - 1;
-        memcpy(ssid, p, n);
-        p = q + 1;
-    } else {
-        const char *q = strchr(p, ' ');
-        n = q ? (size_t) (q - p) : strlen(p);
-        if (n >= sizeof(ssid)) n = sizeof(ssid) - 1;
-        memcpy(ssid, p, n);
-        p += n;
-    }
-    ssid[n] = 0;
-    while (*p == ' ') p++;
-    snprintf(pass, sizeof(pass), "%s", p);
-    if (!save_cred(ssid, pass)) {
-        printf("WIFI error: couldn't save\n");
-        return;
-    }
-    printf("WIFI saved (%u character network name)\n", (uint) strlen(ssid));
-    restart_soon();
+static bool restart_after_reply;
+
+void net_restart(bool after_reply) {
+    if (after_reply) restart_after_reply = true;    // (net_frame, once the reply has gone)
+    else restart_soon();
 }
 
 // ---------------------------------------------------------------------------------------
@@ -161,9 +125,9 @@ static void join(void) {
 static void start_server(void);
 static bool net_wanted, net_started;
 
-// started from presto_net_frame once the machine is running, so it boots without waiting on the
+// started from net_frame once the machine is running, so it boots without waiting on the
 // WiFi chip (its firmware takes a moment to load)
-void presto_net_init(void) {
+void net_init(void) {
     net_wanted = true;
 }
 
@@ -219,7 +183,7 @@ static void check_link(void) {
     link_status = s;
 }
 
-void presto_net_poll(void) {
+void net_poll(void) {
     if (!wifi_on) return;
     uint32_t now = time_us_32();
     if (now - last_poll_us < 500) return;
@@ -244,7 +208,7 @@ static const char *link_name(void) {
     }
 }
 
-void presto_net_print_status(void) {
+void net_print_status(void) {
     if (!wifi_on) {
         printf("NET %s\n", link_name());
         return;
@@ -253,44 +217,6 @@ void presto_net_print_status(void) {
     int32_t rssi = 0;
     cyw43_wifi_get_rssi(&cyw43_state, &rssi);
     printf("NET %s ip=%s rssi=%d\n", link_name(), ip4addr_ntoa(netif_ip4_addr(nif)), (int) rssi);
-}
-
-// ---------------------------------------------------------------------------------------
-// Keys from the page: by their place in the BBC's keyboard matrix (row << 4 | column), straight
-// into the emulated keyboard. Queued, and let out between frames with each key held down for a
-// few frames, so the MOS's keyboard scan sees it however quickly the page sends down and up.
-
-#define KEYQ 64
-#define KEY_BREAK 0x80
-static uint16_t keyq[KEYQ];
-static uint8_t keyq_head, keyq_tail;
-
-static void queue_key(bool down, uint code) {
-    uint8_t next = (uint8_t) ((keyq_head + 1) % KEYQ);
-    if (next == keyq_tail || (code > 0x7f && code != KEY_BREAK)) return;
-    keyq[keyq_head] = (uint16_t) (code | (down ? 0x100 : 0));
-    keyq_head = next;
-}
-
-static void release_keys(void) {
-    // a key stays down for 3 frames, and up for 2 before anything else goes down (or the MOS
-    // misses the gap between two presses of the same key)
-    static uint32_t frames, last_down, last_up;
-    frames++;
-    while (keyq_head != keyq_tail) {
-        uint16_t e = keyq[keyq_tail];
-        bool down = e & 0x100;
-        if (frames - last_down < 3 || (down && frames - last_up < 2)) break;
-        keyq_tail = (uint8_t) ((keyq_tail + 1) % KEYQ);
-        uint code = e & 0xff;
-        if (code == KEY_BREAK) {
-            if (down) presto_break();
-        } else {
-            key_bbc((int) code, down);
-        }
-        if (down) last_down = frames;
-        else last_up = frames;
-    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -573,12 +499,13 @@ static const char *fetch_start(const char *url, bool save) {
 // The web server
 
 enum { C_HEAD, C_BODY, C_WAIT, C_SEND };
-enum { R_404, R_PAGE, R_STATUS, R_KEYS, R_TURBO, R_OVERLAY, R_BOOT, R_EJECT, R_DISCS, R_SD, R_DISC, R_FETCH, R_WIFI, R_AMBIENT, R_TOOBIG };
+enum { R_404, R_PAGE, R_API, R_DISC, R_FETCH, R_TOOBIG };
 
 typedef struct conn {
     struct tcp_pcb *pcb;
     struct conn *next;
     uint8_t state, route;
+    const api_cmd_t *cmd;   // R_API: the command
     bool post;
     char head[1024];
     uint16_t head_len;
@@ -689,21 +616,6 @@ static void respond_error(conn_t *c, int code, const char *why) {
     respond_json(c, code, j);
 }
 
-// a JSON string, quoted, into out
-static int json_str(char *out, size_t size, const char *s) {
-    size_t o = 0;
-    if (size < 3) return 0;
-    out[o++] = '"';
-    for (; *s && o + 3 < size; s++) {
-        unsigned char ch = (unsigned char) *s;
-        if (ch == '"' || ch == '\\') out[o++] = '\\';
-        out[o++] = ch < 0x20 ? ' ' : (char) ch;
-    }
-    out[o++] = '"';
-    out[o] = 0;
-    return (int) o;
-}
-
 static bool query_value(const char *query, const char *key, char *out, size_t out_size) {
     size_t kl = strlen(key);
     for (const char *p = query; p && *p; p = strchr(p, '&') ? strchr(p, '&') + 1 : NULL) {
@@ -719,145 +631,25 @@ static bool query_value(const char *query, const char *key, char *out, size_t ou
     return false;
 }
 
-// the keyboard's LEDs: bit 0 CAPS LOCK, 1 SHIFT LOCK (lit when their IC32 latch bits are low),
-// 2 cassette motor
-static uint leds(void) {
-    return (IC32 & 0x40 ? 0 : 1) | (IC32 & 0x80 ? 0 : 2) | (serial_get_reg() & 0x80 ? 4 : 0);
-}
-
-static void status_json(char *j, size_t size) {
-    uint c0, c1, speed;
-    presto_perf_get(&c0, &c1, &speed);
-    struct mallinfo m = mallinfo();
-    extern char __StackLimit;
-    uint free_ram = (uint) (m.fordblks + (uint) (&__StackLimit - (char *) sbrk(0)));
-    char disc[80], err[120];
-    const char *dn = presto_disc_name();
-    if (dn) json_str(disc, sizeof(disc), dn);
-    else strcpy(disc, "null");
-    json_str(err, sizeof(err), fetch.error);
+// /api/status's part: the WiFi link and a download's progress
+void net_status_json(char *j, size_t size) {
+    char err[120];
+    api_json_str(err, sizeof(err), fetch.error);
     const char *fs = fetch.state == F_BUSY ? "downloading" : fetch.state == F_ERROR ? "error" : fetch.state == F_READY ? "loading" : "idle";
-    char ambient[80] = "";
-#if WITH_AMBIENT
-    if (presto_ambient_ready()) {
-        bool on, locks;
-        unsigned bright;
-        presto_ambient_get(&on, &bright, &locks);
-        snprintf(ambient, sizeof(ambient), ",\"ambient\":{\"on\":%s,\"bright\":%u,\"locks\":%s}",
-                 on ? "true" : "false", bright, locks ? "true" : "false");
-    }
-#endif
-    snprintf(j, size, "{\"turbo\":%s,\"overlay\":%s,\"speed\":%u,\"core0\":%u,\"core1\":%u,\"disc\":%s,"
-                      "\"fetch\":{\"state\":\"%s\",\"got\":%u,\"length\":%u,\"error\":%s},\"free\":%u,\"wifi\":\"%s\",\"mhz\":%u,\"temp\":%d,\"leds\":%u%s}",
-             presto_turbo_get() ? "true" : "false", presto_overlay_get() ? "true" : "false", speed, c0, c1, disc,
-             fs, (uint) fetch.got, (uint) fetch.length, err, free_ram, link_name(),
-             (uint) (clock_get_hz(clk_sys) / 1000000), (presto_temp_centi() + 50) / 100, leds(), ambient);
-}
-
-typedef struct {
-    char *j;
-    size_t size, used;
-    int n;
-} list_ctx_t;
-
-static void list_disc(const char *name, uint32_t size, void *ctx) {
-    list_ctx_t *l = ctx;
-    char q[80];
-    json_str(q, sizeof(q), name);
-    if (l->used + strlen(q) + 40 >= l->size) return;
-    l->used += (size_t) snprintf(l->j + l->used, l->size - l->used, "%s{\"name\":%s,\"size\":%u}", l->n++ ? "," : "", q, (uint) size);
-}
-
-static bool set_flag(const char *body, bool now) {
-    return body[0] == '1' ? true : body[0] == '0' ? false : !now;
+    snprintf(j, size, ",\"fetch\":{\"state\":\"%s\",\"got\":%u,\"length\":%u,\"error\":%s},\"wifi\":\"%s\"",
+             fs, (uint) fetch.got, (uint) fetch.length, err, link_name());
 }
 
 // between frames: act on a request whose body has all arrived
 static void act(conn_t *c) {
-    char j[640];
+    static char j[2048];
     switch (c->route) {
-        case R_STATUS:
-            status_json(j, sizeof(j));
-            respond_json(c, 200, j);
-            break;
-        case R_KEYS: {
-            // "d<hex>" / "u<hex>" / "b", space separated
-            for (char *p = c->body; *p;) {
-                while (*p == ' ' || *p == '\n') p++;
-                if (*p == 'b') {
-                    queue_key(true, KEY_BREAK);
-                    queue_key(false, KEY_BREAK);
-                    p++;
-                    continue;
-                }
-                if (*p != 'd' && *p != 'u') break;
-                bool down = *p++ == 'd';
-                char *end;
-                ulong code = strtoul(p, &end, 16);
-                if (end == p) break;
-                queue_key(down, (uint) code);
-                p = end;
-            }
-            respond_json(c, 200, "{}");
+        case R_API: {
+            api_req_t r = {.args = c->body, .query = c->query, .json = true, .out = j, .size = sizeof(j)};
+            api_run(c->cmd, &r);
+            respond_json(c, r.code, j);
             break;
         }
-        case R_TURBO:
-            presto_turbo_set(set_flag(c->body, presto_turbo_get()));
-            status_json(j, sizeof(j));
-            respond_json(c, 200, j);
-            break;
-#if WITH_AMBIENT
-        case R_AMBIENT: {
-            // "on=1&bright=40&locks=0", any of them
-            int on = -1, bright = -1, locks = -1;
-            for (char *p = c->body; *p; ) {
-                char *amp = strchr(p, '&');
-                if (amp) *amp = 0;
-                if (!strncmp(p, "on=", 3)) on = atoi(p + 3) ? 1 : 0;
-                else if (!strncmp(p, "bright=", 7)) bright = atoi(p + 7);
-                else if (!strncmp(p, "locks=", 6)) locks = atoi(p + 6) ? 1 : 0;
-                if (!amp) break;
-                p = amp + 1;
-            }
-            presto_ambient_set(on, bright, locks);
-            status_json(j, sizeof(j));
-            respond_json(c, 200, j);
-            break;
-        }
-#endif
-        case R_OVERLAY:
-            presto_overlay_set(set_flag(c->body, presto_overlay_get()));
-            status_json(j, sizeof(j));
-            respond_json(c, 200, j);
-            break;
-        case R_BOOT:
-            // SHIFT+BREAK: SHIFT held for the first second after the reset, as at power-on
-            presto_boot_shift();
-            presto_break();
-            respond_json(c, 200, "{}");
-            break;
-        case R_EJECT:
-            presto_sd_eject_disc();
-            respond_json(c, 200, "{}");
-            break;
-        case R_DISCS: {
-            list_ctx_t l = {.size = 8192};
-            l.j = malloc(l.size);
-            if (!l.j) {
-                respond_error(c, 500, "out of memory");
-                break;
-            }
-            l.used = (size_t) snprintf(l.j, l.size, "{\"discs\":[");
-            int n = presto_sd_each_disc(list_disc, &l);
-            snprintf(l.j + l.used, l.size - l.used, "],\"card\":%s}", n < 0 ? "false" : "true");
-            respond_json(c, 200, l.j);
-            free(l.j);
-            break;
-        }
-        case R_SD:
-            if (presto_sd_load_disc(c->body)) respond_json(c, 200, "{}");
-            else respond_error(c, 404, "couldn't load that from the card");
-            break;
         case R_DISC: {
             char v[8] = "", b[8] = "1", name[64];
             query_value(c->query, "save", v, sizeof(v));
@@ -885,28 +677,6 @@ static void act(conn_t *c) {
             else respond_json(c, 200, "{}");
             break;
         }
-        case R_WIFI: {
-            char *nl = strchr(c->body, '\n');
-            if (!nl) {
-                respond_error(c, 400, "expected ssid, newline, password");
-                break;
-            }
-            *nl = 0;
-            char *pass = nl + 1;
-            pass[strcspn(pass, "\r\n")] = 0;
-            if (!save_cred(c->body, pass)) {
-                respond_error(c, 400, "couldn't save that");
-                break;
-            }
-            respond_json(c, 200, "{}");
-            // let the reply go before restarting
-            for (int i = 0; i < 50; i++) {
-                cyw43_arch_poll();
-                sleep_ms(2);
-            }
-            restart_soon();
-            break;
-        }
         default:
             respond_error(c, 404, "no such thing");
             break;
@@ -928,20 +698,15 @@ static void route(conn_t *c) {
     for (const char *l = strchr(c->head, '\n'); l; l = strchr(l + 1, '\n')) {
         if (!strncasecmp(l + 1, "content-length:", 15)) c->length = (uint32_t) strtoul(l + 16, NULL, 10);
     }
-    static const struct {
-        const char *path;
-        bool post;
-        uint8_t route;
-    } routes[] = {
-        {"/", false, R_PAGE}, {"/index.html", false, R_PAGE}, {"/api/status", false, R_STATUS},
-        {"/api/keys", true, R_KEYS}, {"/api/turbo", true, R_TURBO}, {"/api/overlay", true, R_OVERLAY},
-        {"/api/boot", true, R_BOOT}, {"/api/eject", true, R_EJECT}, {"/api/discs", false, R_DISCS}, {"/api/sd", true, R_SD},
-        {"/api/disc", true, R_DISC}, {"/api/fetch", true, R_FETCH}, {"/api/wifi", true, R_WIFI},
-        {"/api/ambient", true, R_AMBIENT},
-    };
     c->route = R_404;
-    for (uint i = 0; i < count_of(routes); i++) {
-        if (!strcmp(target, routes[i].path) && c->post == routes[i].post) c->route = routes[i].route;
+    if (!strcmp(target, "/") || !strcmp(target, "/index.html")) {
+        if (!c->post) c->route = R_PAGE;
+    } else if (!strcmp(target, "/api/disc")) {
+        if (c->post) c->route = R_DISC;
+    } else if (!strcmp(target, "/api/fetch")) {
+        if (c->post) c->route = R_FETCH;
+    } else if ((c->cmd = api_find_http(target, c->post)) != NULL) {
+        c->route = R_API;
     }
     if (c->route == R_DISC) {
         if (upload_busy || disc_in.pending) {
@@ -968,7 +733,7 @@ static void body_done(conn_t *c) {
         respond(c, 200, "text/html; charset=utf-8", (const char *) presto_web_page, presto_web_page_len, true);
     } else {
         c->body[c->body_len] = 0;
-        c->state = C_WAIT;      // presto_net_frame acts on it
+        c->state = C_WAIT;      // net_frame acts on it
     }
 }
 
@@ -1108,18 +873,16 @@ static void start_server(void) {
 
 // ---------------------------------------------------------------------------------------
 
-void presto_net_frame(void) {
+void net_frame(void) {
     static uint frames;
-    if (frames < 100) frames++;
-    if (frames == 100) presto_boot_ok();     // running: disarm the boot guard (see presto_boot.c)
+    if (frames < 50) frames++;
     if (net_wanted && !net_started && frames == 50) {
         net_started = true;
         net_start();
     }
     if (!wifi_on) return;
-    release_keys();
     last_poll_us -= 1000;   // (always poll here: in turbo core 0 seldom waits for core 1)
-    presto_net_poll();
+    net_poll();
     // a disc that's arrived: from its staging area to the start of the disc RAM, where drive 0 reads it
     if (fetch.state == F_READY) {
         fetch.state = F_IDLE;
@@ -1158,5 +921,13 @@ void presto_net_frame(void) {
     for (conn_t *c = conns, *next; c; c = next) {
         next = c->next;     // (acting may free it)
         if (c->state == C_WAIT) act(c);
+    }
+    if (restart_after_reply) {
+        // let the reply go before restarting
+        for (int i = 0; i < 50; i++) {
+            cyw43_arch_poll();
+            sleep_ms(2);
+        }
+        restart_soon();
     }
 }

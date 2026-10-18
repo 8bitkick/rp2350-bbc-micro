@@ -1,5 +1,5 @@
 // What the web panel, the SD card and the USB channel ask of the machine
-// (presto_machine.h, presto_sd.h), for Kieran Connell's Master 128. All of
+// (machine_if.h, presto_sd.h), for Kieran Connell's Master 128. All of
 // it runs on core 0, between machine runs (main.c), so nothing here races
 // the emulation.
 //
@@ -27,10 +27,10 @@
 #include "hardware/flash.h"
 #include "hardware/adc.h"
 
-#include "presto_machine.h"
+#include "machine_if.h"
+#include "frontend.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
-#include "presto_net.h"
 #include "presto_main.h"
 
 #include "machine.h"
@@ -133,6 +133,12 @@ const char *presto_disc_source(void)
     return s;
 }
 
+int presto_disc_saves(void)
+{
+    const save_head_t *h = save_head();
+    return h ? (int) h->saves : 0;
+}
+
 // the golden disc back: the save disc forgotten, and the machine booted from the golden one
 void presto_disc_restore(void)
 {
@@ -142,8 +148,6 @@ void presto_disc_restore(void)
     reset(true);
     printf("DISC golden disc restored\n");
 }
-
-uint8_t IC32;
 
 // ---- Set-up ----
 
@@ -160,7 +164,7 @@ void presto_machine_init(struct machine *m, uint32_t *pulses, uint8_t *disc_ram,
     s_golden_hash = fnv(s_builtin, s_builtin_size);
     load_builtin();
     machine_set_disc(m, 0, &s_disc);
-    presto_net_init();
+    frontend_init();
 }
 
 uint8_t *presto_disc_ram(void)
@@ -188,52 +192,35 @@ static void reset(bool boot)
 static bool s_boot_next;
 
 // BREAK: a power-on reset, which boots the disc if SHIFT is held (from the
-// keyboard, or presto_boot_shift). The core has no warm reset, so a BASIC
+// keyboard, or machine_boot_shift). The core has no warm reset, so a BASIC
 // program in memory does not survive BREAK as on a real Master.
-void presto_break(void)
+void machine_break(void)
 {
     bool shift = (s_m->keys[0] & 1) != 0;   // SHIFT: row 0, column 0
     reset(s_boot_next || shift);
     s_boot_next = false;
 }
 
-// The next presto_break boots (SHIFT+BREAK).
-void presto_boot_shift(void)
+// The next machine_break boots (SHIFT+BREAK).
+void machine_boot_shift(void)
 {
     s_boot_next = true;
 }
 
 // ---- Keys ----
 
-void key_bbc(int vkey, bool down)
+void machine_key(int vkey, bool down)
 {
     struct machine *m = s_m;
     machine_queue_key(m, m->synced + 2000, (vkey >> 4) & 7, vkey & 15, down);
 }
 
-// ---- The panel's LEDs and the temperature ----
+// ---- The keyboard's LEDs ----
 
-uint8_t serial_get_reg(void)
+unsigned machine_leds(void)
 {
-    return 0;   // no cassette motor
-}
-
-// In hundredths of a degree (RP2350 datasheet: 27C at 0.706V, -1.721mV/C).
-int presto_temp_centi(void)
-{
-    static bool s_adc_ready;
-    if (!s_adc_ready) {
-        adc_init();
-        adc_set_temp_sensor_enabled(true);
-        s_adc_ready = true;
-    }
-    adc_select_input(ADC_TEMPERATURE_CHANNEL_NUM);
-    uint32_t sum = 0;
-    for (int i = 0; i < 64; i++) {
-        sum += adc_read();
-    }
-    int32_t uv = (int32_t)(((uint64_t)sum * 3300000u) / (64 * 4096));
-    return 2700 - (int)(((int64_t)(uv - 706000) * 100) / 1721);
+    // CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits (6, 7) are low; no cassette motor
+    return ((s_m->ic32 & 0x40) ? 0 : 1) | ((s_m->ic32 & 0x80) ? 0 : 2);
 }
 
 // ---- Discs ----
@@ -289,16 +276,15 @@ void presto_sd_eject_disc(void)
 
 void presto_machine_frame(void)
 {
-    IC32 = s_m->ic32;
     // the save disc: a second after the drive's last write
     if (s_persist) {
         if (s_disc.writes != s_last_writes) s_last_writes = s_disc.writes, s_quiet = 0;
         else if (s_quiet < 50 && ++s_quiet == 50) save_disc_flush();
     }
-    presto_net_frame();
+    frontend_frame();
 }
 
 void presto_machine_poll(void)
 {
-    presto_net_poll();
+    frontend_poll();
 }

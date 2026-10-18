@@ -6,23 +6,9 @@
 // one 4-bit row per BBC scanline, scanned out by PIO and DMA
 // (presto_lcd.c).
 //
-// USB serial (tools/presto.py):
-//   0x1a 0x00 <SDL scancode>   key down
-//   0x1a 0x01 <SDL scancode>   key up
-//   !stats                     STATS line: speed (to 0.1%) and load
-//   !shot                      SHOT 480 256, then the panel's rows as RGB565
-//   !bootsel                   reboot to the USB bootloader
-//   !turbo                     toggle turbo: no waiting for real time (every
-//                              frame still drawn)
-//   !wifi <ssid> <password>    save the WiFi network (a quoted ssid may have
-//                              spaces) and restart to join it
-//   !net                       the WiFi link and address
-//   !discs                     the .ssd/.dsd images on the SD card
-//   !disc [name]               boot a disc from the card (no name: the
-//                              built-in one)
-//   !put <name> <size>         receive a disc image and write it to the card
-//
-// The web panel (presto_net.c) at http://beeb.local/ once on WiFi.
+// The USB channel and the web panel (http://beeb.local/ once on WiFi) are the
+// common front end's (src/common/frontend.c, src/common/api); this file gives
+// it the machine (machine_if.h): keys, turbo, the figures.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,9 +24,9 @@
 
 #include "presto_lcd.h"
 #include "presto_psram.h"
-#include "presto_machine.h"
+#include "machine_if.h"
+#include "frontend.h"
 #include "presto_main.h"
-#include "presto_net.h"
 #include "presto_sd.h"
 #if WITH_SOUND
 #include "presto_audio.h"
@@ -120,6 +106,14 @@ static void __not_in_flash_func(core1_main)(void)
 
 // ---- Keys: SDL scancodes to the BBC matrix (row << 4 | column) ----
 
+static uint8_t sdl_to_bbc(uint32_t sc);
+
+void machine_key_sdl(uint32_t sc, bool down)
+{
+    uint8_t k = sdl_to_bbc(sc);
+    if (k != 0xff) machine_key(k, down);
+}
+
 static uint8_t sdl_to_bbc(uint32_t sc)
 {
     static const uint8_t letters[26] = {
@@ -157,13 +151,18 @@ static bool s_turbo_ended;
 static bool s_was_reset;
 static struct machine_hook_io s_hook_io;     // what a program run alongside sees (frame_hook)
 
-// For the web panel (presto_machine.h).
-bool presto_turbo_get(void)
+// For the front end (machine_if.h).
+const char *machine_name(void)
+{
+    return "master";
+}
+
+bool machine_turbo_get(void)
 {
     return s_turbo;
 }
 
-void presto_turbo_set(bool on)
+void machine_turbo_set(bool on)
 {
     if (s_turbo && !on) {
         s_turbo_ended = true;
@@ -171,17 +170,28 @@ void presto_turbo_set(bool on)
     s_turbo = on;
 }
 
-bool presto_overlay_get(void)
+bool machine_overlay_has(void)
 {
     return false;   // no load display on the panel in this build
 }
 
-void presto_overlay_set(bool on)
+bool machine_overlay_get(void)
+{
+    return false;
+}
+
+void machine_overlay_set(bool on)
 {
     (void)on;
 }
 
-void presto_perf_get(uint *core0, uint *core1, uint *speed)
+bool machine_usb_command(const char *cmd)
+{
+    (void)cmd;
+    return false;   // none of its own
+}
+
+void machine_perf_get(unsigned *core0, unsigned *core1, unsigned *speed)
 {
     *core0 = s_core0_pct;
     *core1 = s_core1_pct;
@@ -195,7 +205,7 @@ void main_machine_was_reset(void)
     s_was_reset = true;
 }
 
-static void print_stats(void)
+void machine_print_stats(void)
 {
     printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%\n",
            (unsigned long)s_frames, (unsigned long)presto_lcd_frame_count(), (unsigned long)s_core0_pct,
@@ -203,62 +213,10 @@ static void print_stats(void)
            (unsigned long)(s_speed_permille % 10));
 }
 
-static void run_command(const char *cmd)
-{
-    if (!strcmp(cmd, "stats")) {
-        print_stats();
-    } else if (!strcmp(cmd, "turbo")) {
-        presto_turbo_set(!s_turbo);
-        printf("TURBO %s\n", s_turbo ? "on" : "off");
-    } else if (!strncmp(cmd, "wifi ", 5)) {
-        presto_net_set_wifi(cmd + 5);
-    } else if (!strcmp(cmd, "net")) {
-        presto_net_print_status();
-    } else if (!strcmp(cmd, "discs")) {
-        presto_sd_list_discs();
-    } else if (!strcmp(cmd, "disc restore")) {
-        presto_disc_restore();
-    } else if (!strcmp(cmd, "disc")) {
-        presto_sd_eject_disc();
-    } else if (!strncmp(cmd, "disc ", 5)) {
-        if (!presto_sd_load_disc(cmd + 5)) {
-            printf("DISC error: %s not loaded\n", cmd + 5);
-        }
-    } else if (!strncmp(cmd, "put ", 4)) {
-        presto_sd_put(cmd + 4);
-    } else if (!strcmp(cmd, "shot")) {
-        panel_shot();
-#if WITH_SOUND
-    } else if (!strncmp(cmd, "audio", 5)) {
-        presto_audio_command(cmd + 5);
-    } else if (!strncmp(cmd, "beep", 4)) {
-        presto_audio_test(cmd + 4);
-#endif
-#if WITH_AMBIENT
-    } else if (!strncmp(cmd, "leds", 4)) {
-        presto_ambient_command(cmd + 4);
-#endif
-    } else if (!strcmp(cmd, "bootsel")) {
-        printf("BOOTSEL\n");
-        sleep_ms(50);
-        reset_usb_boot(0, 0);
-    } else {
-        char reply[256] = "";
-        if (!machine_command_hook(cmd, reply, sizeof reply)) printf("? %s\n", cmd);
-        else if (reply[0]) printf("%s\n", reply);
-    }
-}
-
-// a program run alongside the machine (src/common/machine_hook.h) supplies these; without one they do nothing
-__attribute__((weak)) void machine_frame_hook(const struct machine_hook_io *io) { (void) io; }
-__attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size) { (void) cmd; (void) reply; (void) reply_size; return false; }
-__attribute__((weak)) const char *machine_program_json(void) { return NULL; }
-__attribute__((weak)) const struct machine_boot_image *machine_boot_image(void) { return NULL; }
-
 static struct machine *s_hook_m;
 static void hook_key(int row, int col, bool down)
 {
-    machine_queue_key(s_hook_m, s_hook_m->synced + 2000, row, col, down);    // as key_bbc
+    machine_queue_key(s_hook_m, s_hook_m->synced + 2000, row, col, down);    // as machine_key
 }
 static void hook_analogue(int channel, uint16_t value)
 {
@@ -278,37 +236,6 @@ static void frame_hook(struct machine *m)
     }
     io->frame++;
     machine_frame_hook(io);
-}
-
-static void usb_poll(struct machine *m)
-{
-    static char s_cmd[128];
-    static int s_cmd_len = -1;
-    static int s_key_state;
-    int c;
-    while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
-        if (s_key_state == 1) {
-            s_key_state = (c == 0) ? 2 : ((c == 1) ? 3 : 0);
-        } else if (s_key_state >= 2) {
-            uint8_t k = sdl_to_bbc((uint32_t)c);
-            if (k != 0xff) {
-                machine_queue_key(m, m->synced + 2000, k >> 4, k & 15, s_key_state == 2);
-            }
-            s_key_state = 0;
-        } else if (c == 0x1a) {
-            s_key_state = 1;
-        } else if (c == '!') {
-            s_cmd_len = 0;
-        } else if (s_cmd_len >= 0) {
-            if (c == '\n' || c == '\r') {
-                s_cmd[s_cmd_len] = 0;
-                s_cmd_len = -1;
-                run_command(s_cmd);
-            } else if (s_cmd_len < (int)sizeof s_cmd - 1) {
-                s_cmd[s_cmd_len++] = (char)c;
-            }
-        }
-    }
 }
 
 // ---- Core 0: the machine, paced to real time ----
@@ -395,7 +322,6 @@ static void run(void)
         }
         uint64_t due = s_turbo ? (m->cpu.cycles + 40000) : (now - t0) * 2;   // 2 MHz
         if (m->cpu.cycles >= due) {
-            usb_poll(m);
             presto_machine_poll();
             sleep_us(100);
             continue;
@@ -434,10 +360,9 @@ static void run(void)
                 stat_busy = busy;
                 stat_core1 = c1;
                 stat_cycles = m->cpu.cycles;
-                print_stats();
+                machine_print_stats();
             }
         }
-        usb_poll(m);
         presto_machine_poll();
         if (new_frame) {
 #if WITH_SOUND

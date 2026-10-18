@@ -19,8 +19,5 @@ void panel_consume(struct vstream *vs);
 // Core 0, right after a machine reset: the renderer starts again from its
 // power-on state at this point in the stream.
 void panel_machine_reset(struct vstream *vs);
-// Core 0: writes "SHOT 480 480" and the panel's rows as RGB565 to stdout (as
-// they are, so a row core 1 is drawing may be half new).
-void panel_shot(void);
 
 #endif

@@ -28,24 +28,10 @@ add_executable(presto_master
         ${PRESTO_DIR}/render_unit.c
         ${EMBED_C}
         ${PRESTO_DIR}/presto_machine.c
-        ${PRESTO_DIR}/presto_net.c
-        # the board's
-        ${BOARD_DIR}/presto_lcd.c
-        ${BOARD_DIR}/presto_psram.c
-        ${BOARD_DIR}/presto_sd.c
-        ${BOARD_DIR}/fatfs/ff.c
-        ${BOARD_DIR}/fatfs/ffunicode.c
         )
-# The web panel's page, gzipped into flash.
-set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
-add_custom_command(OUTPUT ${WEB_C}
-        COMMAND python3 ${MASTER_TOP}/tools/embed_web.py ${PRESTO_DIR}/web/index.html ${WEB_C}
-        DEPENDS ${PRESTO_DIR}/web/index.html ${PRESTO_DIR}/web/fonts/OpenGorton-Regular.otf
-                ${PRESTO_DIR}/web/fonts/OpenGorton-Bold.otf ${MASTER_TOP}/tools/embed_web.py)
-target_sources(presto_master PRIVATE ${WEB_C})
-pico_generate_pio_header(presto_master ${BOARD_DIR}/st7701_parallel.pio)
-pico_generate_pio_header(presto_master ${BOARD_DIR}/st7701_timing.pio)
-target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${MASTER_CORE_DIR} ${COMMON_DIR} ${BOARD_DIR} ${BOARD_DIR}/fatfs)
+common_setup(presto_master)     # the command layer, the USB channel, the front end, the sound
+board_setup(presto_master)      # the board: panel, PSRAM, SD card, network and web page, LEDs
+target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${MASTER_CORE_DIR})
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
 # A program built in to run alongside the machine (e.g. a player that reads its RAM and presses
 # keys, through src/common/machine_hook.h's machine_frame_hook and machine_command_hook): its
@@ -56,26 +42,13 @@ if (MACHINE_EXTRA_SOURCES)
     target_include_directories(presto_master PRIVATE ${MACHINE_EXTRA_INCLUDES})
     target_compile_definitions(presto_master PRIVATE ${MACHINE_EXTRA_DEFINES})
 endif()
-# -DSOUND=ON: the BBC's sound on the piezo, made on core 1 (src/common/presto_audio.c), from the
-# bytes the core's SN76489 takes (MACHINE_SOUND_WRITE, machine_unit.c).
-if (SOUND)
-    target_sources(presto_master PRIVATE ${COMMON_DIR}/presto_audio.c)
-    target_compile_definitions(presto_master PRIVATE WITH_SOUND=1)
-endif()
-# -DAMBIENT=ON: the LEDs on the back lit with what's on screen, on core 1 when it's idle.
-if (AMBIENT)
-    target_sources(presto_master PRIVATE ${BOARD_DIR}/presto_ambient.c)
-    pico_generate_pio_header(presto_master ${BOARD_DIR}/ws2812.pio)
-    target_compile_definitions(presto_master PRIVATE WITH_AMBIENT=1)
-endif()
+# -DSOUND=ON (common_setup): the bytes the core's SN76489 takes go to presto_audio.c through the
+# core's own hook (MACHINE_SOUND_WRITE, machine_unit.c); made on core 1. -DAMBIENT=ON
+# (board_setup): the LEDs, on core 1 when it's idle (main.c).
 set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 KB; 8 KB slowed Evil Influences 56 -> 51%")
 target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
-        PRESTO_DISC_STAGE_OFFSET=0  # a disc is expanded into track data as it goes in (presto_machine.c)
-        CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
-target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_pio hardware_dma hardware_pwm hardware_spi
-        hardware_adc hardware_flash pico_flash
-        pico_cyw43_arch_lwip_poll   # WiFi, polled from core 0 (presto_net.c)
-        pico_lwip_mdns)
+        PRESTO_DISC_STAGE_OFFSET=0) # a disc is expanded into track data as it goes in (presto_machine.c)
+target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_flash pico_flash)
 
 # The machine and the renderer run from SRAM: the SDK's linker script keeps in flash what
 # it doesn't exclude; exclude these objects (and newlib's mem* functions, which this

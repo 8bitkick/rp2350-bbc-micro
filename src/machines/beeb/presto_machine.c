@@ -1,8 +1,8 @@
 /*
- * What the Presto's front end asks of the machine, for beebjit: the hooks in
- * presto_machine.h and presto_sd.h (the web panel and the SD card share their
- * code with other emulators), the USB channel's "!" commands (as tools/presto.py
- * speaks them) and BBC Micro Bot snapshots (presto_state.h).
+ * What the front end asks of the machine, for beebjit: the hooks in
+ * machine_if.h and presto_sd.h (the command layer, the USB channel, the web
+ * panel and the SD card are common to the machines), the Model B's own USB "!"
+ * commands (machine_usb_command) and BBC Micro Bot snapshots (presto_state.h).
  *
  * All of it runs in the emulator's thread on core 0, in its frame callback or
  * while it waits (presto_machine_frame, presto_machine_poll): inside one of
@@ -27,13 +27,9 @@
 #include "via.h"
 #include "video.h"
 
-#include "presto_audio.h"
-#if WITH_AMBIENT
-#include "presto_ambient.h"
-#endif
+#include "frontend.h"
+#include "machine_if.h"
 #include "presto_lcd.h"
-#include "presto_machine.h"
-#include "presto_net.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
 #include "presto_state.h"
@@ -87,14 +83,26 @@ key_event(uint8_t key, bool down) {
   }
 }
 
+const char*
+machine_name(void) {
+  return "beeb";
+}
+
 void
-key_bbc(int vkey, bool down) {
+machine_key(int vkey, bool down) {
   if ((vkey >= 0) && (vkey < 0x80)) {
     key_event(s_matrix_keys[vkey], down);
   }
 }
 
 /* The USB channel's keys: SDL scancodes, as tools/presto.py sends them. */
+static uint8_t sdl_key(uint32_t sc);
+
+void
+machine_key_sdl(uint32_t sc, bool down) {
+  key_event(sdl_key(sc), down);
+}
+
 static uint8_t
 sdl_key(uint32_t sc) {
   static const uint8_t k_keys[] = {
@@ -135,7 +143,7 @@ sdl_key(uint32_t sc) {
 }
 
 void
-presto_break(void) {
+machine_break(void) {
   if (s_bbc != NULL) {
     bbc_request_reset(s_bbc, 0);
   }
@@ -150,7 +158,7 @@ enum {
 static uint32_t s_boot_shift_frames;
 
 void
-presto_boot_shift(void) {
+machine_boot_shift(void) {
   s_boot_shift_frames = k_boot_shift_frames;
   key_event(k_keyboard_key_shift_left, true);
 }
@@ -163,36 +171,27 @@ boot_shift_cancel(void) {
   }
 }
 
-/* ---- The keyboard's LEDs, the temperature ---- */
+/* ---- The keyboard's LEDs ---- */
 
-uint8_t IC32;
-
-uint8_t
-serial_get_reg(void) {
+unsigned
+machine_leds(void) {
+  uint8_t ic32;
+  unsigned leds = 0;
   if (s_bbc == NULL) {
     return 0;
   }
-  return serial_ula_is_motor_on(bbc_get_serial_ula(s_bbc)) ? 0x80 : 0;
-}
-
-/* In hundredths of a degree (RP2350 datasheet: 27C at 0.706V, -1.721mV/C). */
-int
-presto_temp_centi(void) {
-  static bool s_adc_ready;
-  uint32_t sum = 0;
-  int32_t uv;
-  int i;
-  if (!s_adc_ready) {
-    adc_init();
-    adc_set_temp_sensor_enabled(true);
-    s_adc_ready = true;
+  /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
+  ic32 = bbc_get_IC32(s_bbc);
+  if (!(ic32 & 0x40)) {
+    leds |= 1;
   }
-  adc_select_input(ADC_TEMPERATURE_CHANNEL_NUM);
-  for (i = 0; i < 64; ++i) {
-    sum += adc_read();
+  if (!(ic32 & 0x80)) {
+    leds |= 2;
   }
-  uv = (int32_t) (((uint64_t) sum * 3300000u) / (64 * 4096));
-  return 2700 - (((uv - 706000) * 100) / 1721);
+  if (serial_ula_is_motor_on(bbc_get_serial_ula(s_bbc))) {
+    leds |= 4;
+  }
+  return leds;
 }
 
 /* ---- ROM sockets ----
@@ -285,7 +284,7 @@ presto_disc_name(void) {
 static void
 reset_to_boot(void) {
   presto_rom_layout_default();   /* after a snapshot: our own sockets */
-  presto_boot_shift();
+  machine_boot_shift();
   bbc_request_reset(s_bbc, 1);
 }
 
@@ -532,68 +531,17 @@ reset_hook(void* p, uint32_t flags) {
   }
 }
 
-/* ---- The USB channel ----
- *   0x1a 0x00 <sdl scancode>   key down
- *   0x1a 0x01 <sdl scancode>   key up
- *   !shot [ms]                 screenshot of the panel (then hold the frame ms)
- *   !stats                     speed and load
+/* ---- The Model B's own USB commands (the rest are common: frontend.c) ----
  *   !crtc                      the CRTC registers
- *   !discs                     the disc images on the SD card
- *   !disc <name>               load one into drive 0 and boot it
- *   !disc                      back to the built-in disc
- *   !put <name> <size>         write a disc image to the card
  *   !state <size>              load a BBC Micro Bot snapshot
- *   !turbo, !perf              toggle turbo, the panel's figures
- *   !wifi <ssid> <password>    join a network; !net its state
- *   !peek <hex addr> [len], !mem, !psram, !temp, !clk, !lcd, !bootsel
+ *   !peek <hex addr> [len], !mem, !psram, !clk, !lcd
  *   !lock [lead us]            the frame lock's phase error (presto_beebjit.c)
  *   !prof, !profdump           (PRESTO_BEEBJIT_PROF) sample core 0 again,
  *                              fetch the samples (tools/prof.py)
  */
-static void
-binary_out(const void* p_data, uint32_t len) {
-  stdio_set_translate_crlf(&stdio_usb, false);
-  (void) fwrite(p_data, 1, len, stdout);
-  (void) fflush(stdout);
-  stdio_set_translate_crlf(&stdio_usb, true);
-}
-
-static void
-screenshot(void) {
-  static uint16_t s_out[PRESTO_LCD_WIDTH];
-  int y;
-  int x;
-  (void) printf("SHOT %d %d\n", PRESTO_LCD_WIDTH, PRESTO_LCD_HEIGHT);
-  (void) fflush(stdout);
-  for (y = 0; y < PRESTO_LCD_HEIGHT; ++y) {
-    const uint16_t* p_src = presto_lcd_row(y, s_out);
-    for (x = 0; x < PRESTO_LCD_WIDTH; ++x) {
-      s_out[x] = __builtin_bswap16(p_src[x]);
-    }
-    binary_out(s_out, (PRESTO_LCD_WIDTH * sizeof(uint16_t)));
-  }
-}
-
-static void
-run_command(char* p_cmd) {
-  if (!strncmp(p_cmd, "shot", 4) &&
-      ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
-    /* "!shot [ms]": then hold the machine (and so the panel) still that long,
-     * for a camera to take the same frame.
-     */
-    unsigned hold_ms = 0;
-    (void) sscanf(p_cmd + 4, "%u", &hold_ms);
-    screenshot();
-    if (hold_ms > 10000) {
-      hold_ms = 10000;
-    }
-    while (hold_ms > 0) {
-      sleep_ms((hold_ms > 100) ? 100 : hold_ms);
-      hold_ms -= ((hold_ms > 100) ? 100 : hold_ms);
-      watchdog_update();
-    }
-  } else if (!strcmp(p_cmd, "stats")) {
-    presto_beebjit_print_stats();
+bool
+machine_usb_command(const char* p_cmd) {
+  if (0) {
 #if PRESTO_BEEBJIT_PROF
   } else if (!strncmp(p_cmd, "prof", 4) &&
              ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
@@ -610,36 +558,8 @@ run_command(char* p_cmd) {
       (void) printf(" R%d=%d", i, regs[i]);
     }
     (void) printf("\n");
-  } else if (!strcmp(p_cmd, "discs")) {
-    presto_sd_list_discs();
-  } else if (!strncmp(p_cmd, "disc ", 5)) {
-    (void) presto_sd_load_disc(p_cmd + 5);
-  } else if (!strcmp(p_cmd, "disc")) {
-    presto_sd_eject_disc();
-  } else if (!strncmp(p_cmd, "put ", 4)) {
-    presto_sd_put(p_cmd + 4);
   } else if (!strncmp(p_cmd, "state ", 6)) {
     presto_state_receive(p_cmd + 6);
-  } else if (!strcmp(p_cmd, "turbo")) {
-    presto_turbo_set(!presto_turbo_get());
-    (void) printf("TURBO %s\n", presto_turbo_get() ? "on" : "off");
-  } else if (!strcmp(p_cmd, "perf")) {
-    presto_overlay_set(!presto_overlay_get());
-    (void) printf("PERF overlay %s\n", presto_overlay_get() ? "on" : "off");
-  } else if (!strncmp(p_cmd, "wifi ", 5)) {
-    presto_net_set_wifi(p_cmd + 5);
-#if WITH_SOUND
-  } else if (!strncmp(p_cmd, "audio", 5)) {
-    presto_audio_command(p_cmd + 5);
-  } else if (!strncmp(p_cmd, "beep", 4)) {
-    presto_audio_test(p_cmd + 4);
-#endif
-#if WITH_AMBIENT
-  } else if (!strncmp(p_cmd, "leds", 4)) {
-    presto_ambient_command(p_cmd + 4);
-#endif
-  } else if (!strcmp(p_cmd, "net")) {
-    presto_net_print_status();
   } else if (!strncmp(p_cmd, "peek ", 5)) {
     const uint8_t* p_mem = bbc_get_mem_read(s_bbc);
     unsigned addr = 0;
@@ -668,9 +588,6 @@ run_command(char* p_cmd) {
     presto_beebjit_lock(p_cmd + ((p_cmd[4] == ' ') ? 5 : 4));
   } else if (!strcmp(p_cmd, "psram")) {
     (void) printf("PSRAM %u bytes\n", (unsigned) presto_psram_size());
-  } else if (!strcmp(p_cmd, "temp")) {
-    int centi = presto_temp_centi();
-    (void) printf("TEMP %d.%02dC\n", (centi / 100), (centi % 100));
   } else if (!strcmp(p_cmd, "clk")) {
     /* Measured by the clocks block's frequency counter, against the crystal. */
     (void) printf("CLK sys=%lu kHz (measured), %lu kHz (set)\n",
@@ -679,45 +596,10 @@ run_command(char* p_cmd) {
                   (unsigned long) (clock_get_hz(clk_sys) / 1000));
   } else if (!strcmp(p_cmd, "lcd")) {
     presto_lcd_debug();
-  } else if (!strcmp(p_cmd, "bootsel")) {
-    (void) printf("BOOTSEL\n");
-    (void) fflush(stdout);
-    sleep_ms(100);
-    reset_usb_boot(0, 0);
   } else {
-    (void) printf("ERR unknown command '%s'\n", p_cmd);
+    return false;
   }
-}
-
-static void
-usb_poll(void) {
-#if !PRESTO_BEEBJIT_TERMINAL
-  static char s_cmd[128];
-  static int s_cmd_len = -1;   /* -1 when not in a command */
-  static int s_key_state;      /* 1 after 0x1a, 2 / 3 awaiting a scancode */
-  int c;
-  while ((c = getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT) {
-    if (s_key_state == 1) {
-      s_key_state = ((c == 0) ? 2 : ((c == 1) ? 3 : 0));
-    } else if (s_key_state >= 2) {
-      key_event(sdl_key((uint32_t) c), (s_key_state == 2));
-      s_key_state = 0;
-    } else if (c == 0x1A) {
-      s_key_state = 1;
-    } else if ((c == '!') && (s_cmd_len < 0)) {
-      /* Not within a command: a WiFi password may hold a '!'. */
-      s_cmd_len = 0;
-    } else if (s_cmd_len >= 0) {
-      if ((c == '\n') || (c == '\r')) {
-        s_cmd[s_cmd_len] = '\0';
-        s_cmd_len = -1;
-        run_command(s_cmd);
-      } else if (s_cmd_len < (int) (sizeof(s_cmd) - 1)) {
-        s_cmd[s_cmd_len++] = (char) c;
-      }
-    }
-  }
-#endif
+  return true;
 }
 
 /* ---- ---- */
@@ -729,14 +611,14 @@ presto_machine_init(struct bbc_struct* p_bbc, const char* p_builtin_disc) {
   s_builtin_disc = p_builtin_disc;
   keys_init();
   bbc_set_host_reset_callback(p_bbc, reset_hook, NULL);
-  presto_net_init();
+  frontend_init();
 }
 
 void
 presto_machine_frame(void) {
   s_frames++;
   /* beebjit's own autoboot boots the built-in disc at power on; after
-   * that, resets boot only when asked (presto_boot_shift), as a Model B's
+   * that, resets boot only when asked (machine_boot_shift), as a Model B's
    * keyboard links have it.
    */
   if (s_frames == 200) {
@@ -745,14 +627,11 @@ presto_machine_frame(void) {
   if ((s_boot_shift_frames != 0) && (--s_boot_shift_frames == 0)) {
     key_event(k_keyboard_key_shift_left, false);
   }
-  IC32 = bbc_get_IC32(s_bbc);
-  usb_poll();
   presto_state_apply_pending();
-  presto_net_frame();
+  frontend_frame();
 }
 
 void
 presto_machine_poll(void) {
-  usb_poll();
-  presto_net_poll();
+  frontend_poll();
 }

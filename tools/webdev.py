@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Work on the web control panel without reflashing: serves src/boards/presto/web/index.html from
+"""Work on the web control panel without reflashing: serves src/common/api/web/index.html from
 disk (read afresh on every request) and passes /api/... through to the Presto.
 
   tools/webdev.py [presto address, default beeb.local] [port, default 8080]
@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-PAGE = Path(__file__).resolve().parent.parent / 'src/boards/presto/web/index.html'
+PAGE = Path(__file__).resolve().parent.parent / 'src/common/api/web/index.html'
 PRESTO = sys.argv[1] if len(sys.argv) > 1 else 'beeb.local'
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8080
 
