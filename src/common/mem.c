@@ -30,6 +30,7 @@ static struct {
     uint32_t offset, len;
     const uint8_t *data;
 } s_w;
+static uint8_t s_tail[FLASH_PAGE_SIZE];     // a last part page, padded
 
 static void __no_inline_not_in_flash_func(write_sector)(void *arg) {
     (void) arg;
@@ -37,23 +38,20 @@ static void __no_inline_not_in_flash_func(write_sector)(void *arg) {
     // our clock: put back the slower timing the firmware runs with before touching the flash
     uint32_t timing = qmi_hw->m[0].timing;
     flash_range_erase(s_w.offset, FLASH_SECTOR_SIZE);
-    if (s_w.data && s_w.len) flash_range_program(s_w.offset, s_w.data, s_w.len);
+    uint32_t whole = s_w.len & ~(FLASH_PAGE_SIZE - 1);
+    if (whole) flash_range_program(s_w.offset, s_w.data, whole);
+    if (s_w.len > whole) {
+        for (uint32_t i = 0; i < FLASH_PAGE_SIZE; i++) s_tail[i] = whole + i < s_w.len ? s_w.data[whole + i] : 0xff;
+        flash_range_program(s_w.offset + whole, s_tail, FLASH_PAGE_SIZE);
+    }
     qmi_hw->m[0].timing = timing;
 }
 
 bool mem_flash_write_sector(uint32_t offset, const void *data, uint32_t len) {
-    static uint8_t page_buf[FLASH_SECTOR_SIZE];
     if (offset % FLASH_SECTOR_SIZE || len > FLASH_SECTOR_SIZE) return false;
-    // whole pages, from SRAM (data may be in flash or PSRAM, both behind the XIP window the
-    // write takes away)
-    uint32_t n = (len + FLASH_PAGE_SIZE - 1) & ~(FLASH_PAGE_SIZE - 1);
-    if (data && len) {
-        memset(page_buf, 0xff, n);
-        memcpy(page_buf, data, len);
-    }
     s_w.offset = offset;
-    s_w.len = (data && len) ? n : 0;
-    s_w.data = page_buf;
+    s_w.data = data;
+    s_w.len = data ? len : 0;
     // (core 1 is parked, the panel freezes for a moment, while the flash is busy)
     return flash_safe_execute(write_sector, NULL, 1000) == PICO_OK;
 }

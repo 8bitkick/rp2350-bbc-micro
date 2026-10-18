@@ -24,7 +24,8 @@ bool mem_flash_region(int region, uint32_t *offset, uint32_t *size);
 // what's at an offset, read through the XIP window
 const uint8_t *mem_flash_ptr(uint32_t offset);
 // erase the sector at offset (a sector boundary) and program len bytes of data into it (NULL:
-// leave it erased). Core 1 is parked meanwhile (its loop must have called
+// leave it erased). The data must be in SRAM: the flash and the PSRAM are both out of reach
+// while the flash is busy. Core 1 is parked meanwhile (its loop must have called
 // flash_safe_execute_core_init), and the slower flash timing the firmware runs with is kept.
 bool mem_flash_write_sector(uint32_t offset, const void *data, uint32_t len);
 

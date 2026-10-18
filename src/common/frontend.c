@@ -104,14 +104,15 @@ static void text_call(const char *name, const char *args) {
 static void usb_command(char *cmd) {
     if (is(cmd, "api")) {
         // "!api <name> [args]": the JSON reply, as over HTTP
-        static char out[2048];
+        size_t size;
+        char *out = api_buffer(&size);
         char name[24];
         const char *a = after(cmd, "api");
         size_t n = strcspn(a, " ");
         if (n >= sizeof name) n = sizeof name - 1;
         memcpy(name, a, n);
         name[n] = 0;
-        api_req_t r = {.args = after(a, name), .json = true, .out = out, .size = sizeof out};
+        api_req_t r = {.args = after(a, name), .json = true, .out = out, .size = size};
         if (!api_call(name, &r)) printf("API 404 {\"error\":\"no such command\"}\n");
         else printf("API %d %s\n", r.code, out);
         return;

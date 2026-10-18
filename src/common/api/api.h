@@ -49,6 +49,9 @@ void api_error(api_req_t *r, int code, const char *why);
 // a JSON string, quoted and escaped, into out (its length)
 int api_json_str(char *out, size_t size, const char *s);
 
+// the one buffer a JSON reply is made in (core 0 makes one at a time)
+char *api_buffer(size_t *size);
+
 // keys from the web page (and "!keys"), by matrix code, held a few frames each: let out between
 // frames (frontend_frame)
 void api_frame(void);

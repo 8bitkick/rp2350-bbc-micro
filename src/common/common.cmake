@@ -10,6 +10,7 @@ function(common_setup TARGET)
             ${COMMON_DIR}/drive.c           # the disc in drive 0, the save disc
             ${COMMON_DIR}/mem.c             # the flash, by the board's layout
             ${COMMON_DIR}/presto_boot.c
+            ${COMMON_DIR}/app.c             # a program built in alongside (machine_hook.h)
             )
     target_include_directories(${TARGET} PRIVATE ${COMMON_DIR} ${COMMON_DIR}/api)
     target_link_libraries(${TARGET} PRIVATE pico_stdlib pico_multicore hardware_adc hardware_flash pico_flash)
@@ -18,5 +19,11 @@ function(common_setup TARGET)
     if (SOUND)
         target_sources(${TARGET} PRIVATE ${COMMON_DIR}/presto_audio.c)
         target_compile_definitions(${TARGET} PRIVATE WITH_SOUND=1)
+    endif()
+    # -DAPP_SOURCES=... (and _INCLUDES, _DEFINES): a program built in to run alongside the machine
+    if (APP_SOURCES)
+        target_sources(${TARGET} PRIVATE ${APP_SOURCES})
+        target_include_directories(${TARGET} PRIVATE ${APP_INCLUDES})
+        target_compile_definitions(${TARGET} PRIVATE ${APP_DEFINES})
     endif()
 endfunction()
