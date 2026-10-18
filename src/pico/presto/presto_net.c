@@ -33,6 +33,7 @@
 #include "pico/cyw43_arch.h"
 #include "pico/flash.h"
 #include "hardware/flash.h"
+#include "hardware/structs/qmi.h"
 #include "hardware/watchdog.h"
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
@@ -74,9 +75,13 @@ static const cred_t *saved_cred(void) {
     return c;
 }
 
-static void write_cred(void *page) {
+static void __no_inline_not_in_flash_func(write_cred)(void *page) {
+    // the SDK goes back to XIP through boot2, which sets the flash's own timing, too fast at
+    // our clock: put back the slower timing the firmware runs with before touching the flash
+    uint32_t timing = qmi_hw->m[0].timing;
     flash_range_erase(CRED_OFFSET, FLASH_SECTOR_SIZE);
     flash_range_program(CRED_OFFSET, page, FLASH_PAGE_SIZE);
+    qmi_hw->m[0].timing = timing;
 }
 
 static bool save_cred(const char *ssid, const char *pass) {
