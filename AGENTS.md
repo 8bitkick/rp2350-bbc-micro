@@ -48,7 +48,7 @@ src/machines/beeb/harness/bench.sh -jit                      # QEMU: instruction
 ```
 
 A change to video, render or the JIT isn't done until those are frame-exact. For the web panel,
-`tools/webdev.py <presto address>` serves `src/boards/presto/web/index.html` from disk and passes
+`tools/webdev.py <presto address>` serves `src/common/api/web/index.html` from disk and passes
 `/api/` through to the board.
 
 ## Where things are

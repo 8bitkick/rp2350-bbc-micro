@@ -1,7 +1,7 @@
 /*
  * Inside presto_beebjit: between presto_beebjit.c (the board: the panel,
  * pacing, statistics) and presto_machine.c (what the Presto's front end asks
- * of the machine: presto_machine.h and presto_sd.h, the USB channel and BBC
+ * of the machine: machine_if.h and presto_sd.h, the USB channel and BBC
  * Micro Bot snapshots).
  *
  * Part of the RP2350 port of beebjit. beebjit is copyright Chris Evans and
@@ -25,8 +25,7 @@ void presto_machine_frame(void);
  */
 void presto_machine_poll(void);
 
-/* presto_beebjit.c: the "!stats" line. */
-void presto_beebjit_print_stats(void);
+/* presto_beebjit.c: "!mem"'s stacks. */
 void presto_beebjit_print_stacks(void);
 void presto_beebjit_lock(const char* p_arg);   /* "!lock [lead us]": the frame lock's state */
 /* With PRESTO_BEEBJIT_PROF: "!prof" (sample again from now) and "!profdump"

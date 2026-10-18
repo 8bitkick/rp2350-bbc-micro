@@ -27,7 +27,7 @@
 #endif
 #include "presto_boot.h"
 #include "presto_lcd.h"
-#include "presto_machine.h"
+#include "machine_if.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
 
@@ -729,12 +729,12 @@ prof_poll(void) {
 
 /* ---- Frame statistics ---- */
 
-/* Until the web panel's code disarms the boot guard (presto_net_frame, at
+/* Until the front end disarms the boot guard (frontend_frame, at
  * 100 frames), keep its watchdog fed.
  */
 #define PRESTO_BEEBJIT_GUARD_FRAMES 100
 
-/* Free SRAM as the web panel counts it (presto_net.c): free heap blocks plus
+/* Free SRAM as the web panel counts it (api.c): free heap blocks plus
  * the unclaimed space between the heap and the stack.
  */
 static uint32_t
@@ -802,34 +802,39 @@ perf_frame(uint64_t cycles) {
 }
 
 void
-presto_perf_get(uint* p_core0, uint* p_core1, uint* p_speed) {
+machine_perf_get(unsigned* p_core0, unsigned* p_core1, unsigned* p_speed) {
   *p_core0 = s_perf_core0;
   *p_core1 = s_perf_core1;
   *p_speed = s_perf_speed;
 }
 
 bool
-presto_turbo_get(void) {
+machine_turbo_get(void) {
   return s_turbo;
 }
 
 void
-presto_turbo_set(bool on) {
+machine_turbo_set(bool on) {
   s_turbo = on;
 }
 
 bool
-presto_overlay_get(void) {
+machine_overlay_has(void) {
+  return true;
+}
+
+bool
+machine_overlay_get(void) {
   return s_overlay;
 }
 
 void
-presto_overlay_set(bool on) {
+machine_overlay_set(bool on) {
   s_overlay = on;
 }
 
 void
-presto_beebjit_print_stats(void) {
+machine_print_stats(void) {
   (void) printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 "
                 "core0=%lu%% core1=%lu%% speed=%lu%%%s\n",
                 (unsigned long) s_frames,
@@ -847,7 +852,7 @@ frame_callback(void* p, uint64_t cycles) {
   (void) p;
 
   s_frames++;
-  /* The boot guard's watchdog until presto_net_frame() disarms it at
+  /* The boot guard's watchdog until frontend_frame() disarms it at
    * PRESTO_BEEBJIT_GUARD_FRAMES; then one of our own for good: a hang
    * (no frame, no idle poll for 8 s) reboots, so the board is always
    * reachable to reflash.
@@ -862,7 +867,7 @@ frame_callback(void* p, uint64_t cycles) {
 #endif
 #if WITH_AMBIENT
   /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
-  presto_ambient_frame((uint8_t) (((IC32 & 0x40) ? 0 : 1) | ((IC32 & 0x80) ? 0 : 2)));
+  presto_ambient_frame((uint8_t) (machine_leds() & 3));
 #endif
   presto_machine_frame();
 #if PRESTO_BEEBJIT_PROF

@@ -198,25 +198,6 @@ void panel_consume(struct vstream *vs)
     }
 }
 
-void panel_shot(void)
-{
-    // The panel's 480 rows as shown, RGB565, with stdio's LF -> CRLF off for
-    // the binary part.
-    static uint16_t s_out[PRESTO_LCD_WIDTH];
-    printf("SHOT %d %d\n", PRESTO_LCD_WIDTH, PRESTO_LCD_HEIGHT);
-    fflush(stdout);
-    stdio_set_translate_crlf(&stdio_usb, false);
-    for (int y = 0; y < PRESTO_LCD_HEIGHT; y++) {
-        const uint16_t *src = presto_lcd_row(y, s_out);
-        for (int x = 0; x < PRESTO_LCD_WIDTH; x++) {
-            s_out[x] = __builtin_bswap16(src[x]);
-        }
-        fwrite(s_out, sizeof s_out[0], PRESTO_LCD_WIDTH, stdout);
-        fflush(stdout);
-    }
-    stdio_set_translate_crlf(&stdio_usb, true);
-}
-
 // ---- A program's loading screen: drawn into the framebuffer before core 1 starts rendering the
 // machine: its picture, and what's loading and how far it's got. Bit 0 blue, 1 green, 2 red.
 

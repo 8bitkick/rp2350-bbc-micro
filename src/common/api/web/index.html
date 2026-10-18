@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BBC Master RP2350</title>
+<title>BBC Micro RP2350</title>
 <style>
 :root {
   --bg: #f4efe4; --panel: #fffdf8; --ink: #2a2622; --muted: #6f675d; --line: #ddd4c4;
@@ -45,6 +45,7 @@ button:hover { border-color: var(--muted); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 input[type=text], input[type=url] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input[type=range] { accent-color: var(--accent); width: 140px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
 .discs { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 #sdsel { font: inherit; flex: 1 1 200px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
@@ -58,7 +59,8 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 /* the keyboard */
 #kbwrap { overflow-x: auto; }
 /* a grid of quarter keys, 21.25 keys wide: a Master 128's keyboard as on its case (from photographs):
-   the main keys with the cursor diamond, and the numeric keypad to their right */
+   the main keys with the cursor diamond, and the numeric keypad to their right. (A Model B's is
+   16.75 keys wide: the page sets its width and its LEDs' place, below.) */
 #kbcase { background: var(--bbc-case); border-radius: 12px; padding: 12px; min-width: 842px; }
 #kb { background: var(--bbc-inlay); border-radius: 6px; padding: 10px; user-select: none; -webkit-user-select: none; touch-action: manipulation;
       display: grid; grid-template-columns: repeat(85, 1fr); grid-auto-rows: 40px; gap: 4px 0; }
@@ -77,8 +79,11 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 .k.z::after { content: ""; position: absolute; width: 1.5px; height: 13px; background: var(--bbc-legend); transform: rotate(32deg); }
 .k { position: relative; }
 .k.a { background: var(--bbc-cursor); }
-/* POWER ON, CAPS LOCK and SHIFT LOCK: three LEDs at the left of the function keys */
+/* the Master: POWER ON, CAPS LOCK and SHIFT LOCK, three LEDs at the left of the function keys;
+   the Model B: a row of three left of the space bar (.beeb) */
 #leds { grid-row: 1; grid-column: 1 / span 8; display: flex; justify-content: space-around; align-items: center; }
+#leds.beeb { grid-row: 6; grid-column: 2 / span 12; }
+#leds.beeb div { flex-direction: column; font-size: 8px; }
 #leds div { display: flex; flex-direction: column-reverse; align-items: center; gap: 4px; font-size: 7px; line-height: 1; color: var(--bbc-legend); letter-spacing: .05em; text-align: center; white-space: pre-line; }
 .led { width: 8px; height: 8px; border-radius: 50%; background: #4a1810; box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
 .led.on { background: #ff3b22; box-shadow: 0 0 6px 1px rgba(255,70,40,.8); }
@@ -97,15 +102,25 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <body>
 <main>
 <header>
-  <h1>BBC Master <span>RP2350</span></h1>
+  <h1><span id="mname">BBC Micro</span> <span>RP2350</span></h1>
 </header>
 
 <section class="machine">
   <div class="machine">
-    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting to Pimoroni Presto</span></div>
+    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
     <div class="buttons">
       <button id="turbo" title="Run as fast as it can">Turbo</button>
+      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
     </div>
+  </div>
+</section>
+
+<section id="lights" hidden>
+  <h2>Lights</h2>
+  <div class="row">
+    <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
+    <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
+    <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
   </div>
 </section>
 
@@ -123,7 +138,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
     <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
     <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
-    <button id="restore" title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
+    <button id="restore" hidden title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
   </div>
   <progress id="prog" value="0" max="1" hidden></progress>
   <div id="msg"></div>
@@ -146,14 +161,14 @@ const $ = id => document.getElementById(id);
 // --- keys, by their place in the BBC's keyboard matrix: row << 4 | column (hex)
 // [label, code, width in keys, class]: f function (red), b BREAK, c control (smaller legend), a cursor
 // keys and COPY (grey); a null code is a gap.
-// Positions as on a Master 128's case (measured from photographs, rounded to quarter keys): the
+// The Master 128's: positions as on its case (measured from photographs, rounded to quarter keys): the
 // function row with BREAK and the cursor diamond's up arrow; left and right end the number row,
 // down ends the QWERTY row, DELETE and COPY sit under left and right. The numeric keypad, 0.75 keys
 // right of the main keys, runs level with the function row down: its keys are matrix columns 10-12
 // (the Master's INKEY table: keypad 0 is &6A, RETURN &3C).
 const SHIFT = 0x00, CTRL = 0x01, BREAK = 'b';
 const F = 'f', C = 'c', B = 'b', A = 'a';
-const ROWS = [
+const ROWS_MASTER = [
   [['',null,2],['ƒ0',0x20,1,F],['ƒ1',0x71,1,F],['ƒ2',0x72,1,F],['ƒ3',0x73,1,F],['ƒ4',0x14,1,F],['ƒ5',0x74,1,F],['ƒ6',0x75,1,F],['ƒ7',0x16,1,F],['ƒ8',0x76,1,F],['ƒ9',0x77,1,F],
    ['',null,1],['BREAK',BREAK,1,B],['',null,1],['↑',0x39,1,A],['',null,1.25],['+',0x3a],['-',0x3b],['/',0x4a],['*',0x5b]],
   [['',null,.5],['ESCAPE',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27,1,'z'],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A],
@@ -165,6 +180,16 @@ const ROWS = [
   [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.75,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.75,C],['DELETE',0x59,1,C],['COPY',0x69,1,A + ' ' + C],
    ['',null,.75],['0',0x6a,1,'z'],['.',0x4c],['RETURN',0x3c,2,C]],
   [['',null,3.5],['',0x62,8.25]],
+];
+// The Model B's: positions as on a Model B, measured from the xr.bbcmic.ro model and rounded to quarter keys: the
+// red keys start 1.2 keys right of 1, with BREAK straight after f9; rows step in by 0.55, 0.73, 1.22.
+const ROWS_BEEB = [
+  [['',null,2.5],['f0',0x20,1,F],['f1',0x71,1,F],['f2',0x72,1,F],['f3',0x73,1,F],['f4',0x14,1,F],['f5',0x74,1,F],['f6',0x75,1,F],['f7',0x16,1,F],['f8',0x76,1,F],['f9',0x77,1,F],['BREAK',BREAK,1,B]],
+  [['',null,.25],['ESC',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A]],
+  [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['↑',0x39,1,A],['↓',0x29,1,A]],
+  [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,1.75,C]],
+  [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.5,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.5,C],['DELETE',0x59,1,C],['COPY',0x69,1,A]],
+  [['',null,3.5],['',0x62,8]],
 ];
 const hex = c => c.toString(16);
 const down = c => c === BREAK ? 'b' : 'd' + hex(c), up = c => c === BREAK ? '' : 'u' + hex(c);
@@ -194,15 +219,24 @@ function tap(code) {
 }
 
 const kb = $('kb');
-// status bits: 1 CAPS LOCK, 2 SHIFT LOCK, 4 cassette motor
+// status bits: 1 CAPS LOCK, 2 SHIFT LOCK, 4 cassette motor (8: POWER ON, the page's own)
 const ledEls = {};
+// the machine's keyboard, once /api/status says which it is
+function buildKeyboard(machine) {
+const beeb = machine !== 'master';
+const ROWS = beeb ? ROWS_BEEB : ROWS_MASTER;
+kb.innerHTML = '';
+for (const b in ledEls) delete ledEls[b];
+kb.style.gridTemplateColumns = `repeat(${beeb ? 67 : 85}, 1fr)`;
+$('kbcase').style.minWidth = beeb ? '664px' : '842px';
 const ledRow = document.createElement('div');
 ledRow.id = 'leds';
-for (const [bit, name] of [[8, 'POWER\nON'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']]) {
+if (beeb) ledRow.className = 'beeb';
+for (const [bit, name] of beeb ? [[4, 'CASSETTE\nMOTOR'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']] : [[8, 'POWER\nON'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']]) {
   const d = document.createElement('div');
   const led = document.createElement('span');
   led.className = 'led';
-  d.append(name, led);     // the label above the LED, as on the case
+  d.append(name, led);     // the label by the LED, as on the case
   ledRow.appendChild(d);
   ledEls[bit] = led;
 }
@@ -239,6 +273,7 @@ ROWS.forEach((row, y) => {
     kb.appendChild(k);
   }
 });
+}
 
 // your own keyboard, by position
 const PC = {Escape: 0x70, Digit1: 0x30, Digit2: 0x31, Digit3: 0x11, Digit4: 0x12, Digit5: 0x13, Digit6: 0x34,
@@ -251,7 +286,7 @@ const PC = {Escape: 0x70, Digit1: 0x30, Digit2: 0x31, Digit3: 0x11, Digit4: 0x12
   Comma: 0x66, Period: 0x67, Slash: 0x68, Backspace: 0x59, Delete: 0x59, End: 0x69, Space: 0x62,
   ArrowLeft: 0x19, ArrowRight: 0x79, ArrowUp: 0x39, ArrowDown: 0x29,
   F1: 0x20, F2: 0x71, F3: 0x72, F4: 0x73, F5: 0x14, F6: 0x74, F7: 0x75, F8: 0x16, F9: 0x76, F10: 0x77, F12: BREAK,
-  // the numeric keypad onto the Master's
+  // the numeric keypad onto the Master's (the Model B has none)
   Numpad0: 0x6a, Numpad1: 0x6b, Numpad2: 0x7c, Numpad3: 0x6c, Numpad4: 0x7a, Numpad5: 0x7b, Numpad6: 0x1a,
   Numpad7: 0x1b, Numpad8: 0x2a, Numpad9: 0x2b, NumpadAdd: 0x3a, NumpadSubtract: 0x3b, NumpadDivide: 0x4a,
   NumpadMultiply: 0x5b, NumpadDecimal: 0x4c, NumpadComma: 0x5c, NumpadEnter: 0x3c, NumLock: 0x5a};
@@ -326,16 +361,39 @@ async function api(path, body, method = 'POST') {
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
 }
+const BOARDS = {presto: 'Pimoroni Presto'};
+let builtFor;
 function show(s) {
   status = s;
+  if (s.machine && s.machine !== builtFor) {
+    builtFor = s.machine;
+    buildKeyboard(s.machine);
+    const name = s.machine === 'master' ? 'BBC Master' : 'BBC Micro';
+    $('mname').textContent = name;
+    document.title = name + ' RP2350';
+  }
   $('turbo').classList.toggle('on', s.turbo);
-  const lit = s.leds | 8;   // POWER ON: lit while the Presto answers
+  // the panel's figures: only in builds that have them
+  $('overlay').hidden = s.overlay == null;
+  $('overlay').classList.toggle('on', !!s.overlay);
+  // the built-in disc's saved games: only on a machine that keeps a save disc
+  $('restore').hidden = !(s.saves >= 0);
+  const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
-  $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to Pimoroni Presto</span>` +
+  // the LEDs on the back: only in builds that have them
+  const a = s.ambient;
+  $('lights').hidden = !a;
+  if (a) {
+    $('ambient').classList.toggle('on', a.on);
+    $('locks').classList.toggle('on', a.locks);
+    if (document.activeElement !== $('bright')) $('bright').value = a.bright;
+  }
+  const board = BOARDS[s.board] || s.board || 'the board';
+  $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
     `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span><span>free RAM <b>${Math.round(s.free / 1024)} KB</b></span></span>`;
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
-  const f = s.fetch;
+  const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
   else if (watchingFetch && f.state === 'error') { watchingFetch = false; msg(f.error, 'err'); progress(); }
   else if (watchingFetch && f.state === 'idle') { watchingFetch = false; msg(''); progress(); }
@@ -348,10 +406,19 @@ async function poll() {
   clearTimeout(pollTimer);
   try { show(await api('/api/status', null, 'GET')); pollFails = 0; }
   // one failed poll can be a dropped WiFi packet: only say so after two in a row
-  catch (e) { if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the Pimoroni Presto</span>'; }
+  catch (e) { if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>'; }
   pollTimer = setTimeout(poll, watchingFetch ? 400 : 1500);
 }
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
+$('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
+$('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
+$('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
+// the brightness as the slider moves, at most every 150 ms
+let brightTimer;
+$('bright').oninput = () => {
+  clearTimeout(brightTimer);
+  brightTimer = setTimeout(async () => show(await api('/api/ambient', 'bright=' + $('bright').value)), 150);
+};
 $('boot').onclick = () => api('/api/boot');
 $('restore').onclick = () => { if (confirm('Forget everything saved to the built-in disc and boot it as it came?')) api('/api/disc/restore'); };
 

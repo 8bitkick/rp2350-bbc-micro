@@ -17,6 +17,8 @@ bool presto_sd_reinsert_disc(void);
 void presto_sd_eject_disc(void);
 // the built-in disc's golden image back (what games saved to it forgotten), and boot it
 void presto_disc_restore(void);
+// the save disc's saves so far (0: none yet), or -1 if the build keeps no save disc
+int presto_disc_saves(void);
 // what's in the drive: "ORIGINAL", "SAVED GAMES (n SAVES)" or a disc's name (the loading screen)
 const char *presto_disc_source(void);
 // told as each track of a disc goes into the drive (NULL: no one); for the loading screen

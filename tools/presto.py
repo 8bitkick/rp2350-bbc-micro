@@ -3,7 +3,11 @@
 serial device, or PRESTO_PORT): the Model B (presto_beebjit) or the Master 128 (presto_master).
 None of this is needed to use the Presto; it's for measuring and testing.
 
-Both machines:
+The commands are the firmware's command layer (src/common/api/api.c), the same the web page uses
+as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) or
+"presto.py api <name> [args]" (its JSON reply, as over HTTP).
+
+  presto.py status                 the machine, board, speed, disc, LEDs, ... (as /api/status)
   presto.py stats                  speed (100.0% = the real machine) and the two cores' load
   presto.py turbo                  toggle turbo: run as fast as it can (every frame still drawn)
   presto.py shot out.png [hold ms] screenshot of the panel (480x480, as shown); the hold (Model B
@@ -16,9 +20,14 @@ Both machines:
   presto.py discs                  the .ssd/.dsd images on the SD card
   presto.py disc [name]            boot a disc from the card (no name: the built-in disc)
   presto.py put <file.ssd> [name]  write a disc image to the card
-  presto.py raw '<cmd>'            any other command (the Master: '!...' goes to a built-in program)
+  presto.py restore                the built-in disc as it came (what games saved to it forgotten)
+  presto.py boot | break | eject   SHIFT+BREAK, BREAK, back to the built-in disc
+  presto.py ambient [...]          (AMBIENT) the LEDs on the back; also "leds"
+  presto.py audio | beep ...       (SOUND) the sound's state, test sounds
+  presto.py program | command <c>  a program built in alongside the machine: its panel, a command
+  presto.py raw '<cmd>'            any other "!" command (one a built-in program takes, say)
 The Model B only:
-  presto.py crtc | view X W Y H DW DH | touch
+  presto.py crtc | peek <hex> [n] | mem | lock | clk | lcd
   presto.py state <bbc micro bot snapshot .json>
 """
 import base64, glob, json, os, struct, sys, time, zlib
@@ -47,7 +56,7 @@ def readline_prefix(s, prefix):
         if not line or time.time() > until:
             # (a board stuck reporting a boot failure talks, but never answers)
             raise TimeoutError('no reply' if not line else 'no %s reply in: %r' % (prefix, line[:80]))
-        if line.startswith(prefix.encode()):
+        if line.startswith(prefix.encode()) or line.startswith(b'ERR '):
             return line.decode().strip()
 
 def write_png(path, w, h, rgb565):
@@ -167,7 +176,10 @@ def main():
         s.write(bytes([0x1a, 0, sc])); time.sleep(ms / 1000); s.write(bytes([0x1a, 1, sc]))
     else:
         cmd = ' '.join(a) if a[0] != 'raw' else a[1]
-        prefix = {'stats': 'STATS', 'turbo': 'TURBO', 'crtc': 'CRTC', 'view': 'VIEW', 'bootsel': 'BOOTSEL', 'touch': 'TOUCH'}.get(a[0], '')
+        prefix = {'stats': 'STATS', 'status': 'STATUS', 'api': 'API', 'turbo': 'TURBO', 'crtc': 'CRTC', 'view': 'VIEW',
+                  'bootsel': 'BOOTSEL', 'touch': 'TOUCH', 'program': 'PROGRAM', 'audio': 'AUDIO', 'leds': 'LEDS',
+                  'ambient': 'LEDS', 'temp': 'TEMP', 'net': 'NET', 'peek': 'PEEK', 'boot': 'BOOT', 'break': 'BREAK',
+                  'keys': 'KEYS'}.get(a[0], '')
         command(s, cmd)
         print(readline_prefix(s, prefix) if prefix else s.readline().decode().strip())
 

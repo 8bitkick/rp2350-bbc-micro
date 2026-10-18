@@ -3,7 +3,6 @@
 # (-DMACHINE=beeb, the default). See docs/presto/BEEBJIT_PORT.md.
 
 set(BEEBJIT_SRC ${CORES_DIR}/beebjit)
-set(PRESTO_DIR ${BOARD_DIR})
 set(BEEB_ROMS ${TOP_DIR}/roms)
 
 file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/beebjit_sources.txt BEEBJIT_SOURCES REGEX "^[^#]")
@@ -18,22 +17,9 @@ add_executable(presto_beebjit
         ${CMAKE_CURRENT_LIST_DIR}/presto_beebjit.c
         ${CMAKE_CURRENT_LIST_DIR}/presto_machine.c
         ${CMAKE_CURRENT_LIST_DIR}/romfs.c
-        ${PRESTO_DIR}/presto_lcd.c
-        ${PRESTO_DIR}/presto_psram.c
-        ${COMMON_DIR}/presto_boot.c
-        # the front end: the web panel, the SD card
-        ${PRESTO_DIR}/presto_net.c
-        ${PRESTO_DIR}/presto_sd.c
-        ${PRESTO_DIR}/fatfs/ff.c
-        ${PRESTO_DIR}/fatfs/ffunicode.c
         )
-
-# the web control panel's page, gzipped into flash
-set(PRESTO_BEEBJIT_WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_web_page.c)
-add_custom_command(OUTPUT ${PRESTO_BEEBJIT_WEB_C}
-        DEPENDS ${PRESTO_DIR}/web/index.html ${TOP_DIR}/tools/embed_web.py
-        COMMAND python3 ${TOP_DIR}/tools/embed_web.py ${PRESTO_DIR}/web/index.html ${PRESTO_BEEBJIT_WEB_C})
-target_sources(presto_beebjit PRIVATE ${PRESTO_BEEBJIT_WEB_C})
+common_setup(presto_beebjit)    # the command layer, the USB channel, the front end, the sound
+board_setup(presto_beebjit)     # the board: panel, PSRAM, SD card, network and web page, LEDs
 
 # Built-in files, by the names beebjit opens them with.
 set(BEEBJIT_EMBED
@@ -80,23 +66,17 @@ option(PRESTO_BEEBJIT_WIRE "Draw on core 1" ON)
 if (PRESTO_BEEBJIT_WIRE)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_WIRE=1 BEEBJIT_RENDER_WIRE=1)
 endif()
-# -DSOUND=ON: the BBC's sound on the piezo (presto_audio.c), made on core 1.
-if (SOUND)
-    if (NOT PRESTO_BEEBJIT_WIRE)
-        message(FATAL_ERROR "SOUND needs core 1 (PRESTO_BEEBJIT_WIRE)")
-    endif()
-    target_sources(presto_beebjit PRIVATE ${COMMON_DIR}/presto_audio.c)
-    target_compile_definitions(presto_beebjit PRIVATE WITH_SOUND=1
-            BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
+# -DSOUND=ON (common_setup): beebjit's sound.c hands each SN76489 byte to presto_audio.c; made on
+# core 1. -DAMBIENT=ON (board_setup): the LEDs, on core 1 too.
+if ((SOUND OR AMBIENT) AND NOT PRESTO_BEEBJIT_WIRE)
+    message(FATAL_ERROR "SOUND and AMBIENT need core 1 (PRESTO_BEEBJIT_WIRE)")
 endif()
-# -DAMBIENT=ON: the LEDs on the back lit with what's on screen (presto_ambient.c), on core 1.
-if (AMBIENT)
-    if (NOT PRESTO_BEEBJIT_WIRE)
-        message(FATAL_ERROR "AMBIENT needs core 1 (PRESTO_BEEBJIT_WIRE)")
-    endif()
-    target_sources(presto_beebjit PRIVATE ${PRESTO_DIR}/presto_ambient.c)
-    pico_generate_pio_header(presto_beebjit ${PRESTO_DIR}/ws2812.pio)
-    target_compile_definitions(presto_beebjit PRIVATE WITH_AMBIENT=1)
+if (SOUND)
+    target_compile_definitions(presto_beebjit PRIVATE BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
+endif()
+# -DPRESTO_BEEBJIT_TERMINAL=ON: the USB serial port is the BBC's RS423 (no "!" commands)
+if (PRESTO_BEEBJIT_TERMINAL)
+    target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_TERMINAL=1 FRONTEND_NO_USB_COMMANDS=1)
 endif()
 # -DPRESTO_BEEBJIT_FRAME_SKIP=OFF: draw every frame, even when the picture can't have changed.
 option(PRESTO_BEEBJIT_FRAME_SKIP "Skip drawing frames that can't have changed" ON)
@@ -129,15 +109,9 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_romfs.c
         VERBATIM)
 target_sources(presto_beebjit PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_romfs.c)
 
-pico_generate_pio_header(presto_beebjit ${PRESTO_DIR}/st7701_parallel.pio)
-pico_generate_pio_header(presto_beebjit ${PRESTO_DIR}/st7701_timing.pio)
-
 target_include_directories(presto_beebjit PRIVATE
         ${BEEBJIT_SRC}
         ${CMAKE_CURRENT_LIST_DIR}
-        ${COMMON_DIR}
-        ${PRESTO_DIR}
-        ${PRESTO_DIR}/fatfs
         )
 
 target_compile_definitions(presto_beebjit PRIVATE
@@ -163,7 +137,6 @@ target_compile_definitions(presto_beebjit PRIVATE
         PRESTO_SYS_CLOCK_KHZ=250000
         PRESTO_BEEBJIT=1
         PRESTO_DISC_STAGE_OFFSET=0  # beebjit copies a disc in as it's inserted
-        CYW43_HOST_NAME="beeb"      # its DHCP name; it also answers as beeb.local (mDNS)
         )
 
 # beebjit is written for 64-bit hosts: quieten what is harmless with a 32-bit long / int32_t.
@@ -171,19 +144,7 @@ set_source_files_properties(${BEEBJIT_SOURCES} PROPERTIES COMPILE_OPTIONS
         "-Wno-format;-Wno-char-subscripts;-Wno-address-of-packed-member;-Wno-pointer-to-int-cast;-Wno-int-to-pointer-cast;-Wno-unused-function;-Wno-unused-variable;-Wno-unused-but-set-variable")
 target_compile_options(presto_beebjit PRIVATE -O2 -Wall)
 
-target_link_libraries(presto_beebjit PRIVATE
-        pico_stdlib
-        hardware_pio
-        hardware_dma
-        hardware_spi
-        hardware_pwm
-        hardware_adc
-        hardware_flash
-        pico_flash
-        pico_multicore
-        pico_cyw43_arch_lwip_poll   # WiFi, polled from core 0 (see presto_net.c)
-        pico_lwip_mdns
-        )
+target_link_libraries(presto_beebjit PRIVATE pico_stdlib pico_multicore)
 
 # Hot code runs from SRAM: the XIP cache is only 16K and the interpreter alone is ~60K of
 # Thumb. The SDK's linker script keeps in flash only what it doesn't exclude; exclude these.

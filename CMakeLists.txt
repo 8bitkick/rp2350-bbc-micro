@@ -47,9 +47,8 @@ set(BOARD_DIR ${TOP_DIR}/src/boards/${BOARD})
 set(CORES_DIR ${TOP_DIR}/src/cores)
 set(MACHINE_DIR ${TOP_DIR}/src/machines/${MACHINE})
 
-set(PICO_BOARD pimoroni_presto CACHE STRING "Board")
-set(PICO_PLATFORM rp2350 CACHE STRING "Platform")
-list(APPEND PICO_BOARD_HEADER_DIRS ${BOARD_DIR})
+include(${BOARD_DIR}/board.cmake)      # the board: PICO_BOARD, and board_setup()
+include(${COMMON_DIR}/common.cmake)     # common_setup()
 include(pico_sdk_import.cmake)
 
 project(rp2350_bbc_micro C CXX ASM)
