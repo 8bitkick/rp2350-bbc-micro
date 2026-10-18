@@ -6,7 +6,7 @@
 # BEEB_ROMS is the MOS 3.20 set (roms/mos3.20, fetched by scripts/setup.sh --master); BEEB_DISC is
 # the disc built in and booted at power on. The firmware is build/presto_master.uf2.
 
-set(PRESTO_DIR ${CMAKE_CURRENT_LIST_DIR})
+set(PRESTO_DIR ${CMAKE_CURRENT_LIST_DIR})   # the Master's own files
 set(MASTER_CORE_DIR ${CORES_DIR}/kc-beeb)
 set(MASTER_TOP ${TOP_DIR})
 set(BEEB_ROMS ${MASTER_TOP}/roms/mos3.20 CACHE PATH "MOS 3.20 ROMs")
@@ -27,13 +27,14 @@ add_executable(presto_master
         ${PRESTO_DIR}/machine_unit.c
         ${PRESTO_DIR}/render_unit.c
         ${EMBED_C}
-        ${PRESTO_DIR}/presto_lcd.c
-        ${PRESTO_DIR}/presto_psram.c
         ${PRESTO_DIR}/presto_machine.c
         ${PRESTO_DIR}/presto_net.c
-        ${PRESTO_DIR}/presto_sd.c
-        ${PRESTO_DIR}/fatfs/ff.c
-        ${PRESTO_DIR}/fatfs/ffunicode.c
+        # the board's
+        ${BOARD_DIR}/presto_lcd.c
+        ${BOARD_DIR}/presto_psram.c
+        ${BOARD_DIR}/presto_sd.c
+        ${BOARD_DIR}/fatfs/ff.c
+        ${BOARD_DIR}/fatfs/ffunicode.c
         )
 # The web panel's page, gzipped into flash.
 set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
@@ -42,9 +43,9 @@ add_custom_command(OUTPUT ${WEB_C}
         DEPENDS ${PRESTO_DIR}/web/index.html ${PRESTO_DIR}/web/fonts/OpenGorton-Regular.otf
                 ${PRESTO_DIR}/web/fonts/OpenGorton-Bold.otf ${MASTER_TOP}/tools/embed_web.py)
 target_sources(presto_master PRIVATE ${WEB_C})
-pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_parallel.pio)
-pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_timing.pio)
-target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${PRESTO_DIR}/fatfs ${MASTER_CORE_DIR} ${COMMON_DIR})
+pico_generate_pio_header(presto_master ${BOARD_DIR}/st7701_parallel.pio)
+pico_generate_pio_header(presto_master ${BOARD_DIR}/st7701_timing.pio)
+target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${MASTER_CORE_DIR} ${COMMON_DIR} ${BOARD_DIR} ${BOARD_DIR}/fatfs)
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
 # A program built in to run alongside the machine (e.g. a player that reads its RAM and presses
 # keys, through src/common/machine_hook.h's machine_frame_hook and machine_command_hook): its

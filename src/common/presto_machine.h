@@ -10,7 +10,8 @@ extern "C" {
 #endif
 
 // What the Presto's front end (the web panel, the SD card, the USB channel) asks of the emulated
-// machine; the emulator build provides these (src/machines/beeb/presto_machine.c). Called on core 0, between the emulator's own work.
+// machine; each machine provides these (src/machines/beeb/presto_machine.c; src/machines/master's
+// presto_machine.c and main.c). Called on core 0, between the machine's own work.
 // Disc changes are in presto_sd.h (presto_disc_insert, presto_disc_name, presto_sd_eject_disc).
 
 // a key by its place in the BBC's keyboard matrix (row << 4 | column)
