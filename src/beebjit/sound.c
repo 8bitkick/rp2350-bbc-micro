@@ -613,11 +613,23 @@ sound_sn_do_address_latch(struct sound_struct* p_sound, uint8_t value) {
   }
 }
 
+#ifdef BEEBJIT_SOUND_WRITE_HOOK
+/* The host's own SN76489: each byte the chip takes, with the timer ticks it
+ * arrived at (the host makes its own samples from these).
+ */
+void BEEBJIT_SOUND_WRITE_HOOK(uint64_t ticks, uint8_t value);
+#endif
+
 static void
 sound_sn_do_register_write(struct sound_struct* p_sound, uint8_t value) {
   uint8_t command;
   uint8_t channel;
   int32_t new_period = -1;
+
+#ifdef BEEBJIT_SOUND_WRITE_HOOK
+  BEEBJIT_SOUND_WRITE_HOOK(timing_get_total_timer_ticks(p_sound->p_timing),
+                           value);
+#endif
 
   command = p_sound->latched_address;
   command |= (value & 0x80);
