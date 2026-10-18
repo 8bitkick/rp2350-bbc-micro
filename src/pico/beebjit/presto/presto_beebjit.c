@@ -22,6 +22,9 @@
 #include "timing.h"
 
 #include "presto_audio.h"
+#if PRESTO_BEEBJIT_AMBIENT
+#include "presto_ambient.h"
+#endif
 #include "presto_boot.h"
 #include "presto_lcd.h"
 #include "presto_machine.h"
@@ -330,6 +333,13 @@ static void __not_in_flash_func(core1_main)(void) {
   while (1) {
     uint32_t t0 = systick_hw->cvr;
     if (beebjit_wire_drain() == 0) {
+#if PRESTO_BEEBJIT_AMBIENT
+      if (presto_ambient_due()) {
+        presto_ambient_update();
+        s_core1_busy_cycles += ((t0 - systick_hw->cvr) & 0xFFFFFF);
+        continue;
+      }
+#endif
       __wfe();
     } else {
       s_core1_busy_cycles += ((t0 - systick_hw->cvr) & 0xFFFFFF);
@@ -850,6 +860,10 @@ frame_callback(void* p, uint64_t cycles) {
 #if PRESTO_BEEBJIT_SOUND
   presto_audio_frame(cycles, s_turbo);
 #endif
+#if PRESTO_BEEBJIT_AMBIENT
+  /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
+  presto_ambient_frame((uint8_t) (((IC32 & 0x40) ? 0 : 1) | ((IC32 & 0x80) ? 0 : 2)));
+#endif
   presto_machine_frame();
 #if PRESTO_BEEBJIT_PROF
   prof_poll();
@@ -1024,6 +1038,10 @@ main(void) {
   s_row_table[PRESTO_LCD_HEIGHT] = NULL;
   presto_lcd_init(s_row_table);
 #if PRESTO_BEEBJIT_PANEL_PIO
+#if PRESTO_BEEBJIT_AMBIENT
+  /* First: it moves PIO0 to GPIO 16-47, which it can only do before PIO0 has a program. */
+  presto_ambient_init();
+#endif
   panel_pio_init();
 #endif
   presto_lcd_set_backlight(255);
