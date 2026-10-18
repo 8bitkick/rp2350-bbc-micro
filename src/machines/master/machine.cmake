@@ -44,9 +44,12 @@ target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_
 # The machine and the renderer run from SRAM: the SDK's linker script keeps in flash what
 # it doesn't exclude; exclude these objects (and newlib's mem* functions, which this
 # toolchain names libc_a-mem*.o, missed by the SDK's pattern).
+# (objects are .c.obj when CMake runs on Windows: named .c.o, they stayed in flash, at a third
+# of real speed)
+set(RAM_EXCLUDES " *machine_unit.c${CMAKE_C_OUTPUT_EXTENSION} *render_unit.c${CMAKE_C_OUTPUT_EXTENSION}")
 file(READ ${PICO_SDK_PATH}/src/rp2_common/pico_crt0/rp2350/memmap_default.ld MEMMAP)
 string(REPLACE "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*"
-        "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libg.a:*libc_a-mem*.o *libc.a:*libc_a-mem*.o *libm.a: *machine_unit.c.o *render_unit.c.o) .text*"
+        "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libg.a:*libc_a-mem*.o *libc.a:*libc_a-mem*.o *libm.a:${RAM_EXCLUDES}) .text*"
         MEMMAP_NEW "${MEMMAP}")
 if (MEMMAP_NEW STREQUAL MEMMAP)
     message(FATAL_ERROR "SDK linker script not as expected")
