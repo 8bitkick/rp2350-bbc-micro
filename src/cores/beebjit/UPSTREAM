@@ -24,7 +24,8 @@ that the default (upstream) build is unchanged:
   bbc_replace_disc() (writeable and mutable on request: a writes-back drive
   for the host's save disc); bbc_swap_roms().
 - disc.c, disc_ssd.c, disc_drive.c: BEEBJIT_DISC_COMPACT (tracks allocated,
-  and .ssd/.dsd tracks built, when the drive first reaches them);
+  and .ssd/.dsd tracks built, when the drive first reaches them; with
+  BEEBJIT_DISC_MAX_TRACKS, the least recently used unwritten track reused);
   disc_drive_replace_discs().
 - video.c, render.c, teletext.c, timing.c, interp.c: BEEBJIT_RENDER_PACKED4
   (4-bit packed pixels), row mode (render_set_row_buffer()),

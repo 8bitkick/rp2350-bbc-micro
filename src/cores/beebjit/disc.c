@@ -16,11 +16,18 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 
 struct disc_track {
   uint32_t length;
+#if BEEBJIT_DISC_COMPACT
+  /* When the drive last used it (p_disc->track_clock), and whether it has
+   * been written: a written track is the only copy of what's on it. */
+  uint32_t last_used;
+  uint32_t is_written;
+#endif
   uint32_t pulses2us[k_disc_max_bytes_per_track];
 };
 
@@ -29,7 +36,15 @@ struct disc_track {
  * (.ssd / .dsd) builds each track then too, from its copy of the image: a
  * disc costs its image plus ~13KB per track the drive has been to. With
  * BEEBJIT_MALLOC_BIG, in the host's big memory.
+ * BEEBJIT_DISC_MAX_TRACKS (if not 0) caps the tracks a lazily built disc
+ * keeps: past it, the track used least recently that hasn't been written is
+ * given to the new one (and built again if the drive comes back). A demo
+ * that streams a whole double sided disc (Bad Apple: 160 tracks, ~2.1MB)
+ * otherwise runs the host out of memory.
  */
+#ifndef BEEBJIT_DISC_MAX_TRACKS
+#define BEEBJIT_DISC_MAX_TRACKS 0
+#endif
 
 struct disc_side {
 #if BEEBJIT_DISC_COMPACT
@@ -79,6 +94,8 @@ struct disc_struct {
                                 uint32_t track);
   uint8_t* p_lazy_data;
   int is_lazy_building;
+  uint32_t num_tracks;
+  uint32_t track_clock;
 #endif
   int is_double_sided;
   uint32_t tracks_used;
@@ -122,6 +139,7 @@ disc_free_tracks(struct disc_struct* p_disc) {
       p_disc->upper_side.p_tracks[i] = NULL;
     }
   }
+  p_disc->num_tracks = 0;
 }
 #endif
 
@@ -554,6 +572,11 @@ disc_write_pulses(struct disc_struct* p_disc,
   p_disc->dirty_side = is_side_upper;
   p_disc->dirty_track = track;
 
+#if BEEBJIT_DISC_COMPACT
+  /* (kept from now on: see disc_reclaim_track) */
+  ((struct disc_track*) ((uint8_t*) p_pulses -
+                         offsetof(struct disc_track, pulses2us)))->is_written = 1;
+#endif
   p_pulses[pos] = pulses;
 }
 
@@ -609,6 +632,45 @@ disc_flush_writes(struct disc_struct* p_disc) {
 }
 
 #if BEEBJIT_DISC_COMPACT
+/* At BEEBJIT_DISC_MAX_TRACKS: take the track used least recently that can be
+ * built again (not written, not being built), or NULL if there's none.
+ */
+static struct disc_track*
+disc_reclaim_track(struct disc_struct* p_disc) {
+  uint32_t i;
+  int side;
+  struct disc_track** pp_oldest = NULL;
+  struct disc_track* p_oldest;
+
+  if ((BEEBJIT_DISC_MAX_TRACKS == 0) ||
+      (p_disc->num_tracks < BEEBJIT_DISC_MAX_TRACKS) ||
+      (p_disc->p_lazy_build_callback == NULL)) {
+    return NULL;
+  }
+  for (side = 0; side < 2; ++side) {
+    struct disc_side* p_side = (side ? &p_disc->upper_side :
+                                       &p_disc->lower_side);
+    for (i = 0; i < k_ibm_disc_tracks_per_disc; ++i) {
+      struct disc_track* p_track = p_side->p_tracks[i];
+      if ((p_track == NULL) || p_track->is_written ||
+          (p_track == p_disc->p_track)) {
+        continue;
+      }
+      if ((pp_oldest == NULL) ||
+          ((int32_t) (p_track->last_used - (*pp_oldest)->last_used) < 0)) {
+        pp_oldest = &p_side->p_tracks[i];
+      }
+    }
+  }
+  if (pp_oldest == NULL) {
+    return NULL;
+  }
+  p_oldest = *pp_oldest;
+  *pp_oldest = NULL;
+  p_disc->num_tracks--;
+  return p_oldest;
+}
+
 /* A track's first use: build it, around whatever build was in progress. */
 static void
 disc_lazy_build(struct disc_struct* p_disc, int is_side_upper, uint32_t track) {
@@ -663,15 +725,21 @@ disc_get_track(struct disc_struct* p_disc, int is_side_upper, uint32_t track) {
     pp_track = &p_disc->lower_side.p_tracks[track];
   }
   if (*pp_track == NULL) {
-#ifdef BEEBJIT_MALLOC_BIG
-    *pp_track = BEEBJIT_MALLOC_BIG(sizeof(struct disc_track));
+    *pp_track = disc_reclaim_track(p_disc);
     if (*pp_track == NULL) {
-      util_bail("disc_get_track: out of memory");
-    }
+#ifdef BEEBJIT_MALLOC_BIG
+      *pp_track = BEEBJIT_MALLOC_BIG(sizeof(struct disc_track));
+      if (*pp_track == NULL) {
+        util_bail("disc_get_track: out of memory");
+      }
 #else
-    *pp_track = util_malloc(sizeof(struct disc_track));
+      *pp_track = util_malloc(sizeof(struct disc_track));
 #endif
+    }
+    p_disc->num_tracks++;
     (*pp_track)->length = k_ibm_disc_bytes_per_track;
+    (*pp_track)->is_written = 0;
+    (*pp_track)->last_used = p_disc->track_clock;
     (void) memset(&(*pp_track)->pulses2us[0],
                   p_disc->surface_byte,
                   sizeof((*pp_track)->pulses2us));
@@ -681,6 +749,7 @@ disc_get_track(struct disc_struct* p_disc, int is_side_upper, uint32_t track) {
     }
   }
   p_track = *pp_track;
+  p_track->last_used = ++p_disc->track_clock;
 #else
   if (is_side_upper) {
     p_track = &p_disc->upper_side.tracks[track];

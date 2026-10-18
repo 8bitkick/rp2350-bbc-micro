@@ -123,6 +123,8 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_ASM_THUMB2=1
         BEEBJIT_JIT_COMPACT=1
         BEEBJIT_DISC_COMPACT=1
+        # At most 80 of a disc's tracks (~1 MB) built at a time (disc.c): Bad Apple streams 160
+        BEEBJIT_DISC_MAX_TRACKS=80
         BEEBJIT_MALLOC_BIG=beebjit_embedded_malloc_big
         BOOT_GUARD=1 BOOT_GUARD_KEEP=$<BOOL:${BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (boot_guard.c)
         PICO_PANIC_FUNCTION=boot_guard_panic   # an SDK panic (out of memory, hard_assert) is reported the same way
