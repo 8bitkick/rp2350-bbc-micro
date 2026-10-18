@@ -1,0 +1,46 @@
+Vendored from beebjit by Chris Evans <scarybeasts@gmail.com>
+  https://github.com/scarybeasts/beebjit
+  commit 2ff70a06e83ca5cfb09c0cdff2f23e5f4113b633
+Licence: GNU GPL v3 (see COPYING here and LICENSE at the top); miniz: see
+LICENSE.miniz.
+
+Only the emulator core is copied: the host platform layers (os_*_posix.c,
+os_window_x11.c, ...), main.c, the x64/arm64 asm backends, ROMs and datasheets
+are not. The RP2350 platform layer lives in src/machines/beeb (with src/common and
+src/boards/presto).
+
+Local changes, for the RP2350 port (2026), mostly behind BEEBJIT_* defines so
+that the default (upstream) build is unchanged:
+
+- asm/thumb2/ (new): a Thumb-2 (Cortex-M33) JIT and inturbo backend;
+  asm_*.c and asm_platform.h select it with BEEBJIT_ASM_THUMB2.
+  jit_metadata.c marks the 6502 pages that have JIT code, so stores elsewhere
+  skip the invalidation lookup.
+- jit.c, jit_compiler.c: BEEBJIT_JIT_COMPACT (per-page fixups and a bounded
+  history cache, in the host's big memory via BEEBJIT_MALLOC_BIG); no x86 TLB
+  alignment padding for the thumb2 backend.
+- bbc.c: BEEBJIT_NO_MMU (flat memory, ROM writes dropped, sideways RAM written
+  by bbc_write_callback); bbc_request_reset() and a host reset hook;
+  bbc_replace_disc() (writeable and mutable on request: a writes-back drive
+  for the host's save disc); bbc_swap_roms().
+- disc.c, disc_ssd.c, disc_drive.c: BEEBJIT_DISC_COMPACT (tracks allocated,
+  and .ssd/.dsd tracks built, when the drive first reaches them; with
+  BEEBJIT_DISC_MAX_TRACKS, the least recently used unwritten track reused);
+  disc_drive_replace_discs().
+- video.c, render.c, teletext.c, timing.c, interp.c: BEEBJIT_RENDER_PACKED4
+  (4-bit packed pixels), row mode (render_set_row_buffer()),
+  BEEBJIT_VIDEO_FAST_RUNS (whole scanlines and character rows at a time),
+  BEEBJIT_RENDER_WIRE (render calls sent to another core),
+  BEEBJIT_INTERP_COUNTDOWN32.
+- debug.c: the per-address counters made only when stats are turned on, the
+  struct in the big memory.
+- keyboard.c/.h: keyboard_bbc_key_to_rowcol() public. serial_ula.c/.h:
+  serial_ula_is_motor_on().
+- util.c: BEEBJIT_MALLOC / BEEBJIT_REALLOC / BEEBJIT_FREE hooks.
+- sound.c: BEEBJIT_SOUND_WRITE_HOOK (each byte the SN76489 takes, with its
+  timer ticks, handed to the host's own sound: src/common/sound.c).
+- state.c, debug.c: int32_t where int was passed as int32_t* (an upstream
+  portability bug where int32_t is long).
+- Added from upstream, unmodified: test-*.c (included by their modules),
+  os_fault_platform_null.c (with carry/overflow for the thumb2 JIT) and
+  os_sound_null.c.

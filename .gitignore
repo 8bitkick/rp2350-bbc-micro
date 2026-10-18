@@ -9,4 +9,5 @@ deps/
 discs/*
 !discs/README.md
 roms/general/gxr.rom
+roms/mos3.20/
 __pycache__/

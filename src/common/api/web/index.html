@@ -1,0 +1,565 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BBC Micro RP2350</title>
+<style>
+:root {
+  --bg: #f4efe4; --panel: #fffdf8; --ink: #2a2622; --muted: #6f675d; --line: #ddd4c4;
+  --accent: #b8321f; --ok: #2f7d4a; --warn: #a86400;
+  /* the BBC's own key colours (from the xr.bbcmic.ro model's key texture) */
+  --bbc-key: #272727; --bbc-fkey: #e14621; --bbc-break: #202020; --bbc-cursor: #54564d; --bbc-legend: #f4f4f0;
+  --bbc-inlay: #050505; --bbc-case: #d4bda0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1b1a18; --panel: #24221f; --ink: #ece6da; --muted: #a39a8c; --line: #3a3732;
+    --accent: #e0563f; --ok: #5cb87a; --warn: #e0a040;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 980px; margin: 0 auto; padding: 16px; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
+.machine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.machine .buttons { display: flex; gap: 8px; margin-left: auto; }
+.machine .buttons button { padding: 4px 12px; font-size: 14px; }
+section.machine { display: flex; align-items: center; gap: 8px 16px; padding: 8px 14px; }
+section.machine > .machine { flex: 1; }
+h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
+h1 span { color: var(--accent); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink); font-weight: 600; }
+.stats .conn { white-space: nowrap; color: var(--ink); }
+.stats .group > span { white-space: nowrap; }
+.machine .stats { gap: 4px 14px; }
+.stats .group { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+input[type=text], input[type=url] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input[type=range] { accent-color: var(--accent); width: 140px; }
+label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
+.discs { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+#sdsel { font: inherit; flex: 1 1 200px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+#drop { flex: 2 1 260px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
+#drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
+#msg { margin-top: 6px; font-size: 14px; }
+#msg:empty { display: none; }
+#msg.err { color: var(--accent); } #msg.ok { color: var(--ok); }
+progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent); }
+.empty { color: var(--muted); font-size: 14px; padding: 6px 8px; }
+/* the keyboard */
+#kbwrap { overflow-x: auto; }
+/* a grid of quarter keys, 21.25 keys wide: a Master 128's keyboard as on its case (from photographs):
+   the main keys with the cursor diamond, and the numeric keypad to their right. (A Model B's is
+   16.75 keys wide: the page sets its width and its LEDs' place, below.) */
+#kbcase { background: var(--bbc-case); border-radius: 12px; padding: 12px; min-width: 842px; }
+#kb { background: var(--bbc-inlay); border-radius: 6px; padding: 10px; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+      display: grid; grid-template-columns: repeat(85, 1fr); grid-auto-rows: 40px; gap: 4px 0; }
+#kb .frow { margin-bottom: 8px; }
+/* the keycaps' engraving face: Open Gorton (MIT, Dakota Felder), after Signature Plastics' Gorton
+   Modified; tools/embed_web.py inlines the files. It has ASCII capitals only: the arrows, pound sign
+   and the function keys' italic f come from the fallback font, and the slashed zero is a 0 with the
+   slash drawn over it (.z). */
+@font-face { font-family: "Open Gorton"; font-weight: 400; src: url(fonts/OpenGorton-Regular.otf) format("opentype"); }
+@font-face { font-family: "Open Gorton"; font-weight: 700; src: url(fonts/OpenGorton-Bold.otf) format("opentype"); }
+/* a key: flat, the legend centred */
+.k { height: 100%; margin: 0 2px; border-radius: 5px; background: var(--bbc-key); color: var(--bbc-legend); border: 0; padding: 0 2px; font: 400 14px/1.05 "Open Gorton", "Helvetica Neue", Arial, sans-serif; display: flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; white-space: pre-line; }
+.k.f { background: var(--bbc-fkey); font-style: italic; }
+.k.b { background: var(--bbc-break); font-size: 8px; font-weight: 700; letter-spacing: .04em; }
+.k.c { font-size: 8px; font-weight: 700; letter-spacing: .04em; }
+.k.z::after { content: ""; position: absolute; width: 1.5px; height: 13px; background: var(--bbc-legend); transform: rotate(32deg); }
+.k { position: relative; }
+.k.a { background: var(--bbc-cursor); }
+/* the Master: POWER ON, CAPS LOCK and SHIFT LOCK, three LEDs at the left of the function keys;
+   the Model B: a row of three left of the space bar (.beeb) */
+#leds { grid-row: 1; grid-column: 1 / span 8; display: flex; justify-content: space-around; align-items: center; }
+#leds.beeb { grid-row: 6; grid-column: 2 / span 12; }
+#leds.beeb div { flex-direction: column; font-size: 8px; }
+#leds div { display: flex; flex-direction: column-reverse; align-items: center; gap: 4px; font-size: 7px; line-height: 1; color: var(--bbc-legend); letter-spacing: .05em; text-align: center; white-space: pre-line; }
+.led { width: 8px; height: 8px; border-radius: 50%; background: #4a1810; box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
+.led.on { background: #ff3b22; box-shadow: 0 0 6px 1px rgba(255,70,40,.8); }
+.k.down { filter: brightness(1.6); }
+.k.latched { outline: 2px solid var(--accent); outline-offset: 1px; }
+#capture.active { border-color: var(--accent); }
+/* a program run alongside the machine (GET /api/program): its own panel, as it describes it */
+#program .fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; font-size: 14px; font-variant-numeric: tabular-nums; }
+#program .fields div span { color: var(--muted); display: block; font-size: 12px; }
+#program .pbar { margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+#program progress { margin-top: 4px; }
+#program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
+#program .row { margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1><span id="mname">BBC Micro</span> <span>RP2350</span></h1>
+</header>
+
+<section class="machine">
+  <div class="machine">
+    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
+    <div class="buttons">
+      <button id="turbo" title="Run as fast as it can">Turbo</button>
+      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
+    </div>
+  </div>
+</section>
+
+<section id="lights" hidden>
+  <h2>Lights</h2>
+  <div class="row">
+    <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
+    <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
+    <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
+  </div>
+</section>
+
+<section id="program" hidden>
+  <h2 id="ptitle">Program</h2>
+  <div class="fields" id="pfields"></div>
+  <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
+  <div class="row" id="pactions"></div>
+  <div class="log" id="plog"></div>
+</section>
+<section>
+  <h2>Disc</h2>
+  <div class="discs">
+    <select id="sdsel" title="Boot a disc image from the SD card"><option value="">SD card…</option></select>
+    <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
+    <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
+    <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
+    <button id="restore" hidden title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
+  </div>
+  <progress id="prog" value="0" max="1" hidden></progress>
+  <div id="msg"></div>
+</section>
+
+<section>
+  <h2>Keyboard</h2>
+  <div id="kbwrap"><div id="kbcase"><div id="kb"></div></div></div>
+  <div class="row" id="capture-row" style="margin-top:10px">
+    <button id="capture" title="Send your own keyboard's keys to the BBC (by position, as on a BBC keyboard)">Use my keyboard</button>
+    <input type="text" id="typeit" placeholder="type text to send, e.g. CHAIN&quot;ELITE&quot;">
+    <button id="send">Send ⏎</button>
+  </div>
+</section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+// --- keys, by their place in the BBC's keyboard matrix: row << 4 | column (hex)
+// [label, code, width in keys, class]: f function (red), b BREAK, c control (smaller legend), a cursor
+// keys and COPY (grey); a null code is a gap.
+// The Master 128's: positions as on its case (measured from photographs, rounded to quarter keys): the
+// function row with BREAK and the cursor diamond's up arrow; left and right end the number row,
+// down ends the QWERTY row, DELETE and COPY sit under left and right. The numeric keypad, 0.75 keys
+// right of the main keys, runs level with the function row down: its keys are matrix columns 10-12
+// (the Master's INKEY table: keypad 0 is &6A, RETURN &3C).
+const SHIFT = 0x00, CTRL = 0x01, BREAK = 'b';
+const F = 'f', C = 'c', B = 'b', A = 'a';
+const ROWS_MASTER = [
+  [['',null,2],['ƒ0',0x20,1,F],['ƒ1',0x71,1,F],['ƒ2',0x72,1,F],['ƒ3',0x73,1,F],['ƒ4',0x14,1,F],['ƒ5',0x74,1,F],['ƒ6',0x75,1,F],['ƒ7',0x16,1,F],['ƒ8',0x76,1,F],['ƒ9',0x77,1,F],
+   ['',null,1],['BREAK',BREAK,1,B],['',null,1],['↑',0x39,1,A],['',null,1.25],['+',0x3a],['-',0x3b],['/',0x4a],['*',0x5b]],
+  [['',null,.5],['ESCAPE',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27,1,'z'],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A],
+   ['',null,.75],['7',0x1b],['8',0x2a],['9',0x2b],['#',0x5a]],
+  [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['',null,.25],['↓',0x29,1,A],
+   ['',null,1.25],['4',0x7a],['5',0x7b],['6',0x1a],['DELETE',0x4b,1,C]],
+  [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,2.5,C],
+   ['',null,.75],['1',0x6b],['2',0x7c],['3',0x6c],[',',0x5c]],
+  [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.75,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.75,C],['DELETE',0x59,1,C],['COPY',0x69,1,A + ' ' + C],
+   ['',null,.75],['0',0x6a,1,'z'],['.',0x4c],['RETURN',0x3c,2,C]],
+  [['',null,3.5],['',0x62,8.25]],
+];
+// The Model B's: positions as on a Model B, measured from the xr.bbcmic.ro model and rounded to quarter keys: the
+// red keys start 1.2 keys right of 1, with BREAK straight after f9; rows step in by 0.55, 0.73, 1.22.
+const ROWS_BEEB = [
+  [['',null,2.5],['f0',0x20,1,F],['f1',0x71,1,F],['f2',0x72,1,F],['f3',0x73,1,F],['f4',0x14,1,F],['f5',0x74,1,F],['f6',0x75,1,F],['f7',0x16,1,F],['f8',0x76,1,F],['f9',0x77,1,F],['BREAK',BREAK,1,B]],
+  [['',null,.25],['ESC',0x70,1,C],['!\n1',0x30],['"\n2',0x31],['#\n3',0x11],['$\n4',0x12],['%\n5',0x13],['&\n6',0x34],["'\n7",0x24],['(\n8',0x15],[')\n9',0x26],['0',0x27],['=\n-',0x17],['~\n^',0x18],['|\n\\',0x78],['←',0x19,1,A],['→',0x79,1,A]],
+  [['',null,.25],['TAB',0x60,1.5,C],['Q',0x10],['W',0x21],['E',0x22],['R',0x33],['T',0x23],['Y',0x44],['U',0x35],['I',0x25],['O',0x36],['P',0x37],['@',0x47],['{\n[',0x38],['£\n_',0x28],['↑',0x39,1,A],['↓',0x29,1,A]],
+  [['CAPS\nLOCK',0x40,1,C],['CTRL',CTRL,1,C],['A',0x41],['S',0x51],['D',0x32],['F',0x43],['G',0x53],['H',0x54],['J',0x45],['K',0x46],['L',0x56],['+\n;',0x57],['*\n:',0x48],['}\n]',0x58],['RETURN',0x49,1.75,C]],
+  [['SHIFT\nLOCK',0x50,1,C],['SHIFT',SHIFT,1.5,C],['Z',0x61],['X',0x42],['C',0x52],['V',0x63],['B',0x64],['N',0x55],['M',0x65],['<\n,',0x66],['>\n.',0x67],['?\n/',0x68],['SHIFT',SHIFT,1.5,C],['DELETE',0x59,1,C],['COPY',0x69,1,A]],
+  [['',null,3.5],['',0x62,8]],
+];
+const hex = c => c.toString(16);
+const down = c => c === BREAK ? 'b' : 'd' + hex(c), up = c => c === BREAK ? '' : 'u' + hex(c);
+
+// key events go out in order, batched while a request is in flight
+let pending = [], sending = false;
+function keys(ev) {
+  pending.push(...ev.filter(Boolean));
+  pump();
+}
+async function pump() {
+  if (sending || !pending.length) return;
+  sending = true;
+  const batch = pending.splice(0);
+  try { await fetch('/api/keys', {method: 'POST', body: batch.join(' ')}); } catch (e) {}
+  sending = false;
+  pollSoon();
+  pump();
+}
+
+let latched = new Set();
+function tap(code) {
+  const mods = [...latched];
+  keys([...mods.map(down), down(code), up(code), ...mods.map(up)]);
+  latched.clear();
+  document.querySelectorAll('.k.latched').forEach(k => k.classList.remove('latched'));
+}
+
+const kb = $('kb');
+// status bits: 1 CAPS LOCK, 2 SHIFT LOCK, 4 cassette motor (8: POWER ON, the page's own)
+const ledEls = {};
+// the machine's keyboard, once /api/status says which it is
+function buildKeyboard(machine) {
+const beeb = machine !== 'master';
+const ROWS = beeb ? ROWS_BEEB : ROWS_MASTER;
+kb.innerHTML = '';
+for (const b in ledEls) delete ledEls[b];
+kb.style.gridTemplateColumns = `repeat(${beeb ? 67 : 85}, 1fr)`;
+$('kbcase').style.minWidth = beeb ? '664px' : '842px';
+const ledRow = document.createElement('div');
+ledRow.id = 'leds';
+if (beeb) ledRow.className = 'beeb';
+for (const [bit, name] of beeb ? [[4, 'CASSETTE\nMOTOR'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']] : [[8, 'POWER\nON'], [1, 'CAPS\nLOCK'], [2, 'SHIFT\nLOCK']]) {
+  const d = document.createElement('div');
+  const led = document.createElement('span');
+  led.className = 'led';
+  d.append(name, led);     // the label by the LED, as on the case
+  ledRow.appendChild(d);
+  ledEls[bit] = led;
+}
+kb.appendChild(ledRow);
+ROWS.forEach((row, y) => {
+  let x = 0;    // in quarter keys
+  for (const [label, code, w = 1, cls] of row) {
+    const span = Math.round(w * 4);
+    if (code == null) { x += span; continue; }
+    const k = document.createElement('button');
+    k.className = 'k' + (cls ? ' ' + cls : '') + (y === 0 ? ' frow' : '');
+    k.textContent = label;
+    k.tabIndex = -1;
+    k.style.gridRow = y + 1;
+    k.style.gridColumn = `${x + 1} / span ${span}`;
+    x += span;
+    {
+      k.dataset.code = String(code);
+      k.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        k.classList.add('down');
+        if (code === SHIFT || code === CTRL) {
+          const on = !latched.has(code);
+          on ? latched.add(code) : latched.delete(code);
+          document.querySelectorAll(`.k[data-code="${code}"]`).forEach(x => x.classList.toggle('latched', on));
+        } else {
+          tap(code);
+        }
+      });
+      const up = () => k.classList.remove('down');
+      k.addEventListener('pointerup', up);
+      k.addEventListener('pointerleave', up);
+    }
+    kb.appendChild(k);
+  }
+});
+}
+
+// your own keyboard, by position
+const PC = {Escape: 0x70, Digit1: 0x30, Digit2: 0x31, Digit3: 0x11, Digit4: 0x12, Digit5: 0x13, Digit6: 0x34,
+  Digit7: 0x24, Digit8: 0x15, Digit9: 0x26, Digit0: 0x27, Minus: 0x17, Equal: 0x18, IntlHash: 0x78, Backslash: 0x58,
+  Tab: 0x60, KeyQ: 0x10, KeyW: 0x21, KeyE: 0x22, KeyR: 0x33, KeyT: 0x23, KeyY: 0x44, KeyU: 0x35, KeyI: 0x25,
+  KeyO: 0x36, KeyP: 0x37, BracketLeft: 0x47, BracketRight: 0x38, Backquote: 0x28, IntlBackslash: 0x28,
+  CapsLock: 0x40, ControlLeft: CTRL, ControlRight: CTRL, KeyA: 0x41, KeyS: 0x51, KeyD: 0x32, KeyF: 0x43, KeyG: 0x53,
+  KeyH: 0x54, KeyJ: 0x45, KeyK: 0x46, KeyL: 0x56, Semicolon: 0x57, Quote: 0x48, Enter: 0x49, ShiftLeft: SHIFT,
+  ShiftRight: SHIFT, KeyZ: 0x61, KeyX: 0x42, KeyC: 0x52, KeyV: 0x63, KeyB: 0x64, KeyN: 0x55, KeyM: 0x65,
+  Comma: 0x66, Period: 0x67, Slash: 0x68, Backspace: 0x59, Delete: 0x59, End: 0x69, Space: 0x62,
+  ArrowLeft: 0x19, ArrowRight: 0x79, ArrowUp: 0x39, ArrowDown: 0x29,
+  F1: 0x20, F2: 0x71, F3: 0x72, F4: 0x73, F5: 0x14, F6: 0x74, F7: 0x75, F8: 0x16, F9: 0x76, F10: 0x77, F12: BREAK,
+  // the numeric keypad onto the Master's (the Model B has none)
+  Numpad0: 0x6a, Numpad1: 0x6b, Numpad2: 0x7c, Numpad3: 0x6c, Numpad4: 0x7a, Numpad5: 0x7b, Numpad6: 0x1a,
+  Numpad7: 0x1b, Numpad8: 0x2a, Numpad9: 0x2b, NumpadAdd: 0x3a, NumpadSubtract: 0x3b, NumpadDivide: 0x4a,
+  NumpadMultiply: 0x5b, NumpadDecimal: 0x4c, NumpadComma: 0x5c, NumpadEnter: 0x3c, NumLock: 0x5a};
+let capturing = false;
+const held = new Set();
+function flash(code, on) {
+  document.querySelectorAll(`.k[data-code="${String(code)}"]`).forEach(k => k.classList.toggle('down', on));
+}
+$('capture').onclick = () => {
+  capturing = !capturing;
+  $('capture').classList.toggle('on', capturing);
+  $('capture').textContent = capturing ? 'Using my keyboard (Esc twice to stop)' : 'Use my keyboard';
+  if (!capturing) releaseAll();
+};
+function releaseAll() {
+  keys([...held].map(up));
+  held.forEach(c => flash(c, false));
+  held.clear();
+}
+let lastEsc = 0;
+addEventListener('keydown', e => {
+  if (!capturing || e.target.tagName === 'INPUT') return;
+  const code = PC[e.code];
+  if (code == null) return;
+  e.preventDefault();
+  if (e.code === 'Escape') {
+    if (e.timeStamp - lastEsc < 400) { $('capture').click(); return; }
+    lastEsc = e.timeStamp;
+  }
+  if (e.repeat || held.has(code)) return;
+  if (code === BREAK) { keys(['b']); return; }
+  held.add(code);
+  flash(code, true);
+  keys([down(code)]);
+});
+addEventListener('keyup', e => {
+  const code = PC[e.code];
+  if (code == null || !held.has(code)) return;
+  e.preventDefault();
+  held.delete(code);
+  flash(code, false);
+  keys([up(code)]);
+});
+addEventListener('blur', () => { if (held.size) releaseAll(); });
+
+// typing text: the BBC's own layout, CAPS LOCK assumed on (as it starts)
+const LETTERS = {A: 0x41, B: 0x64, C: 0x52, D: 0x32, E: 0x22, F: 0x43, G: 0x53, H: 0x54, I: 0x25, J: 0x45, K: 0x46,
+  L: 0x56, M: 0x65, N: 0x55, O: 0x36, P: 0x37, Q: 0x10, R: 0x33, S: 0x51, T: 0x23, U: 0x35, V: 0x63, W: 0x21,
+  X: 0x42, Y: 0x44, Z: 0x61};
+const PLAIN = {...LETTERS, '1': 0x30, '2': 0x31, '3': 0x11, '4': 0x12, '5': 0x13, '6': 0x34, '7': 0x24, '8': 0x15,
+  '9': 0x26, '0': 0x27, '-': 0x17, '^': 0x18, '\\': 0x78, '@': 0x47, '[': 0x38, '_': 0x28, ';': 0x57, ':': 0x48,
+  ']': 0x58, ',': 0x66, '.': 0x67, '/': 0x68, ' ': 0x62, '\n': 0x49};
+const SHIFTED = {'!': 0x30, '"': 0x31, '#': 0x11, '$': 0x12, '%': 0x13, '&': 0x34, "'": 0x24, '(': 0x15, ')': 0x26,
+  '=': 0x17, '~': 0x18, '|': 0x78, '{': 0x38, '£': 0x28, '+': 0x57, '*': 0x48, '}': 0x58, '<': 0x66, '>': 0x67, '?': 0x68};
+function typeText(s) {
+  const ev = [];
+  for (const ch of s) {
+    const u = ch.toUpperCase();
+    if (u in PLAIN) ev.push(down(PLAIN[u]), up(PLAIN[u]));
+    else if (ch in SHIFTED) ev.push(down(SHIFT), down(SHIFTED[ch]), up(SHIFTED[ch]), up(SHIFT));
+  }
+  keys(ev);
+}
+$('send').onclick = () => { typeText($('typeit').value + '\n'); $('typeit').value = ''; };
+$('typeit').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('send').click(); } });
+
+// --- machine controls and status
+let status = {};
+async function api(path, body, method = 'POST') {
+  const r = await fetch(path, method === 'GET' ? {} : {method, body: body ?? ''});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const BOARDS = {presto: 'Pimoroni Presto'};
+let builtFor;
+function show(s) {
+  status = s;
+  if (s.machine && s.machine !== builtFor) {
+    builtFor = s.machine;
+    buildKeyboard(s.machine);
+    const name = s.machine === 'master' ? 'BBC Master' : 'BBC Micro';
+    $('mname').textContent = name;
+    document.title = name + ' RP2350';
+  }
+  $('turbo').classList.toggle('on', s.turbo);
+  // the panel's figures: only in builds that have them
+  $('overlay').hidden = s.overlay == null;
+  $('overlay').classList.toggle('on', !!s.overlay);
+  // the built-in disc's saved games: only on a machine that keeps a save disc
+  $('restore').hidden = !(s.saves >= 0);
+  const lit = s.leds | 8;   // POWER ON: lit while the board answers
+  for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
+  // the LEDs on the back: only in builds that have them
+  const a = s.ambient;
+  $('lights').hidden = !a;
+  if (a) {
+    $('ambient').classList.toggle('on', a.on);
+    $('locks').classList.toggle('on', a.locks);
+    if (document.activeElement !== $('bright')) $('bright').value = a.bright;
+  }
+  const board = BOARDS[s.board] || s.board || 'the board';
+  $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
+    `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
+    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span><span>free RAM <b>${Math.round(s.free / 1024)} KB</b></span></span>`;
+  if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
+  const f = s.fetch || {state: 'idle'};
+  if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
+  else if (watchingFetch && f.state === 'error') { watchingFetch = false; msg(f.error, 'err'); progress(); }
+  else if (watchingFetch && f.state === 'idle') { watchingFetch = false; msg(''); progress(); }
+}
+function esc(s) { return s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]); }
+let pollFails = 0, pollTimer;
+// soon after a key, so the LEDs follow CAPS LOCK and SHIFT LOCK
+function pollSoon() { clearTimeout(pollTimer); pollTimer = setTimeout(poll, 250); }
+async function poll() {
+  clearTimeout(pollTimer);
+  try { show(await api('/api/status', null, 'GET')); pollFails = 0; }
+  // one failed poll can be a dropped WiFi packet: only say so after two in a row
+  catch (e) { if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>'; }
+  pollTimer = setTimeout(poll, watchingFetch ? 400 : 1500);
+}
+$('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
+$('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
+$('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
+$('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
+// the brightness as the slider moves, at most every 150 ms
+let brightTimer;
+$('bright').oninput = () => {
+  clearTimeout(brightTimer);
+  brightTimer = setTimeout(async () => show(await api('/api/ambient', 'bright=' + $('bright').value)), 150);
+};
+$('boot').onclick = () => api('/api/boot');
+$('restore').onclick = () => { if (confirm('Forget everything saved to the built-in disc and boot it as it came?')) api('/api/disc/restore'); };
+
+// --- discs
+function msg(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
+function progress(got, total, text) {
+  const p = $('prog');
+  if (got == null) { p.hidden = true; return; }
+  p.hidden = false;
+  if (total) { p.max = total; p.value = got; } else p.removeAttribute('value');
+  if (text) msg(text);
+}
+let watchingFetch = false;
+
+// a .zip: the first .ssd/.dsd inside it (stored or deflated)
+async function unzip(buf) {
+  const v = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1;
+  for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 65557); i--) if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('not a zip file');
+  let p = v.getUint32(eocd + 16, true);
+  const n = v.getUint16(eocd + 10, true);
+  for (let i = 0; i < n; i++) {
+    const method = v.getUint16(p + 10, true), csize = v.getUint32(p + 20, true);
+    const nlen = v.getUint16(p + 28, true), xlen = v.getUint16(p + 30, true), clen = v.getUint16(p + 32, true);
+    const off = v.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (!/\.(ssd|dsd)$/i.test(name)) continue;
+    const start = off + 30 + v.getUint16(off + 26, true) + v.getUint16(off + 28, true);
+    const data = u8.subarray(start, start + csize);
+    if (method === 0) return {name: name.split('/').pop(), data};
+    if (method !== 8) throw new Error('unsupported zip compression');
+    const out = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+    return {name: name.split('/').pop(), data: new Uint8Array(out)};
+  }
+  throw new Error('no .ssd or .dsd in that zip');
+}
+
+async function bootImage(name, buf, toCard = false) {
+  let data = new Uint8Array(buf);
+  if (/\.zip$/i.test(name) || (data[0] === 0x50 && data[1] === 0x4b)) ({name, data} = await unzip(buf));
+  if (!/\.(ssd|dsd)$/i.test(name)) name += '.ssd';
+  if (data.length > 409600) throw new Error('too big for a disc image');
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `/api/disc?name=${encodeURIComponent(name)}&save=${toCard ? 1 : 0}&boot=${toCard ? 0 : 1}`);
+    x.upload.onprogress = e => progress(e.loaded, e.total, `Sending ${name}… ${Math.round(e.loaded / 1024)} KB`);
+    x.onload = () => {
+      progress();
+      if (x.status === 200) resolve();
+      else reject(new Error((JSON.parse(x.responseText || '{}').error) || x.statusText));
+    };
+    x.onerror = () => { progress(); reject(new Error('upload failed')); };
+    x.send(data);
+  });
+}
+async function handleFile(f) {
+  try { msg(''); await bootImage(f.name, await f.arrayBuffer()); }
+  catch (e) { msg(e.message, 'err'); progress(); }
+}
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+$('file').onchange = () => $('file').files[0] && handleFile($('file').files[0]);
+addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+addEventListener('dragleave', e => { if (!e.relatedTarget) drop.classList.remove('over'); });
+addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+  else { const u = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain'); if (u) fetchUrl(u.trim().split('\n')[0]); }
+});
+
+// a dropped link
+async function fetchUrl(url) {
+  const name = decodeURIComponent(url.split(/[?#]/)[0].split('/').pop() || 'disc.ssd');
+  msg('Fetching…');
+  // the browser first (it can do https, if the site allows it); then the Presto itself, which
+  // speaks plain http (many disc sites, bbcmicro.co.uk among them, serve that too)
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('server said ' + r.status);
+    await bootImage(name, await r.arrayBuffer());
+    return;
+  } catch (e) {}
+  try {
+    await api('/api/fetch', url.replace(/^https:/i, 'http:'));
+    watchingFetch = true;
+    progress(0, 0, 'Downloading on the RP2350…');
+  } catch (e) { msg(`Couldn't fetch that (${e.message}). Download it and drop the file in.`, 'err'); }
+}
+
+async function listDiscs() {
+  const sel = $('sdsel');
+  const head = text => { sel.innerHTML = ''; sel.add(new Option(text, '')); };
+  try {
+    const j = await api('/api/discs', null, 'GET');
+    if (!j.card) { head('No SD card'); sel.disabled = true; return; }
+    sel.disabled = false;
+    head(j.discs.length ? 'SD card…' : 'No disc images on the SD card');
+    j.discs.sort((a, b) => a.name.localeCompare(b.name));
+    for (const d of j.discs) sel.add(new Option(`${d.name}  (${Math.round(d.size / 1024)} KB)`, d.name));
+    sel.value = j.discs.some(d => d.name === status.disc) ? status.disc : '';
+  } catch (e) { head('Couldn\'t read the SD card'); }
+}
+$('sdsel').onchange = async () => {
+  const name = $('sdsel').value;
+  if (!name) return;
+  try { msg(''); await api('/api/sd', name); } catch (e) { msg(e.message, 'err'); }
+};
+
+
+poll();
+listDiscs();
+
+// --- a program run alongside the machine, if one's built in: its panel, every 2 s
+let progTimer;
+async function pollProgram() {
+  clearTimeout(progTimer);
+  let pj = null;
+  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 15000); return; } } catch (e) {}
+  if (pj) {
+    $('program').hidden = false;
+    $('ptitle').textContent = pj.title || 'Program';
+    $('pfields').innerHTML = (pj.fields || []).map(([k, v]) => `<div><span>${esc(String(k))}</span>${esc(String(v))}</div>`).join('');
+    const pr = pj.progress;
+    $('pbar').hidden = !pr;
+    if (pr) { $('plabel').textContent = pr.label || ''; $('pprog').max = pr.max || 1; $('pprog').value = Math.min(pr.value || 0, pr.max || 1); }
+    $('pactions').innerHTML = '';
+    for (const a of pj.actions || []) {
+      const b = document.createElement('button');
+      b.textContent = a.label; if (a.on) b.classList.add('on');
+      b.onclick = async () => { try { const r = await api('/api/command', a.cmd); if (r.reply) $('plog').textContent = r.reply + '\n' + $('plog').textContent; } catch (e) {} pollProgram(); };
+      $('pactions').appendChild(b);
+    }
+    $('plog').textContent = (pj.log || []).join('\n');
+  }
+  progTimer = setTimeout(pollProgram, 2000);
+}
+pollProgram();
+</script>
+</body>
+</html>

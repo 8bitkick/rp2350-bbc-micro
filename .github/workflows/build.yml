@@ -1,0 +1,119 @@
+# Every machine on every board, with and without the sound and the LEDs, and the Model B's
+# off-board harness tests. (Speed is checked on the board itself: docs/cores.md.)
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  firmware:
+    name: ${{ matrix.machine }} / ${{ matrix.board }} / ${{ matrix.features }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [beeb, master]
+        board: [presto]
+        features: [plain, sound+ambient]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Toolchain and Pico SDK (cached)
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
+      - name: Fetch the toolchain, the SDK and Elite
+        run: scripts/setup.sh --no-build
+      - name: The Master's ROMs and disc
+        if: matrix.machine == 'master'
+        run: |
+          mkdir -p roms/mos3.20 discs
+          for r in mos dfs viewsht edit basic4 adfs view terminal; do
+            curl -fsSL -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
+          done
+          curl -fsSL -o discs/elite-master-flicker-free-sng47.ssd \
+            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
+      - name: Build
+        run: |
+          . deps/env.sh
+          F=""
+          [ "${{ matrix.features }}" = "sound+ambient" ] && F="-DSOUND=ON -DAMBIENT=ON"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMACHINE=${{ matrix.machine }} -DBOARD=${{ matrix.board }} $F
+          ninja -C build
+          ls -la build/*.uf2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.machine }}-${{ matrix.board }}-${{ matrix.features == 'plain' && 'plain' || 'sound-ambient' }}
+          path: build/*.uf2
+
+  # The program hook, built with a small test program on each machine.
+  app:
+    name: app hook / ${{ matrix.machine }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [beeb, master]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
+      - run: scripts/setup.sh --no-build
+      - name: The Master's ROMs and disc
+        if: matrix.machine == 'master'
+        run: |
+          mkdir -p roms/mos3.20 discs
+          for r in mos dfs viewsht edit basic4 adfs view terminal; do
+            curl -fsSL -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
+          done
+          curl -fsSL -o discs/elite-master-flicker-free-sng47.ssd \
+            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
+      - name: Build with a program built in
+        run: |
+          . deps/env.sh
+          mkdir -p /tmp/app
+          cat > /tmp/app/app.c <<'APP'
+          #include <stdio.h>
+          #include "machine_hook.h"
+          static const struct machine_hook_io *s_io;
+          void machine_frame_hook(const struct machine_hook_io *io) { s_io = io; }
+          bool machine_command_hook(const char *cmd, char *reply, uint32_t size) {
+              if (!s_io || cmd[0] != '?') return false;
+              snprintf(reply, size, "APP v%lu model %lu", (unsigned long) s_io->version, (unsigned long) s_io->model);
+              return true;
+          }
+          APP
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMACHINE=${{ matrix.machine }} \
+            -DAPP_SOURCES=/tmp/app/app.c -DAPP_DEFINES=APP_TEST=1
+          ninja -C build
+
+  harness:
+    name: harness / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [native, qemu]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Elite (for the Elite scenarios)
+        run: scripts/fetch-elite.sh
+      - name: QEMU and the Arm toolchain
+        if: matrix.target == 'qemu'
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-system-arm ninja-build
+          scripts/setup.sh --no-build
+      - name: Build and test (interpreter, then the JIT)
+        timeout-minutes: 60
+        run: |
+          [ -f deps/env.sh ] && . deps/env.sh
+          src/machines/beeb/harness/build.sh ${{ matrix.target }}
+          src/machines/beeb/harness/tests.sh ${{ matrix.target }}
+          JIT=1 src/machines/beeb/harness/tests.sh ${{ matrix.target }}

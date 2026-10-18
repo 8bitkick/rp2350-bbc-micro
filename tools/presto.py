@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
-"""Talk to the Presto build over its USB serial debug channel (the first Raspberry Pi Pico-class
-USB serial device, or PRESTO_PORT).
+"""Talk to the Presto firmware over its USB serial channel (the first Raspberry Pi Pico-class USB
+serial device, or PRESTO_PORT): the Model B (presto_beebjit) or the Master 128 (presto_master).
+None of this is needed to use the Presto; it's for measuring and testing.
 
-  presto.py stats | crtc | bootsel | view X W Y H DW DH | shot out.png [hold ms] | key <sdl_scancode> [ms] | raw '<cmd>'
-  presto.py discs | disc [<name>] | put <file.ssd> [name on card]
+The commands are the firmware's command layer (src/common/api/api.c), the same the web page uses
+as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) or
+"presto.py api <name> [args]" (its JSON reply, as over HTTP).
+
+  presto.py status                 the machine, board, speed, disc, LEDs, ... (as /api/status)
+  presto.py stats                  speed (100.0% = the real machine) and the two cores' load
+  presto.py turbo                  toggle turbo: run as fast as it can (every frame still drawn)
+  presto.py shot out.png [hold ms] screenshot of the panel (480x480, as shown); the hold (Model B
+                                   only) keeps the machine paused after, for a camera
+  presto.py key <sdl_scancode> [ms]   press a key (40 RETURN, 44 SPACE, 4-29 A-Z, 30-39 1-0)
+  presto.py bootsel                reboot into the USB bootloader, ready for a new .uf2
+  presto.py wifi <secrets.py>      save the WiFi network (Pimoroni's WIFI_SSID / WIFI_PASSWORD) and
+                                   restart; the web panel is then at http://beeb.local/
+  presto.py net                    the WiFi link and address
+  presto.py discs                  the .ssd/.dsd images on the SD card
+  presto.py disc [name]            boot a disc from the card (no name: the built-in disc)
+  presto.py put <file.ssd> [name]  write a disc image to the card
+  presto.py restore                the built-in disc as it came (what games saved to it forgotten)
+  presto.py boot | break | eject   SHIFT+BREAK, BREAK, back to the built-in disc
+  presto.py ambient [...]          (AMBIENT) the LEDs on the back; also "leds"
+  presto.py audio | beep ...       (SOUND) the sound's state, test sounds
+  presto.py program | command <c>  a program built in alongside the machine: its panel, a command
+  presto.py raw '<cmd>'            any other "!" command (one a built-in program takes, say)
+The Model B only:
+  presto.py crtc | peek <hex> [n] | mem | lock | clk | lcd
   presto.py state <bbc micro bot snapshot .json>
-  presto.py wifi <secrets.py>      save the WiFi network (Pimoroni's WIFI_SSID / WIFI_PASSWORD file) and restart
-  presto.py net                    the WiFi link and address (the control panel is at http://beeb.local/)
 """
 import base64, glob, json, os, struct, sys, time, zlib
 import serial
@@ -34,7 +56,7 @@ def readline_prefix(s, prefix):
         if not line or time.time() > until:
             # (a board stuck reporting a boot failure talks, but never answers)
             raise TimeoutError('no reply' if not line else 'no %s reply in: %r' % (prefix, line[:80]))
-        if line.startswith(prefix.encode()):
+        if line.startswith(prefix.encode()) or line.startswith(b'ERR '):
             return line.decode().strip()
 
 def write_png(path, w, h, rgb565):
@@ -55,6 +77,8 @@ def write_png(path, w, h, rgb565):
 
 def main():
     a = sys.argv[1:]
+    if not a:
+        sys.exit(__doc__)
     s = open_port()
     if a[0] == 'shot':
         # an optional hold (ms): the machine stays paused that long after, so a camera can
@@ -102,7 +126,7 @@ def main():
         print(readline_prefix(s, 'DISC'))
     elif a[0] == 'state':
         # pack a BBC Micro Bot snapshot for !state, deciding what to restore the way
-        # bbcmicrobot-greatest's runner does (see src/pico/presto/presto_state.c)
+        # bbcmicrobot-greatest's runner does (see presto_state_receive in src/machines/beeb/beeb_machine.c)
         st = json.load(open(a[1]))
         st = st.get('state', st)
         ram = base64.b64decode(st['RAM'])[:0x8000].ljust(0x8000, b'\0')
@@ -152,7 +176,10 @@ def main():
         s.write(bytes([0x1a, 0, sc])); time.sleep(ms / 1000); s.write(bytes([0x1a, 1, sc]))
     else:
         cmd = ' '.join(a) if a[0] != 'raw' else a[1]
-        prefix = {'stats': 'STATS', 'crtc': 'CRTC', 'view': 'VIEW', 'bootsel': 'BOOTSEL', 'touch': 'TOUCH'}.get(a[0], '')
+        prefix = {'stats': 'STATS', 'status': 'STATUS', 'api': 'API', 'turbo': 'TURBO', 'crtc': 'CRTC', 'view': 'VIEW',
+                  'bootsel': 'BOOTSEL', 'touch': 'TOUCH', 'program': 'PROGRAM', 'audio': 'AUDIO', 'leds': 'LEDS',
+                  'ambient': 'LEDS', 'temp': 'TEMP', 'net': 'NET', 'peek': 'PEEK', 'boot': 'BOOT', 'break': 'BREAK',
+                  'keys': 'KEYS'}.get(a[0], '')
         command(s, cmd)
         print(readline_prefix(s, prefix) if prefix else s.readline().decode().strip())
 
