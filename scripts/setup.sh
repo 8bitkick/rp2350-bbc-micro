@@ -1,17 +1,23 @@
 #!/bin/sh
-# From a fresh clone to presto_beebjit.uf2: fetches the pinned toolchain and Pico SDK into deps/,
-# downloads flicker-free Elite, and builds the Presto firmware.
+# From a fresh clone to presto_beebjit.uf2 (or, with --master, presto_master.uf2): fetches the
+# pinned toolchain and Pico SDK into deps/, downloads flicker-free Elite, and builds the Presto
+# firmware.
 #
-#   scripts/setup.sh [--apt] [--gxr] [--demos] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--gxr] [--demos] [--master [--disc=NAME]] [--no-build] [--flash]
 #
-#   --apt       install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
-#   --gxr       also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
-#   --demos     also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
-#   --no-build  fetch everything but don't build
-#   --flash     after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
+#   --apt        install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
+#   --gxr        also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
+#   --demos      also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
+#   --master     the BBC Master 128 instead (Kieran Connell's emulator): fetches the MOS 3.20 ROMs
+#                into roms/mos3.20 and the Master test discs, builds build-master/presto_master.uf2
+#   --disc=NAME  (--master) the disc to build in, from discs/ (default
+#                elite-master-flicker-free-sng47.ssd): pop-beeb.ssd, bs-scr-beeb.ssd, bs-twisted.ssd,
+#                EvilIn11.ssd, arcadians.ssd, or your own .ssd
+#   --no-build   fetch everything but don't build
+#   --flash      after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
 #
 # Re-running is safe: anything already fetched is kept. Afterwards, ". deps/env.sh" sets up a shell
-# for rebuilding with "ninja -C build presto_beebjit".
+# for rebuilding with "ninja -C build presto_beebjit" (the Master: "ninja -C build-master").
 set -e
 
 SDK_TAG=2.2.0
@@ -25,19 +31,21 @@ case "$(uname -s)" in MINGW*|MSYS*) PWD_OPT=-W ;; esac
 ROOT=$(cd "$ROOT" && pwd $PWD_OPT)
 # DEPS=<dir> scripts/setup.sh keeps the toolchain and SDK elsewhere (outside a synced folder, say);
 # deps/env.sh records it, so later runs use it too.
-[ -n "$DEPS" ] || DEPS=$(sed -n 's/^export PRESTO_DEPS=//p' "$ROOT/deps/env.sh" 2>/dev/null)
+[ -n "$DEPS" ] || DEPS=$(sed -n 's/^export PRESTO_DEPS=//p' "$ROOT/deps/env.sh" 2>/dev/null || true)
 DEPS=${DEPS:-$ROOT/deps}
 mkdir -p "$DEPS" "$ROOT/deps"
 DEPS=$(cd "$DEPS" && pwd $PWD_OPT)
-DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0
+DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MASTER=0; DISC=elite-master-flicker-free-sng47.ssd
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
     --gxr) DO_GXR=1 ;;
     --demos) DO_DEMOS=1 ;;
+    --master) MASTER=1 ;;
+    --disc=*) DISC=${a#--disc=} ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
@@ -138,14 +146,52 @@ if [ $DO_DEMOS = 1 ]; then
   done
 fi
 
+# ---- The Master 128: its MOS 3.20 ROMs and test discs
+if [ $MASTER = 1 ]; then
+  mkdir -p "$ROOT/roms/mos3.20" "$ROOT/discs"
+  for r in mos dfs viewsht edit basic4 adfs view terminal; do
+    [ -f "$ROOT/roms/mos3.20/$r.rom" ] && continue
+    say "Fetching $r.rom (MOS 3.20, from beebjit's ROM set)"
+    curl -fsSL -o "$ROOT/roms/mos3.20/$r.rom" \
+      "https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom"
+  done
+  for u in \
+    https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
+    https://bitshifters.github.io/content/pop-beeb.ssd \
+    https://bitshifters.github.io/content/bs-scr-beeb.ssd \
+    https://bitshifters.github.io/content/bs-twisted.ssd \
+    https://bitshifters.github.io/content/EvilIn11.ssd; do
+    d=$(basename "$u")
+    [ -f "$ROOT/discs/$d" ] && continue
+    say "Fetching $d"
+    curl -fsSL -o "$ROOT/discs/$d" "$u"
+  done
+  if [ ! -f "$ROOT/discs/arcadians.ssd" ]; then
+    say "Fetching arcadians.ssd"
+    curl -fsSL -A "Mozilla/5.0" -o "$ROOT/discs/arcadians.ssd" \
+      https://www.bbcmicro.co.uk/gameimg/discs/20/Disc002-Arcadians.ssd
+  fi
+  [ -f "$ROOT/discs/$DISC" ] || { echo "no discs/$DISC"; exit 1; }
+fi
+
 [ $DO_BUILD = 1 ] || { say "Fetched everything; build with: . deps/env.sh && cmake ... (see README)"; exit 0; }
 
 # ---- Build
-say "Building presto_beebjit"
-cmake -S "$ROOT" -B "$ROOT/build" $GEN \
-  -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release $SDK_TOOLS >/dev/null
-cmake --build "$ROOT/build" --target presto_beebjit
-UF2=$ROOT/build/src/pico/beebjit/presto_beebjit.uf2
+if [ $MASTER = 1 ]; then
+  say "Building presto_master with $DISC"
+  cmake -S "$ROOT" -B "$ROOT/build-master" $GEN -DPRESTO_MACHINE=master \
+    -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release -DBEEB_DISC="$ROOT/discs/$DISC" $SDK_TOOLS >/dev/null
+  cmake --build "$ROOT/build-master" --target presto_master
+  UF2=$ROOT/build-master/presto_master.uf2
+  BOOTS="$DISC on the BBC Master 128"
+else
+  say "Building presto_beebjit"
+  cmake -S "$ROOT" -B "$ROOT/build" $GEN \
+    -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release $SDK_TOOLS >/dev/null
+  cmake --build "$ROOT/build" --target presto_beebjit
+  UF2=$ROOT/build/src/pico/beebjit/presto_beebjit.uf2
+  BOOTS="Elite"
+fi
 say "Built $UF2"
 
 if [ $DO_FLASH = 1 ]; then
@@ -170,7 +216,7 @@ To flash: hold BOOT and tap RESET on the Presto, then copy
   $UF2
 to the RP2350 drive that appears (or re-run with --flash).
 
-It boots straight into Elite. To use the web control panel, give it your WiFi network once over USB:
+It boots straight into $BOOTS. To use the web control panel, give it your WiFi network once over USB:
   python3 tools/presto.py wifi secrets.py     (a Pimoroni-style secrets.py with WIFI_SSID / WIFI_PASSWORD)
 then open http://beeb.local/
 EOF

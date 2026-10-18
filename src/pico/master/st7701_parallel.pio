@@ -1,0 +1,53 @@
+; The panel is fed from a framebuffer of 4 bit pixels: each nibble is B, G, R (the top bits of
+; each channel) and E, end of row. The BBC only ever shows 8 colours, and they come in
+; complementary pairs (red/cyan, green/magenta, blue/yellow, black/white), so with red, green and
+; blue loaded into X, Y and ISR (in the panel's bit reversed pin order), every colour is a single
+; mov to the pins: X, ~X, Y, ~Y, ISR, ~ISR, NULL, ~NULL.
+;
+; A row is 480 nibbles then an E. "out pc, 4" jumps on each nibble: codes 0-7 land on a jmp to
+; that colour's handler, which drives the pins and fetches the next nibble (4 cycles a pixel, as
+; the timing SM expects); code 8 throws away the rest of the word and waits for the next row.
+; Must be loaded at offset 0 (out pc jumps to absolute addresses). 28 instructions.
+; Side-set is data enable.
+
+.program st7701_rgbe
+.side_set 1
+.origin 0
+
+    jmp black            side 1   ; 0
+    jmp blue             side 1   ; 1
+    jmp green            side 1   ; 2
+    jmp cyan             side 1   ; 3
+    jmp red              side 1   ; 4
+    jmp magenta          side 1   ; 5
+    jmp yellow           side 1   ; 6
+    jmp white            side 1   ; 7
+    mov pins, null       side 1   ; 8: E, end of row: black on the pins until the next row (the
+    out null, 32         side 1   ;    panel, in HV mode, takes whatever is there), and the rest of
+public row_start:                 ;    the E's word thrown away
+    wait 1 irq 4         side 1   ; the next row, from the timing SM
+    out pc, 4            side 1
+black:
+    mov pins, null       side 1 [1]
+    out pc, 4            side 1
+blue:
+    mov pins, isr        side 1 [1]
+    out pc, 4            side 1
+green:
+    mov pins, y          side 1 [1]
+    out pc, 4            side 1
+cyan:
+    mov pins, ~x         side 1 [1]
+    out pc, 4            side 1
+red:
+    mov pins, x          side 1 [1]
+    out pc, 4            side 1
+magenta:
+    mov pins, ~y         side 1 [1]
+    out pc, 4            side 1
+yellow:
+    mov pins, ~isr       side 1 [1]
+    out pc, 4            side 1
+white:
+    mov pins, ~null      side 1 [1]
+    out pc, 4            side 1
