@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Profile a core on the Presto: collect samples over USB and rank functions.
 
-  prof.py <core 0|1> [elf]      (elf defaults to build/src/pico/beebjit/presto_beebjit.elf)
+  prof.py <core 0|1> [elf]      (elf defaults to build/presto_beebjit.elf)
 
 PROF_SAVE=file also saves the raw samples (little-endian 32-bit PCs).
 
@@ -13,7 +13,7 @@ import serial
 
 core = int(sys.argv[1]) if len(sys.argv) > 1 else 1
 here = os.path.dirname(os.path.abspath(__file__))
-elf = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, '..', 'build', 'src', 'pico', 'beebjit', 'presto_beebjit.elf')
+elf = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, '..', 'build', 'presto_beebjit.elf')
 # arm-none-eabi-* from PICO_TOOLCHAIN_PATH if set, else from the PATH
 TOOLS = os.path.join(os.environ['PICO_TOOLCHAIN_PATH'], 'bin', '') if 'PICO_TOOLCHAIN_PATH' in os.environ else ''
 

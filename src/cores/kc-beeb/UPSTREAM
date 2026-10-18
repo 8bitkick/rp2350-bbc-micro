@@ -1,0 +1,26 @@
+Kieran Connell's BBC Master 128 emulator core ("kc-beeb"): a cycle-stepped 65C12 and Master 128
+written from scratch for small microcontrollers, checked frame by frame against beebjit.
+  https://github.com/kieranhj/esp32-beeb  (its main/ directory)
+  commit ca72230 ("PLAN: BOOT in the menu tried on the board")
+Licence: GNU GPL v3 (LICENSE at the top). teletext_glyphs.h: B-em's character set (Sarah Walker
+and others, GPL).
+
+Only the machine is copied (the files here, from main/); the ESP32 platform, host tools, ROMs and
+discs are not. Its RP2350 glue lives in src/machines/master.
+
+Local changes, each kept small:
+
+- cpu6502.c, cpu6502.h: the CPU's registers and flags kept as 32-bit fields (byte-sized fields
+  cost the M33 a bit-field insert at every write; about 10 points of core 0 at real speed).
+- machine.c: two counts of the VIAs' 1 MHz ticks no longer shift the absolute cycle count, which
+  went wrong when the 32-bit count wrapped (a hang after 35.8 minutes).
+- render.c, render.h: two pixel tables of each kind kept (Elite's MODE 4 top and MODE 5 dashboard
+  rebuilt a 4 KB table twice a frame).
+- machine.c, machine.h: machine_set_analogue(): the ADC's channels carry values (an analogue
+  joystick), kept outside struct machine so its layout stays as it was.
+- disc.c, disc.h, fdc.c: saved games: the tracks the 1770 writes are counted and marked dirty,
+  disc_read_sector() reads a sector back out of the pulses; disc_load_ssd() reports progress.
+
+Each was checked to give identical pictures on the test discs (docs/master/README.md).
+src/common/machine_hook.h (the interface for a program built in alongside the machine) is not
+part of this core.
