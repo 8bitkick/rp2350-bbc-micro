@@ -1,6 +1,6 @@
 /*
- * Inside presto_beebjit: between presto_beebjit.c (the board: the panel,
- * pacing, statistics) and presto_machine.c (what the Presto's front end asks
+ * Inside presto_beebjit: between beeb_main.c (the board: the panel,
+ * pacing, statistics) and beeb_machine.c (what the Presto's front end asks
  * of the machine: machine_if.h and presto_sd.h, the USB channel and BBC
  * Micro Bot snapshots).
  *
@@ -25,7 +25,7 @@ void presto_machine_frame(void);
  */
 void presto_machine_poll(void);
 
-/* presto_beebjit.c: the disc RAM (DRIVE_IMAGE_MAX bytes, where disc images
+/* beeb_main.c: the disc RAM (DRIVE_IMAGE_MAX bytes, where disc images
  * arrive, then a snapshot's room), near the top of the PSRAM; NULL without
  * the PSRAM.
  */

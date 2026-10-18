@@ -7,7 +7,7 @@
 extern "C" {
 #endif
 
-// boot guard (see presto_boot.c); does nothing unless PRESTO_BOOT_GUARD
+// boot guard (see boot_guard.c); does nothing unless PRESTO_BOOT_GUARD
 #if PRESTO_BOOT_GUARD
 void presto_boot_begin(void);       // first thing in main; reports instead if the last boot died
 void presto_boot_step(uint32_t step);

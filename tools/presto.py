@@ -126,7 +126,7 @@ def main():
         print(readline_prefix(s, 'DISC'))
     elif a[0] == 'state':
         # pack a BBC Micro Bot snapshot for !state, deciding what to restore the way
-        # bbcmicrobot-greatest's runner does (see presto_state_receive in src/machines/beeb/presto_machine.c)
+        # bbcmicrobot-greatest's runner does (see presto_state_receive in src/machines/beeb/beeb_machine.c)
         st = json.load(open(a[1]))
         st = st.get('state', st)
         ram = base64.b64decode(st['RAM'])[:0x8000].ljust(0x8000, b'\0')

@@ -26,11 +26,11 @@
 #include "presto_psram.h"
 #include "machine_if.h"
 #include "frontend.h"
-#include "presto_main.h"
+#include "master_main.h"
 #include "presto_sd.h"
 #include "drive.h"
 #if WITH_SOUND
-#include "presto_audio.h"
+#include "sound.h"
 #endif
 #if WITH_AMBIENT
 #include "presto_ambient.h"

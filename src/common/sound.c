@@ -32,7 +32,7 @@
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
-#include "presto_audio.h"
+#include "sound.h"
 
 #define PIEZO_PIN       43
 #define DAC_TOP         1023

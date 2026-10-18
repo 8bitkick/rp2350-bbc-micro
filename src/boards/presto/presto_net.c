@@ -40,7 +40,7 @@
 #include "presto_sd.h"
 #include "drive.h"
 #include "presto_psram.h"
-#include "presto_boot.h"
+#include "boot_guard.h"
 
 #define HOSTNAME "beeb"
 

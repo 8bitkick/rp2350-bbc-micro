@@ -14,8 +14,8 @@ add_executable(presto_beebjit
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_embedded.c
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_panel.c
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_wire.c
-        ${CMAKE_CURRENT_LIST_DIR}/presto_beebjit.c
-        ${CMAKE_CURRENT_LIST_DIR}/presto_machine.c
+        ${CMAKE_CURRENT_LIST_DIR}/beeb_main.c
+        ${CMAKE_CURRENT_LIST_DIR}/beeb_machine.c
         ${CMAKE_CURRENT_LIST_DIR}/romfs.c
         )
 common_setup(presto_beebjit)    # the command layer, the USB channel, the front end, the sound
@@ -28,7 +28,7 @@ set(BEEBJIT_EMBED
         roms/dfs09.rom=${BEEB_ROMS}/general/dfs09.rom
         )
 # The Graphics Extension ROM (BBC Micro Bot programs mostly assume it) isn't in the repository; if
-# roms/general/gxr.rom is there, it's built in, for snapshots that had it (presto_machine.c)
+# roms/general/gxr.rom is there, it's built in, for snapshots that had it (beeb_machine.c)
 if (EXISTS ${BEEB_ROMS}/general/gxr.rom)
     list(APPEND BEEBJIT_EMBED roms/gxr.rom=${BEEB_ROMS}/general/gxr.rom)
 endif()
@@ -66,7 +66,7 @@ option(PRESTO_BEEBJIT_WIRE "Draw on core 1" ON)
 if (PRESTO_BEEBJIT_WIRE)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_WIRE=1 BEEBJIT_RENDER_WIRE=1)
 endif()
-# -DSOUND=ON (common_setup): beebjit's sound.c hands each SN76489 byte to presto_audio.c; made on
+# -DSOUND=ON (common_setup): beebjit's sound.c hands each SN76489 byte to sound.c; made on
 # core 1. -DAMBIENT=ON (board_setup): the LEDs, on core 1 too.
 if ((SOUND OR AMBIENT) AND NOT PRESTO_BEEBJIT_WIRE)
     message(FATAL_ERROR "SOUND and AMBIENT need core 1 (PRESTO_BEEBJIT_WIRE)")
@@ -88,7 +88,7 @@ option(PRESTO_BEEBJIT_PANEL_PIO "Scale rows to the panel on PIO0" ON)
 if (PRESTO_BEEBJIT_PANEL_PIO)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_PANEL_PIO=1)
 endif()
-# -DPRESTO_BEEBJIT_PROF=ON: sample core 0 and print the samples (presto_beebjit.c)
+# -DPRESTO_BEEBJIT_PROF=ON: sample core 0 and print the samples (beeb_main.c)
 if (PRESTO_BEEBJIT_PROF)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_PROF=1)
     # -DPRESTO_BEEBJIT_PROF_CORE=1: core 1 (the drawing) instead
@@ -124,7 +124,7 @@ target_compile_definitions(presto_beebjit PRIVATE
         BEEBJIT_JIT_COMPACT=1
         BEEBJIT_DISC_COMPACT=1
         BEEBJIT_MALLOC_BIG=beebjit_embedded_malloc_big
-        PRESTO_BOOT_GUARD=1 PRESTO_BOOT_GUARD_KEEP=$<BOOL:${PRESTO_BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (presto_boot.c)
+        PRESTO_BOOT_GUARD=1 PRESTO_BOOT_GUARD_KEEP=$<BOOL:${PRESTO_BOOT_GUARD_KEEP}>     # a build that dies at boot reports why over USB (boot_guard.c)
         PICO_PANIC_FUNCTION=presto_boot_panic   # an SDK panic (out of memory, hard_assert) is reported the same way
         BEEBJIT_HEADLESS=1
         BEEBJIT_MALLOC=beebjit_embedded_malloc
