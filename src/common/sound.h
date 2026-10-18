@@ -18,7 +18,11 @@ void audio_init(void);
 void audio_sn_write(uint64_t ticks, uint8_t value);
 // each emulated frame, on core 0: the emulated time now (2 MHz ticks); mute in turbo
 void audio_frame(uint64_t ticks, bool mute);
-// "!audio [vol <percent>]": the state of play ("AUDIO ..."), or set the volume
+// "!audio": the state of play ("AUDIO ..."); or, while playing, set
+//   audio vol <percent>    the volume (100: four channels at full volume are full scale)
+//   audio rate 125|62|31   the sample rate, kHz (125)
+//   audio lp <hz>          the low-pass's corner, 0 off (8000)
+//   audio dac 10|8         the PWM: 10 bits at 244 kHz, or 8 bits at 977 kHz (10)
 void audio_command(const char *args);
 
 // "!beep ...": test sounds, holding the machine still meanwhile (the BBC's sound stops).

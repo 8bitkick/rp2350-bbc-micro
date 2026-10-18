@@ -21,8 +21,13 @@
 #define BOARD_DISPLAY_ROW_WORDS (BOARD_DISPLAY_WIDTH / 8 + 1)
 #define BOARD_DISPLAY_ROW_END 0x8u
 
-// ---- Audio out: the piezo, through a MOSFET on GPIO 43 (PWM slice 9; the backlight on 45 is 10)
-#define BOARD_AUDIO_PWM_PIN 43
+// ---- Audio out: the piezo, through a MOSFET on GPIO 43 (PWM slice 9; the backlight on 45 is 10).
+// -DSOUND_PIN=40 is the Qw/ST socket's SDA instead (slice 8), for an amplifier and a speaker
+// (docs/presto/speaker.md).
+#define BOARD_PIEZO_PIN 43
+#ifndef BOARD_AUDIO_PWM_PIN
+#define BOARD_AUDIO_PWM_PIN BOARD_PIEZO_PIN
+#endif
 
 // ---- The flash layout (16 MB), the board's one table of it (src/common/mem.h's regions).
 // The firmware from the bottom; at the top, down from the end: the WiFi network (a sector), a
