@@ -20,6 +20,9 @@
  *                               boot=0 only writes it to the card)
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
  *   POST /api/wifi              body: "<ssid>\n<password>": save, and restart to join it
+ *   POST /api/ambient           body: any of "on=0|1", "bright=<percent>", "locks=0|1", joined by
+ *                               "&" (builds with PRESTO_BEEBJIT_AMBIENT; /api/status then has
+ *                               "ambient": the LEDs on the back)
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,6 +46,9 @@
 #include "presto_sd.h"
 #include "presto_psram.h"
 #include "presto_boot.h"
+#if PRESTO_BEEBJIT_AMBIENT
+#include "presto_ambient.h"
+#endif
 
 #define HOSTNAME "beeb"
 
@@ -567,7 +573,7 @@ static const char *fetch_start(const char *url, bool save) {
 // The web server
 
 enum { C_HEAD, C_BODY, C_WAIT, C_SEND };
-enum { R_404, R_PAGE, R_STATUS, R_KEYS, R_TURBO, R_OVERLAY, R_BOOT, R_EJECT, R_DISCS, R_SD, R_DISC, R_FETCH, R_WIFI, R_TOOBIG };
+enum { R_404, R_PAGE, R_STATUS, R_KEYS, R_TURBO, R_OVERLAY, R_BOOT, R_EJECT, R_DISCS, R_SD, R_DISC, R_FETCH, R_WIFI, R_AMBIENT, R_TOOBIG };
 
 typedef struct conn {
     struct tcp_pcb *pcb;
@@ -731,11 +737,21 @@ static void status_json(char *j, size_t size) {
     else strcpy(disc, "null");
     json_str(err, sizeof(err), fetch.error);
     const char *fs = fetch.state == F_BUSY ? "downloading" : fetch.state == F_ERROR ? "error" : fetch.state == F_READY ? "loading" : "idle";
+    char ambient[80] = "";
+#if PRESTO_BEEBJIT_AMBIENT
+    if (presto_ambient_ready()) {
+        bool on, locks;
+        unsigned bright;
+        presto_ambient_get(&on, &bright, &locks);
+        snprintf(ambient, sizeof(ambient), ",\"ambient\":{\"on\":%s,\"bright\":%u,\"locks\":%s}",
+                 on ? "true" : "false", bright, locks ? "true" : "false");
+    }
+#endif
     snprintf(j, size, "{\"turbo\":%s,\"overlay\":%s,\"speed\":%u,\"core0\":%u,\"core1\":%u,\"disc\":%s,"
-                      "\"fetch\":{\"state\":\"%s\",\"got\":%u,\"length\":%u,\"error\":%s},\"free\":%u,\"wifi\":\"%s\",\"mhz\":%u,\"temp\":%d,\"leds\":%u}",
+                      "\"fetch\":{\"state\":\"%s\",\"got\":%u,\"length\":%u,\"error\":%s},\"free\":%u,\"wifi\":\"%s\",\"mhz\":%u,\"temp\":%d,\"leds\":%u%s}",
              presto_turbo_get() ? "true" : "false", presto_overlay_get() ? "true" : "false", speed, c0, c1, disc,
              fs, (uint) fetch.got, (uint) fetch.length, err, free_ram, link_name(),
-             (uint) (clock_get_hz(clk_sys) / 1000000), (presto_temp_centi() + 50) / 100, leds());
+             (uint) (clock_get_hz(clk_sys) / 1000000), (presto_temp_centi() + 50) / 100, leds(), ambient);
 }
 
 typedef struct {
@@ -758,7 +774,7 @@ static bool set_flag(const char *body, bool now) {
 
 // between frames: act on a request whose body has all arrived
 static void act(conn_t *c) {
-    char j[512];
+    char j[640];
     switch (c->route) {
         case R_STATUS:
             status_json(j, sizeof(j));
@@ -790,6 +806,25 @@ static void act(conn_t *c) {
             status_json(j, sizeof(j));
             respond_json(c, 200, j);
             break;
+#if PRESTO_BEEBJIT_AMBIENT
+        case R_AMBIENT: {
+            // "on=1&bright=40&locks=0", any of them
+            int on = -1, bright = -1, locks = -1;
+            for (char *p = c->body; *p; ) {
+                char *amp = strchr(p, '&');
+                if (amp) *amp = 0;
+                if (!strncmp(p, "on=", 3)) on = atoi(p + 3) ? 1 : 0;
+                else if (!strncmp(p, "bright=", 7)) bright = atoi(p + 7);
+                else if (!strncmp(p, "locks=", 6)) locks = atoi(p + 6) ? 1 : 0;
+                if (!amp) break;
+                p = amp + 1;
+            }
+            presto_ambient_set(on, bright, locks);
+            status_json(j, sizeof(j));
+            respond_json(c, 200, j);
+            break;
+        }
+#endif
         case R_OVERLAY:
             presto_overlay_set(set_flag(c->body, presto_overlay_get()));
             status_json(j, sizeof(j));
@@ -902,6 +937,7 @@ static void route(conn_t *c) {
         {"/api/keys", true, R_KEYS}, {"/api/turbo", true, R_TURBO}, {"/api/overlay", true, R_OVERLAY},
         {"/api/boot", true, R_BOOT}, {"/api/eject", true, R_EJECT}, {"/api/discs", false, R_DISCS}, {"/api/sd", true, R_SD},
         {"/api/disc", true, R_DISC}, {"/api/fetch", true, R_FETCH}, {"/api/wifi", true, R_WIFI},
+        {"/api/ambient", true, R_AMBIENT},
     };
     c->route = R_404;
     for (uint i = 0; i < count_of(routes); i++) {
