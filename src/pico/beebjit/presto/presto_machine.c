@@ -17,6 +17,10 @@
  */
 #include "presto_beebjit.h"
 #include "romfs.h"
+#if PRESTO_BEEBJIT_AUDIO
+#include "presto_audio.h"
+#include "sound.h"
+#endif
 #include "../os_embedded.h"
 
 #include "bbc.h"
@@ -515,6 +519,10 @@ presto_state_apply_pending(void) {
 static void
 reset_hook(void* p, uint32_t flags) {
   (void) p;
+#if PRESTO_BEEBJIT_AUDIO
+  sound_discard_pending(bbc_get_sound(s_bbc));
+  presto_audio_flush();
+#endif
   if (flags & k_cpu_flag_hard_reset) {
     roms_apply();
     if (s_boot_shift_frames != 0) {
@@ -579,6 +587,9 @@ run_command(char* p_cmd) {
      */
     unsigned hold_ms = 0;
     (void) sscanf(p_cmd + 4, "%u", &hold_ms);
+#if PRESTO_BEEBJIT_AUDIO
+    presto_audio_set_muted(true);
+#endif
     screenshot();
     if (hold_ms > 10000) {
       hold_ms = 10000;
@@ -588,6 +599,54 @@ run_command(char* p_cmd) {
       hold_ms -= ((hold_ms > 100) ? 100 : hold_ms);
       watchdog_update();
     }
+#if PRESTO_BEEBJIT_AUDIO
+    sound_discard_pending(bbc_get_sound(s_bbc));
+    presto_audio_set_muted(presto_turbo_get());
+#endif
+  } else if (!strncmp(p_cmd, "audio gain ", 11)) {
+#if PRESTO_BEEBJIT_AUDIO
+    char* end;
+    unsigned long multiplier = strtoul(p_cmd + 11, &end, 10);
+    if (end == p_cmd + 11 || *end != '\0' || multiplier > 32) {
+      printf("AUDIO gain must be an integer from 0 to 32\n");
+    } else {
+      sound_discard_pending(bbc_get_sound(s_bbc));
+      presto_audio_set_gain((uint32_t) multiplier * 256u);
+      printf("AUDIO gain=%lux\n", multiplier);
+    }
+#else
+    printf("AUDIO disabled; rebuild with scripts/setup.sh --audio\n");
+#endif
+  } else if (!strcmp(p_cmd, "audio test")) {
+#if PRESTO_BEEBJIT_AUDIO
+    bool ok = presto_audio_test();
+    sound_discard_pending(bbc_get_sound(s_bbc));
+    printf("AUDIO test=%s (1 kHz then 2 kHz; two 300 ms tones)\n",
+           ok ? "sent" : "failed");
+#else
+    printf("AUDIO disabled; rebuild with scripts/setup.sh --audio\n");
+#endif
+  } else if (!strcmp(p_cmd, "audio")) {
+#if PRESTO_BEEBJIT_AUDIO
+    struct presto_audio_stats stats;
+    presto_audio_get_stats(&stats);
+    printf("AUDIO v=3 init=%u muted=%u playing=%u ticks=%lu submitted=%lu "
+           "pcm_min=%d pcm_max=%d queued=%lu underruns=%lu dropped=%lu adjust_ppm=%ld "
+           "gain_q8=%lu clipped=%lu pwm_min=%u pwm_max=%u\n",
+           (unsigned) stats.initialized, (unsigned) stats.muted,
+           (unsigned) stats.playing, (unsigned long) stats.timer_ticks,
+           (unsigned long) stats.submitted_samples,
+           (int) stats.pcm_min, (int) stats.pcm_max,
+           (unsigned long) stats.queued_samples,
+           (unsigned long) stats.underruns,
+           (unsigned long) stats.dropped_samples,
+           (long) stats.rate_adjust_ppm,
+           (unsigned long) stats.gain_q8,
+           (unsigned long) stats.clipped_samples,
+           (unsigned) stats.pwm_min, (unsigned) stats.pwm_max);
+#else
+    printf("AUDIO disabled; rebuild with scripts/setup.sh --audio\n");
+#endif
   } else if (!strcmp(p_cmd, "stats")) {
     presto_beebjit_print_stats();
 #if PRESTO_BEEBJIT_PROF

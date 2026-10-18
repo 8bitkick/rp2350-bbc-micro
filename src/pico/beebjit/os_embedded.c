@@ -43,7 +43,9 @@
 
 /* Upstream's null implementations, as used by its headless build. */
 #include "os_fault_platform_null.c"
+#if !PRESTO_BEEBJIT_AUDIO
 #include "os_sound_null.c"
+#endif
 
 /* ------------------------------------------------------------------------ */
 /* Allocation. */

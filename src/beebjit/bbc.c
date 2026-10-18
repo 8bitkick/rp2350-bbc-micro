@@ -3153,6 +3153,11 @@ bbc_cycles_timer_callback(void* p) {
     /* If sound is active, we use that as a source of timed wait, otherwise it's
      * a dedicated sleep.
      */
+#if PRESTO_BEEBJIT_AUDIO
+    sound_tick_nonblocking(p_sound);
+    /* Display lock remains the clock master; audio must never block here. */
+    bbc_do_sleep(p_bbc, last_time_us, curr_time_us, delta_us);
+#else
     if (sound_is_synchronous(p_sound)) {
       /* There's no sound output (which would block!) in fast mode, so we put it
        * here in the slow path. All of the potentially blocking calls are
@@ -3163,6 +3168,7 @@ bbc_cycles_timer_callback(void* p) {
       /* This may adjust p_bbc->last_time_us to maintain smooth timing. */
       bbc_do_sleep(p_bbc, last_time_us, curr_time_us, delta_us);
     }
+#endif
   } else {
     /* Fast mode.
      * Fast mode is where the system executes as fast as the host CPU can

@@ -23,6 +23,10 @@ void sound_power_on_reset(struct sound_struct* p_sound);
 int sound_is_active(struct sound_struct* p_sound);
 int sound_is_synchronous(struct sound_struct* p_sound);
 void sound_tick(struct sound_struct* p_sound, uint64_t curr_time_us);
+/* For hosts that pace emulation independently of audio playback. */
+void sound_tick_nonblocking(struct sound_struct* p_sound);
+/* Discard queued synthesis/resampling data without resetting PSG registers. */
+void sound_discard_pending(struct sound_struct* p_sound);
 
 void sound_get_state(struct sound_struct* p_sound,
                      uint8_t* p_volumes,

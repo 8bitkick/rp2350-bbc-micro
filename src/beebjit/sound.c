@@ -775,6 +775,48 @@ sound_advance_sn_timing(struct sound_struct* p_sound) {
 }
 
 void
+sound_discard_pending(struct sound_struct* p_sound) {
+  p_sound->sn_frames_filled = 0;
+  p_sound->driver_buffer_index = 0;
+  p_sound->accumulated_value = 0.0;
+  p_sound->accumulated_count = 0.0;
+  p_sound->last_sound_driver_wakeup_time = 0;
+  p_sound->current_sub_period = 0;
+  memset(p_sound->iir_first_pass_input_history, 0,
+         sizeof(p_sound->iir_first_pass_input_history));
+  memset(p_sound->iir_first_pass_output_history, 0,
+         sizeof(p_sound->iir_first_pass_output_history));
+  memset(p_sound->iir_second_pass_input_history, 0,
+         sizeof(p_sound->iir_second_pass_input_history));
+  memset(p_sound->iir_second_pass_output_history, 0,
+         sizeof(p_sound->iir_second_pass_output_history));
+  p_sound->prev_system_ticks =
+      timing_get_scaled_total_timer_ticks(p_sound->p_timing);
+}
+
+void
+sound_tick_nonblocking(struct sound_struct* p_sound) {
+  uint32_t count;
+  uint32_t leftover;
+  if (!sound_is_synchronous(p_sound)) {
+    return;
+  }
+  sound_advance_sn_timing(p_sound);
+  (void) sound_resample_to_driver_buffer(p_sound);
+  count = ((p_sound->driver_buffer_index / p_sound->driver_period_size) *
+           p_sound->driver_period_size);
+  if (count == 0) {
+    return;
+  }
+  /* The nonblocking backend must copy these samples before returning. */
+  os_sound_write(p_sound->p_driver, p_sound->p_driver_frames, count);
+  leftover = (p_sound->driver_buffer_index - count);
+  memmove(p_sound->p_driver_frames, p_sound->p_driver_frames + count,
+          leftover * sizeof(int16_t));
+  p_sound->driver_buffer_index = leftover;
+}
+
+void
 sound_tick(struct sound_struct* p_sound, uint64_t curr_time_us) {
   uint32_t num_full_periods;
   uint32_t num_sub_periods;

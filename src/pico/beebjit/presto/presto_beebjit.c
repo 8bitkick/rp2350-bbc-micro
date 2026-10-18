@@ -38,6 +38,13 @@
 #include "hardware/vreg.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
+#include "pico/flash.h"
+#if PRESTO_BEEBJIT_AUDIO
+#include "presto_audio.h"
+#include "os_sound.h"
+#include "sound.h"
+static struct bbc_struct* s_audio_bbc;
+#endif
 #if PRESTO_BEEBJIT_WIRE
 #include "../beebjit_wire.h"
 #include "pico/multicore.h"
@@ -313,6 +320,8 @@ static void prof_init(void);
 #endif
 
 static void __not_in_flash_func(core1_main)(void) {
+  /* Register core 1 so saving Wi-Fi credentials can safely write flash. */
+  (void) flash_safe_execute_core_init();
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
 #endif
@@ -797,6 +806,14 @@ presto_turbo_get(void) {
 
 void
 presto_turbo_set(bool on) {
+#if PRESTO_BEEBJIT_AUDIO
+  if (s_turbo != on) {
+    presto_audio_set_muted(on);
+    if (s_audio_bbc != NULL) {
+      sound_discard_pending(bbc_get_sound(s_audio_bbc));
+    }
+  }
+#endif
   s_turbo = on;
 }
 
@@ -918,6 +935,9 @@ run_beebjit(void) {
   config.autoboot_flag = 1;
 #endif
   config.p_opt_flags = "video:border-chars=0,video:no-deinterlace-bitmap"
+#if PRESTO_BEEBJIT_AUDIO
+                       ",sound:filter_cutoff=0"
+#endif
 #if PRESTO_BEEBJIT_FRAME_SKIP
                        ",video:frame-skip"
 #endif
@@ -969,6 +989,20 @@ run_beebjit(void) {
     presto_machine_init(p_bbc, PRESTO_BEEBJIT_DISC);
 #else
     presto_machine_init(p_bbc, NULL);
+#endif
+#if PRESTO_BEEBJIT_AUDIO
+    struct os_sound_struct* audio_driver = os_sound_create(
+        NULL, os_sound_get_default_sample_rate(),
+        os_sound_get_default_buffer_size(), os_sound_get_default_num_periods());
+    if (audio_driver != NULL && os_sound_init(audio_driver) == 0) {
+      s_audio_bbc = p_bbc;
+      sound_set_driver(bbc_get_sound(p_bbc), audio_driver);
+      presto_audio_set_muted(s_turbo);
+      printf("#audio GPIO43 PWM, 31250 Hz mono\n");
+    } else {
+      if (audio_driver != NULL) os_sound_destroy(audio_driver);
+      printf("#audio unavailable; continuing silently\n");
+    }
 #endif
     (void) beebjit_embedded_run(p_bbc);
     (void) printf("#beebjit exited\n");

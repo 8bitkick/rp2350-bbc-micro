@@ -2,10 +2,11 @@
 # From a fresh clone to presto_beebjit.uf2: fetches the pinned toolchain and Pico SDK into deps/,
 # downloads flicker-free Elite, and builds the Presto firmware.
 #
-#   scripts/setup.sh [--apt] [--gxr] [--demos] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--gxr] [--demos] [--audio] [--no-build] [--flash]
 #
 #   --apt       install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
 #   --gxr       also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
+#   --audio     enable BBC sound on the built-in piezo (omitting this disables audio)
 #   --demos     also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
 #   --no-build  fetch everything but don't build
 #   --flash     after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
@@ -19,15 +20,16 @@ ARM_GNU=14.2.rel1
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DEPS=$ROOT/deps
-DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0
+DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; DO_AUDIO=OFF
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
     --gxr) DO_GXR=1 ;;
+    --audio) DO_AUDIO=ON ;;
     --demos) DO_DEMOS=1 ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,/^set -e/{ /^set -e/d; p; }' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
@@ -108,12 +110,18 @@ if [ $DO_DEMOS = 1 ]; then
   done
 fi
 
-[ $DO_BUILD = 1 ] || { say "Fetched everything; build with: . deps/env.sh && cmake ... (see README)"; exit 0; }
+[ $DO_BUILD = 1 ] || {
+  say "Fetched everything; audio selection is not saved until configuration."
+  echo "Re-run scripts/setup.sh with your options and without --no-build, or:"
+  echo "  . deps/env.sh && cmake -S . -B build -DPRESTO_BEEBJIT_AUDIO=$DO_AUDIO && cmake --build build --target presto_beebjit"
+  exit 0
+}
 
 # ---- Build
-say "Building presto_beebjit"
+say "Building presto_beebjit (audio: $DO_AUDIO)"
 cmake -S "$ROOT" -B "$ROOT/build" $GEN \
-  -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release >/dev/null
+  -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release \
+  -DPRESTO_BEEBJIT_AUDIO="$DO_AUDIO" >/dev/null
 cmake --build "$ROOT/build" --target presto_beebjit
 UF2=$ROOT/build/src/pico/beebjit/presto_beebjit.uf2
 say "Built $UF2"

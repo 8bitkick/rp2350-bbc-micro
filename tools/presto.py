@@ -152,7 +152,7 @@ def main():
         s.write(bytes([0x1a, 0, sc])); time.sleep(ms / 1000); s.write(bytes([0x1a, 1, sc]))
     else:
         cmd = ' '.join(a) if a[0] != 'raw' else a[1]
-        prefix = {'stats': 'STATS', 'crtc': 'CRTC', 'view': 'VIEW', 'bootsel': 'BOOTSEL', 'touch': 'TOUCH'}.get(a[0], '')
+        prefix = {'stats': 'STATS', 'crtc': 'CRTC', 'view': 'VIEW', 'bootsel': 'BOOTSEL', 'touch': 'TOUCH', 'audio': 'AUDIO'}.get(cmd.split(' ', 1)[0], '')
         command(s, cmd)
         print(readline_prefix(s, prefix) if prefix else s.readline().decode().strip())
 

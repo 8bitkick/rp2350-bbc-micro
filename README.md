@@ -183,6 +183,23 @@ cd rp2350-bbc-micro
 scripts/setup.sh            # add --apt on Debian / Ubuntu / Raspberry Pi OS to install the host packages
 ```
 
+To enable BBC sound on the Presto's built-in piezo, add `--audio`. It combines
+with the existing options:
+
+```sh
+scripts/setup.sh --audio --gxr --flash
+```
+
+Audio is off by default. Re-running `setup.sh` without `--audio` explicitly
+turns it off; a plain incremental build keeps the last configured setting.
+The Wi-Fi flash-safe core-1 initialization fix is included in both builds.
+For the speaker check, run `python3 tools/presto.py raw "audio test"`
+after flashing; it should produce two short beeps.
+The audio backend defaults to 32x gain; `python3 tools/presto.py raw "audio gain 16"`
+reduces it to 16x without rebuilding.
+See [audio implementation and testing](docs/presto/AUDIO.md) for details,
+limitations and the `tools/presto.py raw audio` diagnostic command.
+
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
 (which isn't part of this repository), and builds `build/src/pico/beebjit/presto_beebjit.uf2`.
 Flash it as in the [quick start](#quick-start), or run `scripts/setup.sh --flash` with the Presto in

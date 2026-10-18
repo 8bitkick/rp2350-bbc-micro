@@ -39,3 +39,8 @@ that the default (upstream) build is unchanged:
 - Added from upstream, unmodified: test-*.c (included by their modules),
   os_fault_platform_null.c (with carry/overflow for the thumb2 JIT) and
   os_sound_null.c.
+
+- Optional Presto audio: sound.c/.h provide nonblocking PCM submission and a
+  pending-buffer reset. bbc.c keeps display-paced sleeping when
+  PRESTO_BEEBJIT_AUDIO is enabled; the original sound-paced path is retained
+  otherwise. The platform backend lives in pico/beebjit/presto/presto_audio.c.

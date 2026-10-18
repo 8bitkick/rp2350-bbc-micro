@@ -27,6 +27,16 @@ add_executable(presto_beebjit
         ${PRESTO_DIR}/fatfs/ffunicode.c
         )
 
+# Optional PCM output through the built-in GPIO43 piezo.
+option(PRESTO_BEEBJIT_AUDIO "Enable the Presto piezo audio backend" OFF)
+if (PRESTO_BEEBJIT_AUDIO)
+    if (PRESTO_BEEBJIT_FAST)
+        message(FATAL_ERROR "Audio requires accurate mode; disable PRESTO_BEEBJIT_FAST (runtime turbo remains available)")
+    endif()
+    target_sources(presto_beebjit PRIVATE ${CMAKE_CURRENT_LIST_DIR}/presto/presto_audio.c)
+    target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_AUDIO=1)
+endif()
+
 # the web control panel's page, gzipped into flash
 set(PRESTO_BEEBJIT_WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_web_page.c)
 add_custom_command(OUTPUT ${PRESTO_BEEBJIT_WEB_C}
