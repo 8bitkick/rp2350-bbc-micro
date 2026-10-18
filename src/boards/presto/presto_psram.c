@@ -10,7 +10,7 @@
 #include "hardware/sync.h"
 #include "hardware/structs/qmi.h"
 #include "hardware/structs/xip_ctrl.h"
-#include "presto_psram.h"
+#include "board.h"
 
 #define PSRAM_CS_PIN 47
 #define PSRAM_BASE ((volatile uint8_t *) 0x11000000)
@@ -83,7 +83,7 @@ static uint32_t psram_timing(void) {
            divisor << QMI_M1_TIMING_CLKDIV_LSB;
 }
 
-size_t presto_psram_init(void) {
+size_t board_psram_init(void) {
     gpio_set_function(PSRAM_CS_PIN, GPIO_FUNC_XIP_CS1);
     psram_setup(psram_timing());
     // check it's there: patterns at a few places in the 8MB, through the uncached alias
@@ -96,10 +96,10 @@ size_t presto_psram_init(void) {
     return size;
 }
 
-size_t presto_psram_size(void) {
+size_t board_psram_size(void) {
     return psram_bytes;
 }
 
-uint8_t *presto_psram(void) {
+uint8_t *board_psram(void) {
     return psram_bytes ? (uint8_t *) PSRAM_BASE : NULL;
 }

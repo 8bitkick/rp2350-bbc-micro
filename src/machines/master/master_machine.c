@@ -1,5 +1,5 @@
 // What the web panel, the SD card and the USB channel ask of the machine
-// (machine_if.h, presto_sd.h), for Kieran Connell's Master 128. All of
+// (machine_if.h, drive.h), for Kieran Connell's Master 128. All of
 // it runs on core 0, between machine runs (main.c), so nothing here races
 // the emulation.
 //
@@ -20,8 +20,7 @@
 
 #include "machine_if.h"
 #include "frontend.h"
-#include "presto_psram.h"
-#include "presto_sd.h"
+#include "board.h"
 #include "master_main.h"
 #include "drive.h"
 

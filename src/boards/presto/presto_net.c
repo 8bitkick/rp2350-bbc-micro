@@ -37,9 +37,8 @@
 #include "net_if.h"
 #include "mem.h"
 #include "api.h"
-#include "presto_sd.h"
+#include "board.h"
 #include "drive.h"
-#include "presto_psram.h"
 #include "boot_guard.h"
 
 #define HOSTNAME "beeb"
@@ -130,21 +129,21 @@ static void net_start(void) {
     }
     snprintf(ssid_ram, sizeof(ssid_ram), "%s", c->ssid);
     snprintf(pass_ram, sizeof(pass_ram), "%s", c->pass);
-    presto_boot_step(40);
+    boot_guard_step(40);
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_UK)) {
         printf("NET WiFi chip didn't start\n");
         return;
     }
-    presto_boot_step(41);
+    boot_guard_step(41);
     cyw43_arch_enable_sta_mode();
-    presto_boot_step(42);
+    boot_guard_step(42);
     // no power saving: it adds a lot of latency to every key press from the web page
     cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
-    presto_boot_step(43);
+    boot_guard_step(43);
     start_server();
-    presto_boot_step(44);
+    boot_guard_step(44);
     join();
-    presto_boot_step(45);
+    boot_guard_step(45);
     wifi_on = true;
 }
 
@@ -890,7 +889,7 @@ void net_frame(void) {
         uint8_t *ram = drive0_staging();
         if (!disc_in.boot) {
             // just onto the card
-            if (presto_sd_save(disc_in.name, ram + STAGE_OFFSET, disc_in.size)) {
+            if (board_sd_save(disc_in.name, ram + STAGE_OFFSET, disc_in.size)) {
                 printf("DISC saved %s to the card (%u bytes)\n", disc_in.name, (uint) disc_in.size);
             } else {
                 snprintf(fetch.error, sizeof(fetch.error), "couldn't save that to the card");
@@ -903,7 +902,7 @@ void net_frame(void) {
                 fetch.state = F_ERROR;
             } else {
                 printf("DISC loaded %s from %s (%u bytes)\n", disc_in.name, disc_in.from, (uint) disc_in.size);
-                if (disc_in.save && !presto_sd_save(disc_in.name, ram, disc_in.size)) {
+                if (disc_in.save && !board_sd_save(disc_in.name, ram, disc_in.size)) {
                     snprintf(fetch.error, sizeof(fetch.error), "booted, but couldn't save it to the card");
                     fetch.state = F_ERROR;
                 }

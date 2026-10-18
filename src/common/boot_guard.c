@@ -1,12 +1,12 @@
-#if PRESTO_BOOT_GUARD
+#if BOOT_GUARD
 /*
- * Boot guard (dev aid, PRESTO_BOOT_GUARD): finds out where a build that never gets going dies.
+ * Boot guard (dev aid, BOOT_GUARD): finds out where a build that never gets going dies.
  *
  * Each boot marks a record in RAM that survives a reset (it's never zeroed) as "starting", and arms
- * the watchdog. Reaching the running emulator (presto_boot_ok) disarms both. If instead the build
+ * the watchdog. Reaching the running emulator (boot_guard_ok) disarms both. If instead the build
  * hangs, the watchdog resets it; if it faults, the fault handler saves where and resets it. Either
  * way the next boot finds the record still "starting", and instead of running the emulator it
- * brings up just USB and reports, over and over: the last step reached (presto_boot_step) and any
+ * brings up just USB and reports, over and over: the last step reached (boot_guard_step) and any
  * fault's PC, LR and fault status. "!bootsel" then drops it into the USB bootloader for the next
  * flash, so a broken build never needs the buttons.
  */
@@ -52,7 +52,7 @@ static void report_forever(boot_record_t r) {
     }
 }
 
-void presto_boot_begin(void) {
+void boot_guard_begin(void) {
     if (record.state == BOOT_STARTING || record.state == BOOT_FAULTED || record.state == BOOT_PANICKED) {
         boot_record_t r = record;
         record.state = 0;           // next boot runs normally
@@ -64,17 +64,17 @@ void presto_boot_begin(void) {
     watchdog_enable(8000, true);
 }
 
-void presto_boot_step(uint32_t step) {
+void boot_guard_step(uint32_t step) {
     record.step = step;
 }
 
-void presto_boot_note(uint32_t a, uint32_t b) {
+void boot_guard_note(uint32_t a, uint32_t b) {
     record.cfsr = a;
     record.bfar = b;
 }
 
-void presto_boot_ok(void) {
-#if PRESTO_BOOT_GUARD_KEEP
+void boot_guard_ok(void) {
+#if BOOT_GUARD_KEEP
     return;     // diagnosis: stay armed, so a fault or hang at any time is reported at the next boot
 #endif
     if (record.state == BOOT_STARTING) {
@@ -84,7 +84,7 @@ void presto_boot_ok(void) {
 }
 
 // the stacked registers of whatever faulted: r0-r3, r12, lr, pc, xpsr
-void __used presto_boot_fault(uint32_t *frame) {
+void __used boot_guard_fault(uint32_t *frame) {
     if (record.state == BOOT_STARTING) {
         record.pc = frame[6];
         record.lr = frame[5];
@@ -100,7 +100,7 @@ void __used presto_boot_fault(uint32_t *frame) {
 
 // an SDK panic (PICO_PANIC_FUNCTION): "panic" with pc = the message's address (a string in the
 // ELF: arm-none-eabi-objdump -s --start-address=<pc> ...) and lr = who panicked
-void __attribute__((noreturn)) presto_boot_panic(const char *fmt, ...) {
+void __attribute__((noreturn)) boot_guard_panic(const char *fmt, ...) {
     if (record.state == BOOT_STARTING) {
         record.pc = (uint32_t) fmt;
         record.lr = (uint32_t) __builtin_return_address(0);
@@ -118,6 +118,6 @@ void __attribute__((naked)) isr_hardfault(void) {
         "ite eq\n"
         "mrseq r0, msp\n"
         "mrsne r0, psp\n"
-        "b presto_boot_fault\n");
+        "b boot_guard_fault\n");
 }
 #endif

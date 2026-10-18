@@ -1,7 +1,7 @@
 // Core 1: the core's renderer (render.c, teletext.c) emitting straight into
 // the Presto panel's framebuffer. Compiled to run from SRAM (CMakeLists.txt).
 //
-// The panel row format (presto_lcd.h): 480 4-bit codes, 8 to a word from the
+// The display row format (board.h: BOARD_DISPLAY_PACKED4_ROWS): 480 4-bit codes, 8 to a word from the
 // low nibble (bit 0 blue, 1 green, 2 red), then an end-of-row word. One row
 // per BBC scanline: the renderer's two rasters per scanline (they differ
 // only in teletext) give the first. 640 picture pixels to 480: of each 4,
@@ -13,7 +13,10 @@
 
 #include "pico.h"
 #include "hardware/sync.h"
-#include "presto_lcd.h"
+#include "board.h"
+#if BOARD_DISPLAY_FORMAT != BOARD_DISPLAY_PACKED4_ROWS || BOARD_DISPLAY_WIDTH != 480
+#error "the Master's renderer draws 640-pixel lines into 480-pixel packed 4-bit rows"
+#endif
 
 #define RENDER_INDEXED 1
 
@@ -37,14 +40,14 @@ static void panel_frame_done(void);
 
 enum {
     k_rows = 256,
-    k_row_words = PRESTO_LCD_ROW_WORDS,
+    k_row_words = BOARD_DISPLAY_ROW_WORDS,
     // The picture inside the renderer's canvas (its border is 4 characters).
     k_pic_x0 = RENDER_BORDER_CHARS * 16,
     k_pic_y0 = RENDER_BORDER_CHARS * 16,
 };
 
 static uint32_t s_fb[k_rows][k_row_words];
-static const uint16_t *s_row_table[PRESTO_LCD_HEIGHT + 1];
+static const uint16_t *s_row_table[BOARD_DISPLAY_HEIGHT + 1];
 static struct render s_render;
 // A colour code (pixel.h) to the panel's 4-bit code.
 static uint8_t s_code[PX_CODES];
@@ -146,14 +149,14 @@ void panel_lcd_init(void)
 {
     for (int i = 0; i < k_rows; i++) {
         memset(s_fb[i], 0, sizeof s_fb[i]);
-        s_fb[i][k_row_words - 1] = PRESTO_LCD_ROW_END;
+        s_fb[i][k_row_words - 1] = BOARD_DISPLAY_ROW_END;
     }
-    for (int i = 0; i < PRESTO_LCD_HEIGHT; i++) {
-        s_row_table[i] = (const uint16_t *)s_fb[(i * k_rows) / PRESTO_LCD_HEIGHT];
+    for (int i = 0; i < BOARD_DISPLAY_HEIGHT; i++) {
+        s_row_table[i] = (const uint16_t *)s_fb[(i * k_rows) / BOARD_DISPLAY_HEIGHT];
     }
-    s_row_table[PRESTO_LCD_HEIGHT] = NULL;
-    presto_lcd_init(s_row_table);
-    presto_lcd_set_backlight(255);
+    s_row_table[BOARD_DISPLAY_HEIGHT] = NULL;
+    board_display_init(s_row_table);
+    board_display_backlight(255);
 }
 
 void panel_init(void)
@@ -203,7 +206,7 @@ void panel_consume(struct vstream *vs)
 
 static void splash_px(int x, int y, int c)
 {
-    if (x < 0 || x >= PRESTO_LCD_WIDTH || y < 0 || y >= k_rows) return;
+    if (x < 0 || x >= BOARD_DISPLAY_WIDTH || y < 0 || y >= k_rows) return;
     uint32_t *w = &s_fb[y][x >> 3];
     int sh = (x & 7) * 4;
     *w = (*w & ~(0xfu << sh)) | ((uint32_t) (c & 7) << sh);
@@ -233,16 +236,16 @@ static void splash_bbc_text(int cx, int y, const char *s, int c)
 }
 
 // A program's loading screen picture (machine_boot_image), drawn once; false if it has none
-static int s_bar_x = 8, s_bar_w = PRESTO_LCD_WIDTH - 16;
+static int s_bar_x = 8, s_bar_w = BOARD_DISPLAY_WIDTH - 16;
 bool panel_splash_picture(void)
 {
     const struct machine_boot_image *im = machine_boot_image();
-    if (!im || im->w != PRESTO_LCD_WIDTH || im->h != k_rows) return false;
+    if (!im || im->w != BOARD_DISPLAY_WIDTH || im->h != k_rows) return false;
     for (int y = 0; y < k_rows; y++) {
-        const uint8_t *s = &im->px[y * PRESTO_LCD_WIDTH / 2];
+        const uint8_t *s = &im->px[y * BOARD_DISPLAY_WIDTH / 2];
         for (int w = 0; w < k_row_words - 1; w++)      // (bit 3 isn't a colour: masked off)
             s_fb[y][w] = (s[w * 4] | s[w * 4 + 1] << 8 | s[w * 4 + 2] << 16 | (uint32_t) s[w * 4 + 3] << 24) & 0x77777777u;
-        s_fb[y][k_row_words - 1] = PRESTO_LCD_ROW_END;
+        s_fb[y][k_row_words - 1] = BOARD_DISPLAY_ROW_END;
     }
     return true;
 }
@@ -254,7 +257,7 @@ void panel_splash_status(const char *what, int permille)
     for (int y = 208; y < 240; y++) memset(s_fb[y], 0, (k_row_words - 1) * 4);
     char line[72];
     snprintf(line, sizeof line, "%.34s %3d%%", what, permille / 10);
-    splash_bbc_text(PRESTO_LCD_WIDTH / 2, 212, line, WHITE);
+    splash_bbc_text(BOARD_DISPLAY_WIDTH / 2, 212, line, WHITE);
     splash_rect(s_bar_x, 228, s_bar_w, 7, RED);
     splash_rect(s_bar_x + 2, 230, (s_bar_w - 4) * (permille > 1000 ? 1000 : permille) / 1000, 3, YELLOW);
 }

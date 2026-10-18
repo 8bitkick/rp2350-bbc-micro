@@ -23,7 +23,7 @@ scripts/setup.sh            # first time: toolchain and Pico SDK into deps/, Eli
 ```
 
 Flash by copying the `.uf2` to the RP2350 drive. To get the drive: hold BOOT and tap RESET, send
-`!bootsel` over USB, or open the USB serial port at 1200 baud. `PRESTO_BOOT_GUARD` (on by default)
+`!bootsel` over USB, or open the USB serial port at 1200 baud. `BOOT_GUARD` (on by default)
 catches a build that hangs or faults at boot, and reports where it died over USB, still accepting
 `!bootsel`, instead of needing the buttons.
 

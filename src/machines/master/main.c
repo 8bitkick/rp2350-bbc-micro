@@ -22,18 +22,15 @@
 #include "hardware/structs/qmi.h"
 #include "hardware/sync.h"
 
-#include "presto_lcd.h"
-#include "presto_psram.h"
+#include "board.h"
 #include "machine_if.h"
 #include "frontend.h"
 #include "master_main.h"
-#include "presto_sd.h"
 #include "drive.h"
 #if WITH_SOUND
 #include "sound.h"
 #endif
 #if WITH_AMBIENT
-#include "presto_ambient.h"
 #endif
 
 #include "machine.h"
@@ -84,14 +81,14 @@ static void __not_in_flash_func(core1_main)(void)
     // Core 0 parks this core while it writes the flash (saving the WiFi).
     flash_safe_execute_core_init();
 #if WITH_SOUND
-    presto_audio_init();    // its DMA interrupt runs on this core
+    audio_init();    // its DMA interrupt runs on this core
 #endif
     for (;;) {
         if (vs_available(&s_stream) == 0) {
 #if WITH_AMBIENT
-            if (presto_ambient_due()) {
+            if (board_leds_due()) {
                 uint32_t t0 = time_us_32();
-                presto_ambient_update();
+                board_leds_update();
                 s_core1_busy_us += time_us_32() - t0;
                 continue;
             }
@@ -223,7 +220,7 @@ void main_machine_was_reset(void)
 void machine_print_stats(void)
 {
     printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%\n",
-           (unsigned long)s_frames, (unsigned long)presto_lcd_frame_count(), (unsigned long)s_core0_pct,
+           (unsigned long)s_frames, (unsigned long)board_display_frames(), (unsigned long)s_core0_pct,
            (unsigned long)s_core1_pct, (unsigned long)(s_speed_permille / 10),
            (unsigned long)(s_speed_permille % 10));
 }
@@ -292,7 +289,7 @@ static void run(void)
     }
     m->vs = &s_stream;
 #if WITH_SOUND
-    presto_audio_set_ring(psram_alloc(presto_audio_ring_size()));
+    audio_set_ring(psram_alloc(audio_ring_size()));
 #endif
     panel_init();
     machine_reset(m);
@@ -380,11 +377,11 @@ static void run(void)
         presto_machine_poll();
         if (new_frame) {
 #if WITH_SOUND
-            presto_audio_frame(m->cpu.cycles, s_turbo);
+            audio_frame(m->cpu.cycles, s_turbo);
 #endif
 #if WITH_AMBIENT
             // CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits (6, 7) are low
-            presto_ambient_frame((uint8_t)(((m->ic32 & 0x40) ? 0 : 1) | ((m->ic32 & 0x80) ? 0 : 2)));
+            board_leds_frame((uint8_t)(((m->ic32 & 0x40) ? 0 : 1) | ((m->ic32 & 0x80) ? 0 : 2)));
 #endif
             presto_machine_frame();   // may reset the machine (s_was_reset)
             frame_hook(m);
@@ -398,14 +395,10 @@ int main(void)
     vreg_set_voltage(VREG_VOLTAGE_1_25);
     set_sys_clock_khz(250000, true);
     stdio_init_all();
-    // The piezo's MOSFET (GPIO 43): driven off. Left floating it picks up
-    // the WiFi chip's activity and buzzes.
-    gpio_init(43);
-    gpio_set_dir(43, GPIO_OUT);
-    gpio_put(43, 0);
-    presto_psram_init();
+    board_init();
+    board_psram_init();
 #if WITH_AMBIENT
-    presto_ambient_init();    // first: it moves PIO0 to GPIO 16-47, only possible before PIO0 has a program
+    board_leds_init();    // first: it moves PIO0 to GPIO 16-47, only possible before PIO0 has a program
 #endif
     panel_lcd_init();
     run();

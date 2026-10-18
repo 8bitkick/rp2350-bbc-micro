@@ -1,8 +1,9 @@
 /*
- * The BBC's sound on the Presto's piezo, GPIO 43 (PWM slice 9; the backlight on 45 is slice 10).
+ * The BBC's sound on the board's audio out, a PWM pin (board_config.h: BOARD_AUDIO_PWM_PIN; the
+ * Presto's piezo).
  *
  * Core 0 runs the 6502: each byte the SN76489 takes goes into a ring here with its emulated time
- * (beebjit's sound.c calls presto_audio_sn_write), and each frame says what the time is now.
+ * (beebjit's sound.c calls audio_sn_write), and each frame says what the time is now.
  * Core 1 makes the samples: an SN76489 as beebjit's (sound.c: the same counters, noise and
  * volumes, at its 250 kHz), averaged in eights to 31.25 kHz. Each byte lands on the SN tick it
  * was written at, so sample playback through the volume registers comes out.
@@ -33,8 +34,9 @@
 #include "hardware/sync.h"
 #include "hardware/watchdog.h"
 #include "sound.h"
+#include "board.h"
 
-#define PIEZO_PIN       43
+#define PIEZO_PIN       BOARD_AUDIO_PWM_PIN     // the board's audio out (board_config.h)
 #define DAC_TOP         1023
 #define SAMPLE_HZ       31250
 #define SAMPLE_US       32
@@ -58,7 +60,7 @@ static volatile bool s_mute;
 static volatile bool s_have_now;
 static uint32_t s_dropped;
 
-void __not_in_flash_func(presto_audio_sn_write)(uint64_t ticks, uint8_t value) {
+void __not_in_flash_func(audio_sn_write)(uint64_t ticks, uint8_t value) {
     uint32_t head = s_ring_head;
     if ((s_ring == NULL) || ((head - s_ring_tail) >= RING)) {
         s_dropped++;
@@ -69,15 +71,15 @@ void __not_in_flash_func(presto_audio_sn_write)(uint64_t ticks, uint8_t value) {
     s_ring_head = head + 1;
 }
 
-void presto_audio_set_ring(void *p) {
+void audio_set_ring(void *p) {
     s_ring = (uint32_t *) p;
 }
 
-size_t presto_audio_ring_size(void) {
+size_t audio_ring_size(void) {
     return RING * sizeof(uint32_t);
 }
 
-void presto_audio_frame(uint64_t ticks, bool mute) {
+void audio_frame(uint64_t ticks, bool mute) {
     // the smoothed offset at each of the last HISTORY frames, for the rate
     enum { HISTORY = 32 };
     static uint32_t s_hist_offset[HISTORY], s_hist_us[HISTORY];
@@ -334,7 +336,7 @@ static void stop(void) {
     pwm_set_gpio_level(PIEZO_PIN, 0);
 }
 
-void presto_audio_init(void) {
+void audio_init(void) {
     uint slice = pwm_gpio_to_slice_num(PIEZO_PIN);
     if (s_ring == NULL) return;
     sn_reset();
@@ -359,7 +361,7 @@ void presto_audio_init(void) {
     start();
 }
 
-void presto_audio_command(const char *args) {
+void audio_command(const char *args) {
     unsigned percent;
     while (*args == ' ') args++;
     if (sscanf(args, "vol %u", &percent) == 1) {
@@ -459,7 +461,7 @@ static float noise(uint32_t i, void *ctx) {
     return (lfsr & 1) ? 1.0f : -1.0f;
 }
 
-void presto_audio_test(const char *args) {
+void audio_test(const char *args) {
     bool playing = (s_dma[0] >= 0);
     while (*args == ' ') args++;
     if (strncmp(args, "tone", 4) && strcmp(args, "sweep") && strncmp(args, "dac", 3)) {

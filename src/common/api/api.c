@@ -14,12 +14,11 @@
 #include "machine_if.h"
 #include "machine_hook.h"
 #include "drive.h"
-#include "presto_sd.h"
+#include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
 #endif
 #if WITH_AMBIENT
-#include "presto_ambient.h"
 #endif
 
 // ---- Replies
@@ -157,10 +156,10 @@ static void status_json(char *j, size_t size) {
     }
 #endif
 #if WITH_AMBIENT
-    if (presto_ambient_ready() && n > 0 && (size_t) n < size) {
+    if (board_leds_ready() && n > 0 && (size_t) n < size) {
         bool on, locks;
         unsigned bright;
-        presto_ambient_get(&on, &bright, &locks);
+        board_leds_get(&on, &bright, &locks);
         n += snprintf(j + n, size - (size_t) n, ",\"ambient\":{\"on\":%s,\"bright\":%u,\"locks\":%s}",
                       on ? "true" : "false", bright, locks ? "true" : "false");
     }
@@ -245,12 +244,12 @@ static void list_disc(const char *name, uint32_t size, void *ctx) {
 
 static void cmd_discs(api_req_t *r) {
     if (!r->json) {
-        presto_sd_list_discs();
+        board_sd_list_discs();
         return;
     }
     list_ctx_t l = {.j = r->out, .size = r->size};
     l.used = (size_t) snprintf(l.j, l.size, "{\"discs\":[");
-    int n = presto_sd_each_disc(list_disc, &l);
+    int n = board_sd_each_disc(list_disc, &l);
     snprintf(l.j + l.used, l.size - l.used, "],\"card\":%s}", n < 0 ? "false" : "true");
     r->code = 200;
 }
@@ -259,7 +258,7 @@ static void cmd_discs(api_req_t *r) {
 static void cmd_sd(api_req_t *r) {
     const char *name = r->args;
     while (*name == ' ') name++;
-    if (presto_sd_load_disc(name)) {
+    if (board_sd_load_disc(name)) {
         api_reply(r, 200, "{}");
     } else {
         api_error(r, 404, "couldn't load that from the card");
@@ -341,7 +340,7 @@ static void cmd_wifi(api_req_t *r) {
 // "bright=<percent>", "locks=0|1", joined by "&"
 static void cmd_ambient(api_req_t *r) {
     if (!r->json) {
-        presto_ambient_command(r->args);
+        board_leds_command(r->args);
         return;
     }
     int on = -1, bright = -1, locks = -1;
@@ -356,7 +355,7 @@ static void cmd_ambient(api_req_t *r) {
         if (!amp) break;
         p = amp + 1;
     }
-    presto_ambient_set(on, bright, locks);
+    board_leds_set(on, bright, locks);
     cmd_status(r);
 }
 #endif

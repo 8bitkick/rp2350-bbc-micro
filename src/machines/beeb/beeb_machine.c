@@ -1,6 +1,6 @@
 /*
  * What the front end asks of the machine, for beebjit: the hooks in
- * machine_if.h and presto_sd.h (the command layer, the USB channel, the web
+ * machine_if.h and drive.h (the command layer, the USB channel, the web
  * panel and the SD card are common to the machines), the Model B's own USB "!"
  * commands (machine_usb_command) and BBC Micro Bot snapshots (beeb_state.h).
  *
@@ -32,9 +32,7 @@
 #include "drive.h"
 #include "frontend.h"
 #include "machine_if.h"
-#include "presto_lcd.h"
-#include "presto_psram.h"
-#include "presto_sd.h"
+#include "board.h"
 #include "beeb_state.h"
 
 #include "hardware/watchdog.h"
@@ -614,7 +612,7 @@ machine_usb_command(const char* p_cmd) {
              ((p_cmd[4] == '\0') || (p_cmd[4] == ' '))) {
     presto_beebjit_lock(p_cmd + ((p_cmd[4] == ' ') ? 5 : 4));
   } else if (!strcmp(p_cmd, "psram")) {
-    (void) printf("PSRAM %u bytes\n", (unsigned) presto_psram_size());
+    (void) printf("PSRAM %u bytes\n", (unsigned) board_psram_size());
   } else if (!strcmp(p_cmd, "clk")) {
     /* Measured by the clocks block's frequency counter, against the crystal. */
     (void) printf("CLK sys=%lu kHz (measured), %lu kHz (set)\n",
@@ -622,7 +620,7 @@ machine_usb_command(const char* p_cmd) {
                       CLOCKS_FC0_SRC_VALUE_CLK_SYS),
                   (unsigned long) (clock_get_hz(clk_sys) / 1000));
   } else if (!strcmp(p_cmd, "lcd")) {
-    presto_lcd_debug();
+    board_display_debug();
   } else {
     return false;
   }

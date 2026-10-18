@@ -1,7 +1,7 @@
 /*
  * Inside presto_beebjit: between beeb_main.c (the board: the panel,
  * pacing, statistics) and beeb_machine.c (what the Presto's front end asks
- * of the machine: machine_if.h and presto_sd.h, the USB channel and BBC
+ * of the machine: machine_if.h and drive.h, the USB channel and BBC
  * Micro Bot snapshots).
  *
  * Part of the RP2350 port of beebjit. beebjit is copyright Chris Evans and
