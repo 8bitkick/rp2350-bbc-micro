@@ -1,6 +1,6 @@
 #!/bin/sh
 # Instructions per emulated frame (QEMU, -icount shift=0) for a few scenes:
-#   src/pico/beebjit/harness/bench.sh [extra harness options]
+#   src/machines/beeb/harness/bench.sh [extra harness options]
 # At 50 frames a second, real speed on a 250 MHz M33 needs well under
 # 5,000,000 instructions a frame (M33 averages more than 1 cycle each).
 HERE=$(cd "$(dirname "$0")" && pwd)

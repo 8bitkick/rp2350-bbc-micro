@@ -9,17 +9,17 @@ where things are, what has already been tried, and the traps that cost time.
 the Pimoroni Presto (RP2350, two Cortex-M33 cores at 250 MHz, 520 KB SRAM, 8 MB PSRAM, 480×480
 ST7701 RGB panel), with a new Thumb-2 JIT backend. The firmware target is `presto_beebjit`.
 
-The same tree builds a BBC Master 128 instead with `-DPRESTO_MACHINE=master` (target
+The same tree builds a BBC Master 128 instead with `-DMACHINE=master` (target
 `presto_master`, `build-master/presto_master.uf2`): Kieran Connell's cycle-stepped emulator in
-`src/master/` (kept as upstream, with the changes listed in docs/master/README.md), its own Presto
-port in `src/pico/master/` and `src/pico/master/master.cmake`. For now the Master has its own copy
+`src/cores/kc-beeb/` (kept as upstream, with the changes listed in docs/master/README.md), its own Presto
+port in `src/machines/master/` and `src/machines/master/machine.cmake`. For now the Master has its own copy
 of the Presto layer (panel, PSRAM, SD, net, web panel) and no sound or ambient LEDs.
 
 ## Build, flash, run
 
 ```sh
 scripts/setup.sh            # first time: toolchain and Pico SDK into deps/, Elite, build
-. deps/env.sh && ninja -C build presto_beebjit   # rebuild -> build/src/pico/beebjit/presto_beebjit.uf2
+. deps/env.sh && ninja -C build presto_beebjit   # rebuild -> build/presto_beebjit.uf2
 ```
 
 Flash by copying the `.uf2` to the RP2350 drive. To get the drive: hold BOOT and tap RESET, send
@@ -37,36 +37,36 @@ Check a change on the board with:
 
 Off the board, the test harness runs the same Cortex-M33 code natively on a Raspberry Pi 5 (AArch32
 mode) or in QEMU (mps2-an505), and checks the panel image and every frame's checksum against
-`src/pico/beebjit/harness/golden.txt`, for the interpreter, the JIT and the two-core render wire:
+`src/machines/beeb/harness/golden.txt`, for the interpreter, the JIT and the two-core render wire:
 
 ```sh
-src/pico/beebjit/harness/build.sh a32                       # build-a32/harness
-WIRE=1 src/pico/beebjit/harness/build.sh a32 build-a32-wire
-src/pico/beebjit/harness/tests.sh a32; JIT=1 src/pico/beebjit/harness/tests.sh a32
-JIT=1 src/pico/beebjit/harness/tests.sh a32-wire
-src/pico/beebjit/harness/bench.sh -jit                      # QEMU: instructions per frame
+src/machines/beeb/harness/build.sh a32                       # build-a32/harness
+WIRE=1 src/machines/beeb/harness/build.sh a32 build-a32-wire
+src/machines/beeb/harness/tests.sh a32; JIT=1 src/machines/beeb/harness/tests.sh a32
+JIT=1 src/machines/beeb/harness/tests.sh a32-wire
+src/machines/beeb/harness/bench.sh -jit                      # QEMU: instructions per frame
 ```
 
 A change to video, render or the JIT isn't done until those are frame-exact. For the web panel,
-`tools/webdev.py <presto address>` serves `src/pico/presto/web/index.html` from disk and passes
+`tools/webdev.py <presto address>` serves `src/boards/presto/web/index.html` from disk and passes
 `/api/` through to the board.
 
 ## Where things are
 
 | Path | What |
 |---|---|
-| `src/beebjit/` | beebjit's emulator core (see `UPSTREAM` for the commit and local changes) |
-| `src/beebjit/asm/thumb2/` | The Thumb-2 JIT backend and inturbo (one handler per opcode, for self-modifying code) |
-| `src/pico/beebjit/presto/presto_beebjit.c` | Firmware main: clocks, panel, PIO 640→480 scaler, pacing and turbo, statistics, profiler |
-| `src/pico/beebjit/presto/presto_machine.c` | The front end's machine hooks: keys, BREAK, discs, ROM sockets, snapshots, USB `!` commands |
-| `src/pico/beebjit/beebjit_wire.c` | The render wire: core 0's video sends render calls to core 1 |
-| `src/pico/beebjit/os_embedded.c`, `beebjit_embedded.c` | beebjit's OS layer and setup for a host with no OS; the SRAM / PSRAM allocator |
-| `src/pico/beebjit/harness/` | The off-board test harness, golden checksums, benchmarks |
-| `src/pico/presto/presto_lcd.c`, `st7701_*.pio` | Panel driver: ST7701 init, PIO2 timing, PIO1 scanout of a 4-bit framebuffer, row-table DMA |
-| `src/pico/presto/presto_net.c`, `web/` | WiFi, the JSON API and the web control panel |
-| `src/pico/presto/presto_sd.c`, `presto_psram.c` | SD card (FatFs) and PSRAM |
-| `src/master/` | The Master 128: Kieran Connell's emulator core (`machine_hook.h`: the interface for a program built in alongside) |
-| `src/pico/master/` | The Master's Presto port: `main.c` (pacing, USB, stats), `machine_unit.c` / `render_unit.c` (run from SRAM), its own panel, PSRAM, SD, net and web panel |
+| `src/cores/beebjit/` | beebjit, ported to the RP2350: Thumb-2 JIT backend and memory/render changes, on upstream 2ff70a0 (listed in `UPSTREAM`) |
+| `src/cores/beebjit/asm/thumb2/` | The Thumb-2 JIT backend and inturbo (one handler per opcode, for self-modifying code) |
+| `src/machines/beeb/presto_beebjit.c` | Firmware main: clocks, panel, PIO 640→480 scaler, pacing and turbo, statistics, profiler |
+| `src/machines/beeb/presto_machine.c` | The front end's machine hooks: keys, BREAK, discs, ROM sockets, snapshots, USB `!` commands |
+| `src/machines/beeb/beebjit_wire.c` | The render wire: core 0's video sends render calls to core 1 |
+| `src/machines/beeb/os_embedded.c`, `beebjit_embedded.c` | beebjit's OS layer and setup for a host with no OS; the SRAM / PSRAM allocator |
+| `src/machines/beeb/harness/` | The off-board test harness, golden checksums, benchmarks |
+| `src/boards/presto/presto_lcd.c`, `st7701_*.pio` | Panel driver: ST7701 init, PIO2 timing, PIO1 scanout of a 4-bit framebuffer, row-table DMA |
+| `src/boards/presto/presto_net.c`, `web/` | WiFi, the JSON API and the web control panel |
+| `src/boards/presto/presto_sd.c`, `presto_psram.c` | SD card (FatFs) and PSRAM |
+| `src/cores/kc-beeb/` | The Master 128: Kieran Connell's emulator core (`machine_hook.h`: the interface for a program built in alongside) |
+| `src/machines/master/` | The Master's Presto port: `main.c` (pacing, USB, stats), `machine_unit.c` / `render_unit.c` (run from SRAM), its own panel, PSRAM, SD, net and web panel |
 | `tools/beebjit_hillclimb.py` | The optimization graph, with each step's measurements |
 
 Memory: hot code (interpreter, video, render, JIT compiler...) is copied to SRAM at boot

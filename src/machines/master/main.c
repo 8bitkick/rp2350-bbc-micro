@@ -1,4 +1,4 @@
-// Kieran Connell's BBC Master 128 (src/master/) on the Pimoroni Presto (RP2350, 250 MHz).
+// Kieran Connell's BBC Master 128 (src/cores/kc-beeb/) on the Pimoroni Presto (RP2350, 250 MHz).
 //
 // Core 0 runs the machine (machine_unit.c), paced to real time; it writes
 // the video stream (vstream.h). Core 1 runs the renderer on the stream
@@ -222,7 +222,7 @@ static void run_command(const char *cmd)
     }
 }
 
-// a program run alongside the machine (src/master/machine_hook.h) supplies these; without one they do nothing
+// a program run alongside the machine (src/common/machine_hook.h) supplies these; without one they do nothing
 __attribute__((weak)) void machine_frame_hook(const struct machine_hook_io *io) { (void) io; }
 __attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, uint32_t reply_size) { (void) cmd; (void) reply; (void) reply_size; return false; }
 __attribute__((weak)) const char *machine_program_json(void) { return NULL; }

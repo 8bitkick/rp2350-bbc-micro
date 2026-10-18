@@ -188,7 +188,7 @@ On Windows, run it from Git Bash, with CMake and Ninja installed; it also fetche
 synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers it.
 
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
-(which isn't part of this repository), and builds `build/src/pico/beebjit/presto_beebjit.uf2`.
+(which isn't part of this repository), and builds `build/presto_beebjit.uf2`.
 Flash it as in the [quick start](#quick-start), or run `scripts/setup.sh --flash` with the Presto in
 BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto_beebjit`.
 
@@ -198,25 +198,25 @@ BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto
 ### The BBC Master 128
 
 The same tree also builds a BBC Master 128, on [Kieran Connell's emulator](https://github.com/kieranhj/esp32-beeb)
-(`src/master/`) rather than beebjit: one machine per build, chosen with `-DPRESTO_MACHINE`
+(`src/cores/kc-beeb/`) rather than beebjit: one machine per build, chosen with `-DMACHINE`
 (`beeb`, the default, or `master`).
 
 ```sh
 scripts/setup.sh --master   # MOS 3.20 ROMs and the Master discs too; builds build-master/presto_master.uf2
-. deps/env.sh && cmake -S . -B build-master -G Ninja -DPRESTO_MACHINE=master && ninja -C build-master
+. deps/env.sh && cmake -S . -B build-master -G Ninja -DMACHINE=master && ninja -C build-master
 ```
 
 It boots flicker-free Elite for the Master (`--disc=<name>` or `-DBEEB_DISC=<path>` for another).
 [docs/master/README.md](docs/master/README.md) has how it runs, its measurements, and why the Master
 isn't on beebjit. A program can be built into the Master firmware to run alongside the machine
-(`src/master/machine_hook.h`; `-DMACHINE_EXTRA_SOURCES=...`, `_INCLUDES`, `_DEFINES`), as the
+(`src/common/machine_hook.h`; `-DMACHINE_EXTRA_SOURCES=...`, `_INCLUDES`, `_DEFINES`), as the
 [Elite agent](https://github.com/8bitkick/elite-agent) is.
 
 ## Testing
 
 The test harness runs the firmware's own Cortex-M33 code off the board (natively on a Raspberry Pi
 5 in AArch32 mode, or in QEMU) and compares the panel image, and a checksum of every frame, against
-[`golden.txt`](src/pico/beebjit/harness/golden.txt). A change to the video, the renderer or the JIT
+[`golden.txt`](src/machines/beeb/harness/golden.txt). A change to the video, the renderer or the JIT
 isn't done until it's frame-exact. Each test runs four ways: beebjit's interpreter and the JIT,
 each drawing on one core or sending its drawing down the render wire to the other.
 
@@ -235,9 +235,9 @@ Elite and the demos aren't part of this repository; their tests run when the dis
 `discs/`. `setup.sh` fetches Elite, and `scripts/setup.sh --demos` the two demos.
 
 ```sh
-src/pico/beebjit/harness/build.sh a32                       # build-a32/harness
-WIRE=1 src/pico/beebjit/harness/build.sh a32 build-a32-wire
-src/pico/beebjit/harness/tests.sh a32; JIT=1 src/pico/beebjit/harness/tests.sh a32-wire
+src/machines/beeb/harness/build.sh a32                       # build-a32/harness
+WIRE=1 src/machines/beeb/harness/build.sh a32 build-a32-wire
+src/machines/beeb/harness/tests.sh a32; JIT=1 src/machines/beeb/harness/tests.sh a32-wire
 ```
 
 On the board, `tools/scenes.py` measures a set of scenes over USB and the web panel: each core's
@@ -268,7 +268,7 @@ build and measure, where things are, and what hasn't been tried yet.
 - **[Graham Sanderson](https://github.com/kilograham/b-em/tree/pico):** the BBC Micro on the
   RP2040, which showed it could be done on a microcontroller at all.
 - **[Kieran Connell](https://github.com/kieranhj):** for inspiring me to hack small devices again,
-  and for the [BBC Master 128 emulator](https://github.com/kieranhj/esp32-beeb) in `src/master/` (GPL v3).
+  and for the [BBC Master 128 emulator](https://github.com/kieranhj/esp32-beeb) in `src/cores/kc-beeb/` (GPL v3).
 - **ST7701 driver:** adapted from [Pimoroni's](https://github.com/pimoroni/presto) MIT-licensed driver.
 - **[Flicker-free Elite](https://github.com/markmoxon/elite-source-code-bbc-micro-disc):** Mark
   Moxon. Elite is © Ian Bell and David Braben. The release `.uf2` includes it; the source tree

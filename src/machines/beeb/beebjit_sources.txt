@@ -1,4 +1,4 @@
-# beebjit core sources (relative to src/beebjit), shared by CMakeLists.txt and a32/build.sh
+# beebjit core sources (relative to src/cores/beebjit), shared by machine.cmake and harness/build.sh
 adc.c
 bbc.c
 cmos.c

@@ -17,7 +17,7 @@
  */
 #include "presto_beebjit.h"
 #include "romfs.h"
-#include "../os_embedded.h"
+#include "os_embedded.h"
 
 #include "bbc.h"
 #include "cpu_driver.h"

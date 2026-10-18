@@ -1,6 +1,6 @@
 #!/bin/sh
 # Regression checks for the beebjit port, run in a harness build:
-#   src/pico/beebjit/harness/tests.sh [a32|qemu|native]   (default a32; run from anywhere)
+#   src/machines/beeb/harness/tests.sh [a32|qemu|native]   (default a32; run from anywhere)
 # Compares the panel framebuffer (as the Presto would show it) against golden
 # checksums, so rendering changes must give identical pixels, and checks text
 # output: MOS boot, BASIC over RS423, NMOS decimal ADC/SBC edge cases.

@@ -1,9 +1,10 @@
-# beebjit (https://github.com/scarybeasts/beebjit, GPL v3) on the Presto: presto_beebjit.
-# See docs/presto/BEEBJIT_PORT.md.
+# The BBC Model B: beebjit (https://github.com/scarybeasts/beebjit, GPL v3), ported to the RP2350
+# (src/cores/beebjit), on the board: presto_beebjit. Included by the top-level CMakeLists.txt
+# (-DMACHINE=beeb, the default). See docs/presto/BEEBJIT_PORT.md.
 
-set(BEEBJIT_SRC ${CMAKE_CURRENT_LIST_DIR}/../../beebjit)
-set(PRESTO_DIR ${CMAKE_CURRENT_LIST_DIR}/../presto)
-set(BEEB_ROMS ${CMAKE_CURRENT_LIST_DIR}/../../../roms)
+set(BEEBJIT_SRC ${CORES_DIR}/beebjit)
+set(PRESTO_DIR ${BOARD_DIR})
+set(BEEB_ROMS ${TOP_DIR}/roms)
 
 file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/beebjit_sources.txt BEEBJIT_SOURCES REGEX "^[^#]")
 list(TRANSFORM BEEBJIT_SOURCES PREPEND ${BEEBJIT_SRC}/)
@@ -14,12 +15,12 @@ add_executable(presto_beebjit
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_embedded.c
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_panel.c
         ${CMAKE_CURRENT_LIST_DIR}/beebjit_wire.c
-        ${CMAKE_CURRENT_LIST_DIR}/presto/presto_beebjit.c
-        ${CMAKE_CURRENT_LIST_DIR}/presto/presto_machine.c
-        ${CMAKE_CURRENT_LIST_DIR}/presto/romfs.c
+        ${CMAKE_CURRENT_LIST_DIR}/presto_beebjit.c
+        ${CMAKE_CURRENT_LIST_DIR}/presto_machine.c
+        ${CMAKE_CURRENT_LIST_DIR}/romfs.c
         ${PRESTO_DIR}/presto_lcd.c
         ${PRESTO_DIR}/presto_psram.c
-        ${PRESTO_DIR}/presto_boot.c
+        ${COMMON_DIR}/presto_boot.c
         # the front end: the web panel, the SD card
         ${PRESTO_DIR}/presto_net.c
         ${PRESTO_DIR}/presto_sd.c
@@ -30,8 +31,8 @@ add_executable(presto_beebjit
 # the web control panel's page, gzipped into flash
 set(PRESTO_BEEBJIT_WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_web_page.c)
 add_custom_command(OUTPUT ${PRESTO_BEEBJIT_WEB_C}
-        DEPENDS ${PRESTO_DIR}/web/index.html ${CMAKE_CURRENT_LIST_DIR}/../../../tools/embed_web.py
-        COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/../../../tools/embed_web.py ${PRESTO_DIR}/web/index.html ${PRESTO_BEEBJIT_WEB_C})
+        DEPENDS ${PRESTO_DIR}/web/index.html ${TOP_DIR}/tools/embed_web.py
+        COMMAND python3 ${TOP_DIR}/tools/embed_web.py ${PRESTO_DIR}/web/index.html ${PRESTO_BEEBJIT_WEB_C})
 target_sources(presto_beebjit PRIVATE ${PRESTO_BEEBJIT_WEB_C})
 
 # Built-in files, by the names beebjit opens them with.
@@ -48,12 +49,12 @@ endif()
 # A disc built in, in drive 0 and booted at power on: by default flicker-free Elite, if
 # scripts/fetch-elite.sh has fetched it; -DPRESTO_BEEBJIT_DISC=<image> for another, "" for none.
 set(PRESTO_BEEBJIT_DEFAULT_DISC "")
-if (EXISTS ${CMAKE_CURRENT_LIST_DIR}/../../../discs/elite-disc-flicker-free-sth.ssd)
+if (EXISTS ${TOP_DIR}/discs/elite-disc-flicker-free-sth.ssd)
     set(PRESTO_BEEBJIT_DEFAULT_DISC discs/elite-disc-flicker-free-sth.ssd)
 endif()
 set(PRESTO_BEEBJIT_DISC "${PRESTO_BEEBJIT_DEFAULT_DISC}" CACHE STRING "Disc image to build in and boot, relative to the repository (empty: BASIC prompt)")
 if (PRESTO_BEEBJIT_DISC)
-    get_filename_component(DISC_PATH ${PRESTO_BEEBJIT_DISC} ABSOLUTE BASE_DIR ${CMAKE_CURRENT_LIST_DIR}/../../..)
+    get_filename_component(DISC_PATH ${PRESTO_BEEBJIT_DISC} ABSOLUTE BASE_DIR ${TOP_DIR})
     get_filename_component(DISC_NAME ${DISC_PATH} NAME)
     list(APPEND BEEBJIT_EMBED discs/${DISC_NAME}=${DISC_PATH})
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_DISC="discs/${DISC_NAME}")
@@ -85,7 +86,7 @@ if (PRESTO_BEEBJIT_SOUND)
     if (NOT PRESTO_BEEBJIT_WIRE)
         message(FATAL_ERROR "PRESTO_BEEBJIT_SOUND needs core 1 (PRESTO_BEEBJIT_WIRE)")
     endif()
-    target_sources(presto_beebjit PRIVATE ${PRESTO_DIR}/presto_audio.c)
+    target_sources(presto_beebjit PRIVATE ${COMMON_DIR}/presto_audio.c)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_SOUND=1
             BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
 endif()
@@ -126,8 +127,8 @@ endforeach()
 string(REPLACE ";" "|" BEEBJIT_EMBED_ARG "${BEEBJIT_EMBED}")
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_romfs.c
         COMMAND ${CMAKE_COMMAND} -DOUT=${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_romfs.c
-                "-DFILES=${BEEBJIT_EMBED_ARG}" -P ${CMAKE_CURRENT_LIST_DIR}/presto/embed_files.cmake
-        DEPENDS ${BEEBJIT_EMBED_DEPS} ${CMAKE_CURRENT_LIST_DIR}/presto/embed_files.cmake
+                "-DFILES=${BEEBJIT_EMBED_ARG}" -P ${CMAKE_CURRENT_LIST_DIR}/embed_files.cmake
+        DEPENDS ${BEEBJIT_EMBED_DEPS} ${CMAKE_CURRENT_LIST_DIR}/embed_files.cmake
         VERBATIM)
 target_sources(presto_beebjit PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/presto_beebjit_romfs.c)
 
@@ -137,7 +138,7 @@ pico_generate_pio_header(presto_beebjit ${PRESTO_DIR}/st7701_timing.pio)
 target_include_directories(presto_beebjit PRIVATE
         ${BEEBJIT_SRC}
         ${CMAKE_CURRENT_LIST_DIR}
-        ${CMAKE_CURRENT_LIST_DIR}/presto
+        ${COMMON_DIR}
         ${PRESTO_DIR}
         ${PRESTO_DIR}/fatfs
         )

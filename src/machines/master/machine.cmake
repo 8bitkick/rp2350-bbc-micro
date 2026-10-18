@@ -1,14 +1,14 @@
-# A BBC Master 128 on the Pimoroni Presto (RP2350): Kieran Connell's emulator core (src/master/),
-# the Presto's panel, PSRAM and USB around it (src/pico/master/). See docs/master/README.md.
-# Included by the top-level CMakeLists.txt with -DPRESTO_MACHINE=master (which has already set the
-# board and initialised the SDK):
-#   cmake -S . -B build -G Ninja -DPRESTO_MACHINE=master [-DBEEB_DISC=discs/pop-beeb.ssd] && ninja -C build
+# A BBC Master 128 on the Pimoroni Presto (RP2350): Kieran Connell's emulator core
+# (src/cores/kc-beeb/), the Presto's panel, PSRAM and USB around it (src/machines/master/). See
+# docs/master/README.md. Included by the top-level CMakeLists.txt with -DMACHINE=master (which has
+# already set the board and initialised the SDK):
+#   cmake -S . -B build -G Ninja -DMACHINE=master [-DBEEB_DISC=discs/pop-beeb.ssd] && ninja -C build
 # BEEB_ROMS is the MOS 3.20 set (roms/mos3.20, fetched by scripts/setup.sh --master); BEEB_DISC is
 # the disc built in and booted at power on. The firmware is build/presto_master.uf2.
 
 set(PRESTO_DIR ${CMAKE_CURRENT_LIST_DIR})
-set(MASTER_CORE_DIR ${CMAKE_CURRENT_LIST_DIR}/../../master)
-set(MASTER_TOP ${CMAKE_CURRENT_LIST_DIR}/../../..)
+set(MASTER_CORE_DIR ${CORES_DIR}/kc-beeb)
+set(MASTER_TOP ${TOP_DIR})
 set(BEEB_ROMS ${MASTER_TOP}/roms/mos3.20 CACHE PATH "MOS 3.20 ROMs")
 set(BEEB_DISC ${MASTER_TOP}/discs/elite-master-flicker-free-sng47.ssd CACHE FILEPATH "the disc to build in and boot")
 
@@ -44,10 +44,10 @@ add_custom_command(OUTPUT ${WEB_C}
 target_sources(presto_master PRIVATE ${WEB_C})
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_parallel.pio)
 pico_generate_pio_header(presto_master ${PRESTO_DIR}/st7701_timing.pio)
-target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${PRESTO_DIR}/fatfs ${MASTER_CORE_DIR})
+target_include_directories(presto_master PRIVATE ${PRESTO_DIR} ${PRESTO_DIR}/fatfs ${MASTER_CORE_DIR} ${COMMON_DIR})
 target_compile_options(presto_master PRIVATE -O2 -fwrapv -Wall -Wno-unused-function)
 # A program built in to run alongside the machine (e.g. a player that reads its RAM and presses
-# keys, through src/master/machine_hook.h's machine_frame_hook and machine_command_hook): its
+# keys, through src/common/machine_hook.h's machine_frame_hook and machine_command_hook): its
 # sources and include directories, given by the project that builds it. Empty: none.
 # (MACHINE_EXTRA_SOURCES, _INCLUDES and _DEFINES are declared in the top-level CMakeLists.txt.)
 if (MACHINE_EXTRA_SOURCES)
