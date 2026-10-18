@@ -690,7 +690,8 @@ usb_poll(void) {
       s_key_state = 0;
     } else if (c == 0x1A) {
       s_key_state = 1;
-    } else if (c == '!') {
+    } else if ((c == '!') && (s_cmd_len < 0)) {
+      /* Not within a command: a WiFi password may hold a '!'. */
       s_cmd_len = 0;
     } else if (s_cmd_len >= 0) {
       if ((c == '\n') || (c == '\r')) {

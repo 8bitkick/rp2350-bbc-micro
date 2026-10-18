@@ -183,6 +183,10 @@ cd rp2350-bbc-micro
 scripts/setup.sh            # add --apt on Debian / Ubuntu / Raspberry Pi OS to install the host packages
 ```
 
+On Windows, run it from Git Bash, with CMake and Ninja installed; it also fetches prebuilt
+`pioasm` and `picotool`. To keep the toolchain and SDK (1.6 GB) somewhere else, such as outside a
+synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers it.
+
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
 (which isn't part of this repository), and builds `build/src/pico/beebjit/presto_beebjit.uf2`.
 Flash it as in the [quick start](#quick-start), or run `scripts/setup.sh --flash` with the Presto in

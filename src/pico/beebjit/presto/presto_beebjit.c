@@ -314,8 +314,8 @@ static void prof_init(void);
 #endif
 
 static void __not_in_flash_func(core1_main)(void) {
-  flash_safe_execute_core_init(); // Register for flash_safe to enable wifi command to work
-
+  /* Let core 0 park this core while it writes the flash (saving WiFi details). */
+  (void) flash_safe_execute_core_init();
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
 #endif
@@ -915,6 +915,13 @@ run_beebjit(void) {
   config.p_os_rom = "roms/os12.rom";
   config.p_rom_names[15] = "roms/basic2.rom";
   config.p_rom_names[14] = "roms/dfs09.rom";
+  /* 64K of sideways RAM in sockets 4-7, as a RAM board gives a Model B:
+   * demos load music and data into it (BEEB-NICCC's music, for one).
+   */
+  config.is_sideways_ram[4] = 1;
+  config.is_sideways_ram[5] = 1;
+  config.is_sideways_ram[6] = 1;
+  config.is_sideways_ram[7] = 1;
   config.terminal_flag = PRESTO_BEEBJIT_TERMINAL;
 #ifdef PRESTO_BEEBJIT_DISC
   config.p_disc_names[0] = PRESTO_BEEBJIT_DISC;

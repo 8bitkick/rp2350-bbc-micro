@@ -285,6 +285,13 @@ bbc_write_needs_callback(void* p, uint16_t addr) {
   (void) p_bbc;
   assert(!p_bbc->is_master);
 
+  if (BEEBJIT_NO_MMU) {
+    /* No write mapping to drop ROM writes into: bbc_write_callback() writes
+     * sideways RAM and drops writes to ROM (as write_callback_from).
+     */
+    return (addr >= k_bbc_sideways_offset);
+  }
+
   if (p_bbc->has_sideways_ram) {
     return (addr >= k_bbc_os_rom_offset);
   }

@@ -172,6 +172,8 @@ set(PRESTO_BEEBJIT_RAM_OBJECTS "interp.c.o;timing.c.o;render.c.o;state_6502.c.o;
         CACHE STRING "beebjit object files whose code is copied to SRAM at boot")
 set(RAM_EXCLUDES "")
 foreach(OBJ ${PRESTO_BEEBJIT_RAM_OBJECTS})
+    # objects are .c.obj when CMake runs on Windows
+    string(REGEX REPLACE "\\.o$" "${CMAKE_C_OUTPUT_EXTENSION}" OBJ "${OBJ}")
     string(APPEND RAM_EXCLUDES " *${OBJ}")
 endforeach()
 file(READ ${PICO_SDK_PATH}/src/rp2_common/pico_crt0/rp2350/memmap_default.ld MEMMAP)
