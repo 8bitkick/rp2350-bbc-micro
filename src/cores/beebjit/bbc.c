@@ -3355,10 +3355,14 @@ bbc_add_disc(struct bbc_struct* p_bbc,
   disc_drive_add_disc(p_drive, p_disc);
 }
 
+/* RP2350 port: is_writeable makes the disc writeable and mutable, its writes
+ * going back to its file (for the host to keep).
+ */
 void
 bbc_replace_disc(struct bbc_struct* p_bbc,
                  const char* p_filename,
-                 int drive) {
+                 int drive,
+                 int is_writeable) {
   struct disc_drive_struct* p_drive;
   struct disc_struct* p_disc = NULL;
 
@@ -3371,7 +3375,13 @@ bbc_replace_disc(struct bbc_struct* p_bbc,
   }
 
   if (p_filename != NULL) {
-    p_disc = disc_create(p_filename, 0, 0, 0, 0, 0, &p_bbc->options);
+    p_disc = disc_create(p_filename,
+                         is_writeable,
+                         is_writeable,
+                         0,
+                         0,
+                         0,
+                         &p_bbc->options);
     if (p_disc == NULL) {
       util_bail("disc_create failed");
     }

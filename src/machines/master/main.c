@@ -28,6 +28,7 @@
 #include "frontend.h"
 #include "presto_main.h"
 #include "presto_sd.h"
+#include "drive.h"
 #if WITH_SOUND
 #include "presto_audio.h"
 #endif
@@ -131,11 +132,25 @@ static uint8_t sdl_to_bbc(uint32_t sc)
     case 42: return 0x59;   // DELETE
     case 43: return 0x60;   // TAB
     case 44: return 0x62;   // SPACE
+    case 45: return 0x17;   // - (=)
+    case 46: return 0x18;   // ^ (~)
+    case 47: return 0x38;   // [ ({)
+    case 48: return 0x58;   // ] (})
+    case 49: return 0x78;   // \ (|)
+    case 51: return 0x57;   // ; (+)
+    case 52: return 0x48;   // : (*)
+    case 53: return 0x47;   // @
+    case 54: return 0x66;   // ,
+    case 55: return 0x67;   // .
+    case 56: return 0x68;   // /
+    case 57: return 0x40;   // CAPS LOCK
+    case 77: return 0x69;   // COPY (End)
     case 79: return 0x79;   // RIGHT
     case 80: return 0x19;   // LEFT
     case 81: return 0x29;   // DOWN
     case 82: return 0x39;   // UP
     case 224: return 0x01;  // CTRL
+    case 228: return 0x01;  // right CTRL
     case 225: return 0x00;  // SHIFT
     case 229: return 0x00;  // right SHIFT
     default: return 0xff;
@@ -244,7 +259,7 @@ static void frame_hook(struct machine *m)
 static void splash_disc_progress(int done, int total)
 {
     char what[48];
-    snprintf(what, sizeof what, "DISC INTO PSRAM: %s", presto_disc_source());
+    snprintf(what, sizeof what, "DISC INTO PSRAM: %s", drive0_source());
     panel_splash_status(what, 300 + 700 * done / total);
 }
 
@@ -285,7 +300,7 @@ static void run(void)
     // Drive 0's track data (two sides, for .dsd images) and where disc
     // images from the card or the web arrive.
     uint32_t *pulses = psram_alloc(2 * (size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
-    uint8_t *disc_ram = psram_alloc(PRESTO_DISC_MAX);
+    uint8_t *disc_ram = psram_alloc(DRIVE_IMAGE_MAX);
     presto_disc_progress(splash ? splash_disc_progress : NULL);
     presto_machine_init(m, pulses, disc_ram, disc_image, disc_image_size);
     presto_disc_progress(NULL);

@@ -10,11 +10,13 @@ struct machine;
 
 // presto_machine.c: put the built-in disc in drive 0 and start the network.
 // pulses: two sides of track data (2 x DISC_TRACKS x DISC_BYTES_PER_TRACK
-// words); disc_ram: PRESTO_DISC_MAX bytes, where images arrive.
+// words); disc_ram: DRIVE_IMAGE_MAX bytes, where images arrive.
 void presto_machine_init(struct machine *m, uint32_t *pulses, uint8_t *disc_ram,
                          const uint8_t *builtin, uint32_t builtin_size);
 // Between frames: what web requests asked for (keys, discs, resets).
 void presto_machine_frame(void);
+// told as each track of a disc goes into the drive (NULL: no one); for the loading screen
+void presto_disc_progress(void (*fn)(int done, int total));
 // Whenever core 0 has a moment: move network packets.
 void presto_machine_poll(void);
 

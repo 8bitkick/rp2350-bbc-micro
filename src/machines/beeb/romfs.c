@@ -37,9 +37,12 @@ enum {
 
 static struct romfs_file s_ram_files[k_romfs_max_ram_files];
 static char s_ram_names[k_romfs_max_ram_files][32];
+static uint8_t s_ram_writeable[k_romfs_max_ram_files];
+static uint32_t s_ram_writes;
 
-void
-romfs_set_ram_file(const char* p_name, const uint8_t* p_data, uint32_t size) {
+static void
+ram_file_set(const char* p_name, const uint8_t* p_data, uint32_t size,
+             int writeable) {
   unsigned i;
   unsigned free_i = k_romfs_max_ram_files;
   for (i = 0; i < k_romfs_max_ram_files; ++i) {
@@ -60,6 +63,35 @@ romfs_set_ram_file(const char* p_name, const uint8_t* p_data, uint32_t size) {
   s_ram_files[free_i].p_name = s_ram_names[free_i];
   s_ram_files[free_i].p_data = p_data;
   s_ram_files[free_i].size = size;
+  s_ram_writeable[free_i] = (uint8_t) writeable;
+}
+
+void
+romfs_set_ram_file(const char* p_name, const uint8_t* p_data, uint32_t size) {
+  ram_file_set(p_name, p_data, size, 0);
+}
+
+void
+romfs_set_ram_file_writeable(const char* p_name,
+                             uint8_t* p_data,
+                             uint32_t size) {
+  ram_file_set(p_name, p_data, size, 1);
+}
+
+uint32_t
+romfs_ram_writes(void) {
+  return s_ram_writes;
+}
+
+static int
+is_writeable(const struct romfs_file* p_file) {
+  unsigned i;
+  for (i = 0; i < k_romfs_max_ram_files; ++i) {
+    if (p_file == &s_ram_files[i]) {
+      return s_ram_writeable[i];
+    }
+  }
+  return 0;
 }
 
 const struct romfs_file*
@@ -98,13 +130,14 @@ int
 _open(const char* p_name, int flags, ...) {
   unsigned j;
   const struct romfs_file* p_file;
-  if ((flags & O_ACCMODE) != O_RDONLY) {
-    errno = EROFS;
-    return -1;
-  }
   p_file = romfs_find(p_name);
   if (p_file == NULL) {
     errno = ENOENT;
+    return -1;
+  }
+  if (((flags & O_ACCMODE) != O_RDONLY) &&
+      (!is_writeable(p_file) || (flags & (O_CREAT | O_TRUNC)))) {
+    errno = EROFS;
     return -1;
   }
   for (j = 0; j < k_romfs_max_open; ++j) {
@@ -152,12 +185,27 @@ _read(int fd, char* p_buf, int len) {
 
 int
 _write(int fd, const char* p_buf, int len) {
+  struct romfs_open* p_open;
+  uint32_t left;
   if ((fd == 1) || (fd == 2)) {
     stdio_put_string(p_buf, len, false, true);
     return len;
   }
-  errno = EBADF;
-  return -1;
+  p_open = romfs_get(fd);
+  if ((p_open == NULL) || !is_writeable(p_open->p_file)) {
+    errno = EBADF;
+    return -1;
+  }
+  left = ((p_open->pos < p_open->p_file->size) ?
+          (p_open->p_file->size - p_open->pos) : 0);
+  if ((uint32_t) len > left) {
+    errno = ENOSPC;
+    return -1;
+  }
+  (void) memcpy(((uint8_t*) p_open->p_file->p_data + p_open->pos), p_buf, len);
+  p_open->pos += len;
+  s_ram_writes++;
+  return len;
 }
 
 off_t

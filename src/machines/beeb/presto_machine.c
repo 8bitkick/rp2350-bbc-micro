@@ -27,6 +27,7 @@
 #include "via.h"
 #include "video.h"
 
+#include "drive.h"
 #include "frontend.h"
 #include "machine_if.h"
 #include "presto_lcd.h"
@@ -49,7 +50,6 @@
 
 static struct bbc_struct* s_bbc;
 static struct keyboard_struct* s_keyboard;
-static const char* s_builtin_disc;
 static uint32_t s_frames;
 
 /* ---- Keys ---- */
@@ -269,17 +269,16 @@ presto_rom_layout_default(void) {
   s_want_gxr = -1;
 }
 
-/* ---- Discs ----
- * An image from the card or the web lands at the start of the disc RAM;
- * beebjit takes a copy as it goes in (building tracks from it as the drive
- * reaches them), so the disc RAM is free again straight away.
+/* ---- Drive 0 (src/common/drive.c decides what goes in it) ----
+ * beebjit reads the disc from a file in RAM, the drive's own copy (PSRAM): it
+ * takes a copy of its own as the disc goes in (building tracks from it as the
+ * drive reaches them), and, the disc being writeable and mutable, writes each
+ * track the drive has written back into the file once the head has gone
+ * round (disc_flush_writes). So the file is the disc as written, and the save
+ * disc reads its sectors from there.
  */
-static char s_disc_name[72];
-
-const char*
-presto_disc_name(void) {
-  return s_disc_name[0] ? s_disc_name : NULL;
-}
+static uint8_t* s_drive;           /* DRIVE_IMAGE_MAX bytes */
+static uint32_t s_drive_size;
 
 static void
 reset_to_boot(void) {
@@ -288,62 +287,56 @@ reset_to_boot(void) {
   bbc_request_reset(s_bbc, 1);
 }
 
-bool
-presto_disc_insert(const char* p_name, uint32_t size) {
-  uint8_t* p_ram = presto_disc_ram();
-  const char* p_dot = strrchr(p_name, '.');
-  const char* p_file;
-  uint32_t side_sectors;
-  uint32_t padded;
-  bool dsd;
+void
+machine_drive_load(const uint8_t* p_image, uint32_t size, bool dsd, bool boot) {
+  const char* p_file = (dsd ? "drive0.dsd" : "drive0.ssd");
+  if ((s_bbc == NULL) || (s_drive == NULL)) {
+    return;
+  }
+  /* The disc in the drive out first (its last writes go to the old image). */
+  bbc_replace_disc(s_bbc, NULL, 0, 0);
+  s_drive_size = 0;
+  if ((p_image != NULL) && (size != 0) && (size <= DRIVE_IMAGE_MAX)) {
+    /* The whole disc, 80 tracks a side: an image holds only the sectors up
+     * to its last file, and writes may go beyond.
+     */
+    uint32_t whole = ((dsd ? 2u : 1u) * 80 * 10 * 256);
+    if (p_image != s_drive) {
+      (void) memcpy(s_drive, p_image, size);
+    }
+    if (size < whole) {
+      (void) memset((s_drive + size), '\0', (whole - size));
+      size = whole;
+    }
+    s_drive_size = size;
+    romfs_set_ram_file_writeable(p_file, s_drive, size);
+    bbc_replace_disc(s_bbc, p_file, 0, 1);
+  }
+  if (boot) {
+    reset_to_boot();
+  }
+}
 
-  if ((p_ram == NULL) || (s_bbc == NULL) || (size == 0) ||
-      (size > PRESTO_DISC_MAX)) {
+uint32_t
+machine_drive_writes(void) {
+  return romfs_ram_writes();
+}
+
+bool
+machine_drive_sector(int track, int sector, uint8_t* p_out) {
+  uint32_t at = ((((uint32_t) track * 10) + (uint32_t) sector) * 256);
+  if ((at + 256) > s_drive_size) {
     return false;
   }
-  /* DFS single sided (.ssd) or interleaved double sided (.dsd). The name
-   * isn't always right (double sided images get called .ssd), so ask the
-   * disc too: its catalogue (bytes 6 and 7 of sector 1) says how many sectors
-   * a side holds, so an image bigger than one side is two.
+  /* The file is the disc as written: hand back every sector (the save disc
+   * rewrites only the flash sectors that differ).
    */
-  dsd = ((p_dot != NULL) && !strcasecmp(p_dot, ".dsd"));
-  side_sectors = 0;
-  if (size >= 0x108) {
-    side_sectors = (((p_ram[0x106] & 3u) << 8) | p_ram[0x107]);
-  }
-  if (((side_sectors == 400) || (side_sectors == 800)) &&
-      (size > (side_sectors * 256))) {
-    dsd = true;
-  }
-  if (!dsd && (size > (PRESTO_DISC_MAX / 2))) {
-    return false;
-  }
-  /* beebjit wants whole sectors. */
-  padded = ((size + 255) & ~255u);
-  (void) memset((p_ram + size), '\0', (padded - size));
-  p_file = (dsd ? "card.dsd" : "card.ssd");
-  romfs_set_ram_file(p_file, p_ram, padded);
-  bbc_replace_disc(s_bbc, p_file, 0);
-  (void) snprintf(s_disc_name, sizeof(s_disc_name), "%s", p_name);
-  reset_to_boot();
+  (void) memcpy(p_out, (s_drive + at), 256);
   return true;
 }
 
-bool
-presto_sd_reinsert_disc(void) {
-  /* The drive keeps its disc through resets. */
-  return (s_disc_name[0] != '\0');
-}
-
 void
-presto_sd_eject_disc(void) {
-  if (s_bbc == NULL) {
-    return;
-  }
-  bbc_replace_disc(s_bbc, s_builtin_disc, 0);
-  s_disc_name[0] = '\0';
-  reset_to_boot();
-  (void) printf("DISC built-in\n");
+machine_drive_clean(void) {
 }
 
 /* ---- BBC Micro Bot snapshots ----
@@ -369,8 +362,8 @@ static uint32_t s_state_frames;
 
 static uint8_t*
 state_buf(void) {
-  uint8_t* p_ram = presto_disc_ram();
-  return (p_ram == NULL) ? NULL : (p_ram + PRESTO_DISC_MAX);
+  uint8_t* p_ram = presto_beebjit_disc_ram();
+  return (p_ram == NULL) ? NULL : (p_ram + DRIVE_IMAGE_MAX);
 }
 
 void
@@ -608,9 +601,17 @@ void
 presto_machine_init(struct bbc_struct* p_bbc, const char* p_builtin_disc) {
   s_bbc = p_bbc;
   s_keyboard = bbc_get_keyboard(p_bbc);
-  s_builtin_disc = p_builtin_disc;
   keys_init();
   bbc_set_host_reset_callback(p_bbc, reset_hook, NULL);
+  /* Drive 0: the built-in disc (or its save disc), from a copy in PSRAM. */
+  s_drive = beebjit_embedded_malloc_big(DRIVE_IMAGE_MAX);
+  {
+    const struct romfs_file* p_builtin =
+        (p_builtin_disc != NULL) ? romfs_find_builtin(p_builtin_disc) : NULL;
+    drive0_init((p_builtin != NULL) ? p_builtin->p_data : NULL,
+                (p_builtin != NULL) ? p_builtin->size : 0,
+                presto_beebjit_disc_ram());
+  }
   frontend_init();
 }
 

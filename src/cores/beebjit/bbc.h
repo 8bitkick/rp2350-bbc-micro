@@ -89,7 +89,8 @@ void bbc_sideways_select(struct bbc_struct* p_bbc, uint8_t index);
 /* Takes the discs out of a drive and puts this one in (NULL: none). */
 void bbc_replace_disc(struct bbc_struct* p_bbc,
                       const char* p_filename,
-                      int drive);
+                      int drive,
+                      int is_writeable);
 void bbc_add_disc(struct bbc_struct* p_bbc,
                   const char* p_file_name,
                   int drive,

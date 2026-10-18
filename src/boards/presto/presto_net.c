@@ -30,14 +30,15 @@
 #include "pico/cyw43_arch.h"
 #include "pico/flash.h"
 #include "hardware/flash.h"
-#include "hardware/structs/qmi.h"
 #include "hardware/watchdog.h"
 #include "lwip/tcp.h"
 #include "lwip/dns.h"
 #include "lwip/apps/mdns.h"
 #include "net_if.h"
+#include "mem.h"
 #include "api.h"
 #include "presto_sd.h"
+#include "drive.h"
 #include "presto_psram.h"
 #include "presto_boot.h"
 
@@ -54,10 +55,9 @@ extern const uint32_t presto_web_page_len;
 #define STAGE_OFFSET PRESTO_DISC_STAGE_OFFSET
 
 // ---------------------------------------------------------------------------------------
-// WiFi credentials: the last sector of the flash
+// WiFi credentials: the flash layout's WiFi sector (mem.h)
 
 #define CRED_MAGIC 0x49464957u      // "WIFI"
-#define CRED_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
 typedef struct {
     uint32_t magic;
     char ssid[33];
@@ -65,32 +65,23 @@ typedef struct {
 } cred_t;
 
 static const cred_t *saved_cred(void) {
-    const cred_t *c = (const cred_t *) (XIP_BASE + CRED_OFFSET);
+    uint32_t off, size;
+    if (!mem_flash_region(MEM_FLASH_WIFI, &off, &size)) return NULL;
+    const cred_t *c = (const cred_t *) mem_flash_ptr(off);
     if (c->magic != CRED_MAGIC || !memchr(c->ssid, 0, sizeof(c->ssid)) || !memchr(c->pass, 0, sizeof(c->pass)) || !c->ssid[0]) {
         return NULL;
     }
     return c;
 }
 
-static void __no_inline_not_in_flash_func(write_cred)(void *page) {
-    // the SDK goes back to XIP through boot2, which sets the flash's own timing, too fast at
-    // our clock: put back the slower timing the firmware runs with before touching the flash
-    uint32_t timing = qmi_hw->m[0].timing;
-    flash_range_erase(CRED_OFFSET, FLASH_SECTOR_SIZE);
-    flash_range_program(CRED_OFFSET, page, FLASH_PAGE_SIZE);
-    qmi_hw->m[0].timing = timing;
-}
-
 bool net_wifi_save(const char *ssid, const char *pass) {
-    static uint8_t page[FLASH_PAGE_SIZE];
-    if (!*ssid || strlen(ssid) > 32 || strlen(pass) > 64) return false;
-    memset(page, 0xff, sizeof(page));
+    uint32_t off, size;
+    if (!*ssid || strlen(ssid) > 32 || strlen(pass) > 64 || !mem_flash_region(MEM_FLASH_WIFI, &off, &size)) return false;
     cred_t c = {.magic = CRED_MAGIC};
     strcpy(c.ssid, ssid);
     strcpy(c.pass, pass);
-    memcpy(page, &c, sizeof(c));
     // core 1 is parked (the panel freezes for a moment) while the flash is busy
-    return flash_safe_execute(write_cred, page, 1000) == PICO_OK;
+    return mem_flash_write_sector(off, &c, sizeof(c));
 }
 
 static void restart_soon(void) {
@@ -327,7 +318,7 @@ static err_t fetch_header_done(void) {
         }
     }
     if (fetch.status != 200) return ERR_VAL;
-    if (fetch.length > PRESTO_DISC_MAX) return ERR_MEM;
+    if (fetch.length > DRIVE_IMAGE_MAX) return ERR_MEM;
     return ERR_OK;
 }
 
@@ -347,7 +338,7 @@ static err_t fetch_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
         else fetch.state = F_READY;
         return pcb ? ERR_OK : ERR_OK;
     }
-    uint8_t *stage = presto_disc_ram() + STAGE_OFFSET;
+    uint8_t *stage = drive0_staging() + STAGE_OFFSET;
     fetch.last_progress_us = time_us_32();
     for (struct pbuf *q = p; q; q = q->next) {
         const uint8_t *d = q->payload;
@@ -389,7 +380,7 @@ static err_t fetch_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
                     return ERR_ABRT;
                 }
             } else {
-                if (fetch.got + len > PRESTO_DISC_MAX) {
+                if (fetch.got + len > DRIVE_IMAGE_MAX) {
                     tcp_recved(pcb, p->tot_len);
                     pbuf_free(p);
                     fetch_fail("too big for a disc");
@@ -484,7 +475,7 @@ static void fetch_restart(void) {
 
 static const char *fetch_start(const char *url, bool save) {
     if (fetch.state == F_BUSY) return "already downloading";
-    if (!presto_disc_ram()) return "no PSRAM";
+    if (!drive0_staging()) return "no PSRAM";
     while (*url == ' ') url++;
     if (!strncasecmp(url, "https://", 8)) return "https links aren't supported yet: use http, or download it and drop the file";
     if (!parse_url(url)) return "not an http:// link";
@@ -714,7 +705,7 @@ static void route(conn_t *c) {
             respond_error(c, 409, "already loading a disc");
             return;
         }
-        if (!presto_disc_ram() || !c->length || c->length > PRESTO_DISC_MAX) {
+        if (!drive0_staging() || !c->length || c->length > DRIVE_IMAGE_MAX) {
             c->route = R_TOOBIG;
             respond_error(c, 413, "that's not the size of a disc image");
             return;
@@ -767,7 +758,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
             } else {
                 uint n = MIN(len, c->length - c->got);
                 if (c->route == R_DISC) {
-                    memcpy(presto_disc_ram() + STAGE_OFFSET + c->got, d, n);
+                    memcpy(drive0_staging() + STAGE_OFFSET + c->got, d, n);
                 } else {
                     memcpy(c->body + c->body_len, d, n);
                     c->body_len = (uint16_t) (c->body_len + n);
@@ -895,7 +886,7 @@ void net_frame(void) {
     }
     if (disc_in.pending) {
         disc_in.pending = false;
-        uint8_t *ram = presto_disc_ram();
+        uint8_t *ram = drive0_staging();
         if (!disc_in.boot) {
             // just onto the card
             if (presto_sd_save(disc_in.name, ram + STAGE_OFFSET, disc_in.size)) {
@@ -906,7 +897,7 @@ void net_frame(void) {
             }
         } else {
             memmove(ram, ram + STAGE_OFFSET, disc_in.size);
-            if (!presto_disc_insert(disc_in.name, disc_in.size)) {
+            if (!drive0_insert(disc_in.name, disc_in.size)) {
                 snprintf(fetch.error, sizeof(fetch.error), "that's not the size of a disc image");
                 fetch.state = F_ERROR;
             } else {

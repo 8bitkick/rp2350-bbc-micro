@@ -13,6 +13,7 @@
 #include "frontend.h"
 #include "machine_if.h"
 #include "machine_hook.h"
+#include "drive.h"
 #include "presto_sd.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
@@ -31,11 +32,6 @@ __attribute__((weak)) bool machine_command_hook(const char *cmd, char *reply, ui
 }
 __attribute__((weak)) const char *machine_program_json(void) { return NULL; }
 __attribute__((weak)) const struct machine_boot_image *machine_boot_image(void) { return NULL; }
-
-// ---- A machine that keeps no save disc (presto_sd.h)
-
-__attribute__((weak)) int presto_disc_saves(void) { return -1; }
-__attribute__((weak)) void presto_disc_restore(void) {}
 
 // ---- Replies
 
@@ -147,7 +143,7 @@ static void status_json(char *j, size_t size) {
     extern char __StackLimit;
     unsigned free_ram = (unsigned) (m.fordblks + (unsigned) (&__StackLimit - (char *) sbrk(0)));
     char disc[80];
-    const char *dn = presto_disc_name();
+    const char *dn = drive0_name();
     if (dn) api_json_str(disc, sizeof disc, dn);
     else strcpy(disc, "null");
     char overlay[8];
@@ -156,7 +152,7 @@ static void status_json(char *j, size_t size) {
                               "\"core0\":%u,\"core1\":%u,\"disc\":%s,\"saves\":%d,\"free\":%u,\"mhz\":%u,"
                               "\"temp\":%d,\"leds\":%u,\"program\":%s",
                      machine_name(), BOARD_NAME, machine_turbo_get() ? "true" : "false", overlay, speed, c0, c1,
-                     disc, presto_disc_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
+                     disc, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
                      (frontend_temp_centi() + 50) / 100, machine_leds(),
                      machine_program_json() ? "true" : "false");
 #if BOARD_HAS_NET
@@ -232,7 +228,7 @@ static void cmd_break(api_req_t *r) {
 // ---- Discs
 
 static void cmd_eject(api_req_t *r) {
-    presto_sd_eject_disc();     // ("DISC built-in")
+    drive0_eject();             // ("DISC built-in")
     api_reply(r, 200, "{}");
 }
 
@@ -276,11 +272,11 @@ static void cmd_sd(api_req_t *r) {
 
 // the built-in disc as it came (what games saved to it forgotten), booted
 static void cmd_restore(api_req_t *r) {
-    if (presto_disc_saves() < 0) {
+    if (drive0_saves() < 0) {
         api_error(r, 404, "no save disc in this build");
         return;
     }
-    presto_disc_restore();      // ("DISC golden disc restored")
+    drive0_restore();           // ("DISC golden disc restored")
     api_reply(r, 200, "{}");
 }
 
