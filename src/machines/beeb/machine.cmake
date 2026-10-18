@@ -1,6 +1,6 @@
 # The BBC Model B: beebjit (https://github.com/scarybeasts/beebjit, GPL v3), ported to the RP2350
 # (src/cores/beebjit), on the board: presto_beebjit. Included by the top-level CMakeLists.txt
-# (-DMACHINE=beeb, the default). See docs/presto/BEEBJIT_PORT.md.
+# (-DMACHINE=beeb, the default). See README.md and AGENTS.md.
 
 set(BEEBJIT_SRC ${CORES_DIR}/beebjit)
 set(BEEB_ROMS ${TOP_DIR}/roms)

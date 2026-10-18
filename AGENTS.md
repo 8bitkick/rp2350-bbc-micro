@@ -5,22 +5,35 @@ where things are, what has already been tried, and the traps that cost time.
 
 ## What this is
 
-[beebjit](https://github.com/scarybeasts/beebjit), Chris Evans' cycle-exact BBC Micro emulator, on
-the Pimoroni Presto (RP2350, two Cortex-M33 cores at 250 MHz, 520 KB SRAM, 8 MB PSRAM, 480×480
-ST7701 RGB panel), with a new Thumb-2 JIT backend. The firmware target is `presto_beebjit`.
+A BBC Micro on an RP2350 board, the Pimoroni Presto (two Cortex-M33 cores at 250 MHz, 520 KB
+SRAM, 8 MB PSRAM, 480×480 ST7701 RGB panel). One machine per build:
 
-The same tree builds a BBC Master 128 instead with `-DMACHINE=master` (target
-`presto_master`, `build-master/presto_master.uf2`): Kieran Connell's cycle-stepped emulator in
-`src/cores/kc-beeb/` (kept as upstream, with the changes listed in docs/master/README.md), its own Presto
-port in `src/machines/master/` and `src/machines/master/machine.cmake`. For now the Master has its own copy
-of the Presto layer (panel, PSRAM, SD, net, web panel) and no sound or ambient LEDs.
+- `-DMACHINE=beeb` (the default): the BBC Model B on [beebjit](https://github.com/scarybeasts/beebjit),
+  Chris Evans' cycle-exact emulator, with a new Thumb-2 JIT backend. Target `presto_beebjit`.
+- `-DMACHINE=master`: the BBC Master 128 on Kieran Connell's cycle-stepped emulator (kc-beeb).
+  Target `presto_master`.
+
+By role: `src/cores/` the emulators, `src/machines/<machine>/` each one's glue, `src/common/` what
+both share on any RP2350 board (the command layer and web page, the USB channel, drive 0 and the
+save disc, the flash, the sound, the program hook, `board.h`, the board interface),
+`src/boards/presto/` the Presto's hardware. docs/porting-a-board.md, docs/cores.md (which core
+does what, and its measured load: keep it current when a change moves a figure).
+
+Options: `-DMACHINE`, `-DBOARD=presto`, `-DSOUND=ON`, `-DAMBIENT=ON`, `-DAPP_SOURCES` / `_INCLUDES` /
+`_DEFINES` (a program built in alongside; the elite-agent's `MACHINE_EXTRA_*` names are aliases,
+as are `PRESTO_MACHINE` and `PRESTO_BEEBJIT_SOUND` / `_AMBIENT`).
 
 ## Build, flash, run
 
 ```sh
 scripts/setup.sh            # first time: toolchain and Pico SDK into deps/, Elite, build
 . deps/env.sh && ninja -C build presto_beebjit   # rebuild -> build/presto_beebjit.uf2
+scripts/setup.sh --master   # the Master: its ROMs and discs, build-master/presto_master.uf2
 ```
+
+To test saving without touching the save disc already in the flash, build with
+`-DBOARD_FLASH_SAVE_SHIFT=0x100000` (the save disc 1 MB lower). `!restore` (or `/api/disc/restore`)
+forgets the save disc for good.
 
 Flash by copying the `.uf2` to the RP2350 drive. To get the drive: hold BOOT and tap RESET, send
 `!bootsel` over USB, or open the USB serial port at 1200 baud. `BOOT_GUARD` (on by default)
@@ -36,7 +49,7 @@ Check a change on the board with:
 - `tools/presto.py raw clk`: clk_sys as measured by the frequency counter.
 
 Off the board, the test harness runs the same Cortex-M33 code natively on a Raspberry Pi 5 (AArch32
-mode) or in QEMU (mps2-an505), and checks the panel image and every frame's checksum against
+mode) or in QEMU (mps2-an505) (or, `native`, with the host's compiler and no JIT, on any host), and checks the panel image and every frame's checksum against
 `src/machines/beeb/harness/golden.txt`, for the interpreter, the JIT and the two-core render wire:
 
 ```sh
@@ -58,15 +71,20 @@ A change to video, render or the JIT isn't done until those are frame-exact. For
 | `src/cores/beebjit/` | beebjit, ported to the RP2350: Thumb-2 JIT backend and memory/render changes, on upstream 2ff70a0 (listed in `UPSTREAM`) |
 | `src/cores/beebjit/asm/thumb2/` | The Thumb-2 JIT backend and inturbo (one handler per opcode, for self-modifying code) |
 | `src/machines/beeb/beeb_main.c` | Firmware main: clocks, panel, PIO 640→480 scaler, pacing and turbo, statistics, profiler |
-| `src/machines/beeb/beeb_machine.c` | The front end's machine hooks: keys, BREAK, discs, ROM sockets, snapshots, USB `!` commands |
+| `src/machines/beeb/beeb_machine.c` | The machine for the front end (`machine_if.h`): keys, BREAK, drive 0 (a writeable RAM file beebjit writes back to), ROM sockets, snapshots, its own USB `!` commands, the program hook |
 | `src/machines/beeb/beebjit_wire.c` | The render wire: core 0's video sends render calls to core 1 |
 | `src/machines/beeb/os_embedded.c`, `beebjit_embedded.c` | beebjit's OS layer and setup for a host with no OS; the SRAM / PSRAM allocator |
 | `src/machines/beeb/harness/` | The off-board test harness, golden checksums, benchmarks |
+| `src/cores/kc-beeb/` | The Master 128: Kieran Connell's emulator core (see its `UPSTREAM`) |
+| `src/machines/master/` | The Master's glue: `main.c` (pacing, keys, stats), `master_machine.c` (drive 0, resets), `machine_unit.c` / `render_unit.c` (the core and its renderer, from SRAM) |
+| `src/common/api/api.c`, `web/index.html` | The command layer: every operation once, by name, for the USB channel and `/api/<name>`; the web page (both machines' keyboards) |
+| `src/common/frontend.c` | The USB channel (`!` commands, keys), and the front end's frame and poll |
+| `src/common/drive.c`, `mem.c` | Drive 0 (built-in, SD card, web) and the save disc in flash; the flash by the board's layout |
+| `src/common/sound.c`, `app.c`, `boot_guard.c` | The SN76489 on core 1; the program hook (`machine_hook.h`); the boot guard |
+| `src/common/board.h` | The board interface |
 | `src/boards/presto/presto_lcd.c`, `st7701_*.pio` | Panel driver: ST7701 init, PIO2 timing, PIO1 scanout of a 4-bit framebuffer, row-table DMA |
-| `src/boards/presto/presto_net.c`, `web/` | WiFi, the JSON API and the web control panel |
-| `src/boards/presto/presto_sd.c`, `presto_psram.c` | SD card (FatFs) and PSRAM |
-| `src/cores/kc-beeb/` | The Master 128: Kieran Connell's emulator core (`machine_hook.h`: the interface for a program built in alongside) |
-| `src/machines/master/` | The Master's Presto port: `main.c` (pacing, USB, stats), `machine_unit.c` / `render_unit.c` (run from SRAM), its own panel, PSRAM, SD, net and web panel |
+| `src/boards/presto/presto_net.c` | WiFi, mDNS, the HTTP server (`/api/<name>` through the command layer) |
+| `src/boards/presto/presto_sd.c`, `presto_psram.c`, `presto_ambient.c`, `board_config.h` | SD card (FatFs), PSRAM, the LEDs; the display format, audio pin and flash layout |
 | `tools/beebjit_hillclimb.py` | The optimization graph, with each step's measurements |
 
 Memory: hot code (interpreter, video, render, JIT compiler...) is copied to SRAM at boot

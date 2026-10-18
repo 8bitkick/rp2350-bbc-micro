@@ -18,6 +18,9 @@ and from a phone, tablet or laptop you can load other discs and type on a BBC ke
   [Qw/ST Pad](https://shop.pimoroni.com/products/qwst-pad) game controller plugged into the Presto's
   Qw/ST connector, with its buttons mapped to BBC keys (not built yet).
 - **Standalone:** no computer needed once it's flashed.
+- **Two machines:** the BBC Model B on beebjit (the default), or a BBC Master 128 on
+  [Kieran Connell's emulator](https://github.com/kieranhj/esp32-beeb), chosen when it's built
+  (`-DMACHINE=master`; [below](#build-options)).
 
 ## Quick start
 
@@ -31,10 +34,14 @@ and from a phone, tablet or laptop you can load other discs and type on a BBC ke
 
 Once the Presto is on your WiFi, open **[http://beeb.local/](http://beeb.local/)**:
 
-- **Keyboard:** a BBC Micro keyboard with live CAPS LOCK, SHIFT LOCK and cassette motor LEDs, or
-  your own keyboard by key position.
+- **Keyboard:** the machine's own: a Model B's, with live CAPS LOCK, SHIFT LOCK and cassette motor
+  LEDs, or a Master 128's with its numeric keypad; or your own keyboard by key position.
 - **Discs:** drop in a `.ssd`, `.dsd` or `.zip` (or a link to one) to boot it, or pick one from the
-  SD card.
+  SD card. Games save to the disc built into the firmware, and what they save survives a
+  power-off (a copy of the disc in flash); **Restore original disc** forgets it.
+- **Lights, program:** with `-DAMBIENT=ON`, the LEDs on the Presto's back; with a program built
+  in alongside the machine (such as the [Elite agent](https://github.com/8bitkick/elite-agent)),
+  its own panel.
 - **Status:** each core's load, the emulation speed, the clock and the chip temperature; turbo.
 
 <img src="docs/presto/web-panel.png" width="820" alt="The web control panel in dark mode: status, disc loading and a BBC keyboard with its LEDs">
@@ -195,22 +202,39 @@ BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
-### The BBC Master 128
+### Build options
 
-The same tree also builds a BBC Master 128, on [Kieran Connell's emulator](https://github.com/kieranhj/esp32-beeb)
-(`src/cores/kc-beeb/`) rather than beebjit: one machine per build, chosen with `-DMACHINE`
-(`beeb`, the default, or `master`).
+One machine and one board per build; everything else is a switch:
+
+| Option | |
+|---|---|
+| `-DMACHINE=beeb` | The BBC Model B on beebjit (the default): `build/presto_beebjit.uf2` |
+| `-DMACHINE=master` | The BBC Master 128 on Kieran Connell's emulator: `build/presto_master.uf2`. `scripts/setup.sh --master` fetches its MOS 3.20 ROMs and discs and builds it in `build-master/`; [docs/master/README.md](docs/master/README.md) has how it runs and why the Master isn't on beebjit |
+| `-DBOARD=presto` | The board (the only one so far; [docs/porting-a-board.md](docs/porting-a-board.md)) |
+| `-DSOUND=ON` | The BBC's sound on the Presto's piezo |
+| `-DAMBIENT=ON` | The LEDs on the back lit with what's on screen |
+| `-DAPP_SOURCES=...` | A program built in to run alongside the machine (`src/common/machine_hook.h`), with `-DAPP_INCLUDES`, `-DAPP_DEFINES` |
+| `-DBEEB_DISC=<image>` | (Master) the disc built in; `-DPRESTO_BEEBJIT_DISC=<image>` for the Model B |
+
+The first names still work: `-DPRESTO_MACHINE`, `-DPRESTO_BEEBJIT_SOUND`,
+`-DPRESTO_BEEBJIT_AMBIENT`, `-DMACHINE_EXTRA_SOURCES` / `_INCLUDES` / `_DEFINES`.
 
 ```sh
-scripts/setup.sh --master   # MOS 3.20 ROMs and the Master discs too; builds build-master/presto_master.uf2
-. deps/env.sh && cmake -S . -B build-master -G Ninja -DMACHINE=master && ninja -C build-master
+. deps/env.sh
+cmake -S . -B build-master -G Ninja -DMACHINE=master -DSOUND=ON && ninja -C build-master
 ```
 
-It boots flicker-free Elite for the Master (`--disc=<name>` or `-DBEEB_DISC=<path>` for another).
-[docs/master/README.md](docs/master/README.md) has how it runs, its measurements, and why the Master
-isn't on beebjit. A program can be built into the Master firmware to run alongside the machine
-(`src/common/machine_hook.h`; `-DMACHINE_EXTRA_SOURCES=...`, `_INCLUDES`, `_DEFINES`), as the
-[Elite agent](https://github.com/8bitkick/elite-agent) is.
+### Source layout
+
+| Directory | |
+|---|---|
+| `src/cores/beebjit/` | [beebjit](https://github.com/scarybeasts/beebjit), ported to the RP2350: the Thumb-2 JIT backend and memory and render changes, on upstream 2ff70a0 (listed in its `UPSTREAM`) |
+| `src/cores/kc-beeb/` | Kieran Connell's Master 128 core, with a few small changes (its `UPSTREAM`) |
+| `src/machines/beeb/`, `src/machines/master/` | Each machine's glue: a core on an RP2350; the Model B's harness tests |
+| `src/common/` | Any RP2350 board: the command layer and the web page (`api/`), the USB channel, drive 0 and the save disc, the flash by region, the sound, the program hook, the board interface (`board.h`) |
+| `src/boards/presto/` | The Presto: its panel, PSRAM, SD card, WiFi and web server, LEDs, flash layout |
+
+[docs/cores.md](docs/cores.md) says which core does what on each machine, with the measured load.
 
 ## Testing
 
@@ -247,8 +271,16 @@ before they were drawn. Its figures are in the table under
 
 ## Tools
 
+`tools/presto.py` speaks the firmware's command layer over USB: the same commands, by the same
+names, as the web page's `/api/<name>`. `presto.py <name> [args]` gives the text reply,
+`presto.py api <name> [args]` the JSON one (`presto.py api status`, as `GET /api/status`).
+
 | Command | |
 |---|---|
+| `presto.py status` | The machine, board, speed, disc, saves, LEDs (as `/api/status`) |
+| `presto.py restore` | The built-in disc as it came (what games saved to it forgotten) |
+| `presto.py program` / `command <cmd>` | A program built in alongside the machine: its panel, a command |
+| `presto.py audio` / `leds` | The sound's state (`-DSOUND`), the LEDs' (`-DAMBIENT`) |
 | `presto.py shot out.png` | The framebuffer, read back as a PNG |
 | `presto.py stats` | Per-core load and emulation speed |
 | `presto.py raw turbo` | Run flat out |

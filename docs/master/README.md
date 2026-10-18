@@ -57,7 +57,8 @@ same run with the throttle off, so it shows how much headroom is left.
   and the disc's track data in PSRAM. The disc image itself in flash.
 
 `src/cores/kc-beeb/` is Kieran's core from [his commit ca72230](https://github.com/kieranhj/esp32-beeb/tree/ca72230),
-with three changes, each checked to give identical pictures on all five discs:
+with three changes for speed, each checked to give identical pictures on all five discs (and,
+since, analogue inputs and saved games: `src/cores/kc-beeb/UPSTREAM` lists them all):
 
 - **A hang after 35.8 minutes fixed.** Two places counted the VIAs' 1 MHz ticks by shifting the
   absolute cycle count, which went wrong when the 32-bit count wrapped at 2^32 cycles. They now
@@ -69,8 +70,10 @@ with three changes, each checked to give identical pictures on all five discs:
   Elite's MODE 4 top and MODE 5 dashboard rebuilt a 4 KB table twice a frame. (`render.c`,
   `render.h`; 6 KB more SRAM)
 
-`src/machines/master/` is the port: `main.c` (pacing, USB, stats), `machine_unit.c` and `render_unit.c` (the
-two halves, built to run from SRAM), and the panel and PSRAM drivers. `render_unit.c` packs the
+`src/machines/master/` is the port: `main.c` (pacing, keys, stats), `master_machine.c` (drive 0,
+resets), `machine_unit.c` and `render_unit.c` (the two halves, built to run from SRAM); the panel,
+PSRAM, SD card, WiFi and web page are the board's and the common code's, shared with the Model B
+(`src/boards/presto/`, `src/common/`). `render_unit.c` packs the
 renderer's lines into the panel's 4-bit rows 32 pixels at a time (part lines too, which Evil
 Influences' raster section is made of) and hands the renderer the whole backlog at once; with the
 tables above, core 1's load at real speed went from 37–42% to 32–34%, and from 80% to 49% on
@@ -107,7 +110,7 @@ has a BBC keyboard (or uses your own keyboard's keys, by position), BREAK and SH
 the speed and both cores' load, and loading discs: drop or choose a `.ssd`, `.dsd` or `.zip`, give
 it a link to one, or pick one from the SD card. A disc boots at once (a reset with SHIFT held);
 "Eject" goes back to the one built into the firmware. Behind it is a small JSON API
-(`/api/status`, `/api/keys`, `/api/disc`, `/api/eject`, ...; see `src/machines/master/presto_net.c`).
+(`/api/status`, `/api/keys`, `/api/disc`, `/api/eject`, ...; see `src/common/api/api.c`; `tools/presto.py` has the same commands over USB).
 
 The network is polled on core 0 in the gaps between the machine's runs, and requests act between
 frames, so nothing races the emulation. Over USB the same things are `presto.py discs`, `disc`
@@ -121,8 +124,9 @@ built-in image stays as it came (the golden disc); a full copy of it, the save d
 flash. At boot the save disc goes into the drive if there is one for this golden disc. When a
 game writes to the disc, a second after the drive goes quiet the tracks it wrote are read back
 and only the flash blocks that changed are rewritten (an Elite save: one or two). Nothing else
-writes flash. **Restore original disc** on the web panel (or `!disc restore` over USB) forgets
-the save disc and boots the golden one. Discs loaded from the card or the web keep their writes
+writes flash. **Restore original disc** on the web panel (or `!restore` over USB) forgets
+the save disc and boots the golden one. (This is `src/common/drive.c` now, and the Model B has it
+too.) Discs loaded from the card or the web keep their writes
 for the session only.
 
 ## A program alongside the machine
@@ -200,7 +204,8 @@ software pages too often, and the Presto has no MMU to make paging cheap. So bee
 ended up as an interpreter with a JIT attached, short of real time on PoP and Evil, and out of
 SRAM. Kieran's emulator was designed for this class of chip from the start: no JIT, a cycle-stepped
 CPU tuned to its budget, and video split across two cores. It does the Master better here, and
-leaves room for the next things (sound first).
+leaves room for the next things: sound (`-DSOUND=ON`) and the LEDs on the back (`-DAMBIENT=ON`),
+on core 1, cost it about 3 points of core 1 (docs/cores.md).
 
 ## Credits
 
@@ -211,8 +216,8 @@ leaves room for the next things (sound first).
 - The teletext character set in `src/cores/kc-beeb/teletext_glyphs.h` is from
   [B-em](https://github.com/stardot/b-em) by Sarah Walker and others.
 - The web keyboard's keycaps use [Open Gorton](https://github.com/dakotafelder/open-gorton) by Dakota
-  Felder (MIT, `src/machines/master/web/fonts`), after the Gorton Modified engraving on the real keys.
-- The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`src/machines/master/fatfs`, its
+  Felder (MIT, `src/common/api/web/fonts`), after the Gorton Modified engraving on the real keys.
+- The SD card's file system is ChaN's [FatFs](http://elm-chan.org/fsw/ff/) (`src/boards/presto/fatfs`, its
   own licence); the network is the Pico SDK's lwIP and CYW43 driver.
 - The panel driver is adapted from Pimoroni's MIT-licensed
   [Presto ST7701 driver](https://github.com/pimoroni/presto).
