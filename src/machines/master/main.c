@@ -42,6 +42,12 @@
 #include "presto_main.h"
 #include "presto_net.h"
 #include "presto_sd.h"
+#if WITH_SOUND
+#include "presto_audio.h"
+#endif
+#if WITH_AMBIENT
+#include "presto_ambient.h"
+#endif
 
 #include "machine.h"
 #include "machine_hook.h"
@@ -90,8 +96,19 @@ static void __not_in_flash_func(core1_main)(void)
 {
     // Core 0 parks this core while it writes the flash (saving the WiFi).
     flash_safe_execute_core_init();
+#if WITH_SOUND
+    presto_audio_init();    // its DMA interrupt runs on this core
+#endif
     for (;;) {
         if (vs_available(&s_stream) == 0) {
+#if WITH_AMBIENT
+            if (presto_ambient_due()) {
+                uint32_t t0 = time_us_32();
+                presto_ambient_update();
+                s_core1_busy_us += time_us_32() - t0;
+                continue;
+            }
+#endif
             __wfe();
             continue;
         }
@@ -211,6 +228,16 @@ static void run_command(const char *cmd)
         presto_sd_put(cmd + 4);
     } else if (!strcmp(cmd, "shot")) {
         panel_shot();
+#if WITH_SOUND
+    } else if (!strncmp(cmd, "audio", 5)) {
+        presto_audio_command(cmd + 5);
+    } else if (!strncmp(cmd, "beep", 4)) {
+        presto_audio_test(cmd + 4);
+#endif
+#if WITH_AMBIENT
+    } else if (!strncmp(cmd, "leds", 4)) {
+        presto_ambient_command(cmd + 4);
+#endif
     } else if (!strcmp(cmd, "bootsel")) {
         printf("BOOTSEL\n");
         sleep_ms(50);
@@ -323,6 +350,9 @@ static void run(void)
         if (splash) panel_splash_status("ROMS INTO PSRAM", (3 + i) * 300 / 8);
     }
     m->vs = &s_stream;
+#if WITH_SOUND
+    presto_audio_set_ring(psram_alloc(presto_audio_ring_size()));
+#endif
     panel_init();
     machine_reset(m);
     // Drive 0's track data (two sides, for .dsd images) and where disc
@@ -410,6 +440,13 @@ static void run(void)
         usb_poll(m);
         presto_machine_poll();
         if (new_frame) {
+#if WITH_SOUND
+            presto_audio_frame(m->cpu.cycles, s_turbo);
+#endif
+#if WITH_AMBIENT
+            // CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits (6, 7) are low
+            presto_ambient_frame((uint8_t)(((m->ic32 & 0x40) ? 0 : 1) | ((m->ic32 & 0x80) ? 0 : 2)));
+#endif
             presto_machine_frame();   // may reset the machine (s_was_reset)
             frame_hook(m);
         }
@@ -428,6 +465,9 @@ int main(void)
     gpio_set_dir(43, GPIO_OUT);
     gpio_put(43, 0);
     presto_psram_init();
+#if WITH_AMBIENT
+    presto_ambient_init();    // first: it moves PIO0 to GPIO 16-47, only possible before PIO0 has a program
+#endif
     panel_lcd_init();
     run();
     return 0;

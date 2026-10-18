@@ -28,7 +28,7 @@
 #include "video.h"
 
 #include "presto_audio.h"
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
 #include "presto_ambient.h"
 #endif
 #include "presto_lcd.h"
@@ -628,13 +628,13 @@ run_command(char* p_cmd) {
     (void) printf("PERF overlay %s\n", presto_overlay_get() ? "on" : "off");
   } else if (!strncmp(p_cmd, "wifi ", 5)) {
     presto_net_set_wifi(p_cmd + 5);
-#if PRESTO_BEEBJIT_SOUND
+#if WITH_SOUND
   } else if (!strncmp(p_cmd, "audio", 5)) {
     presto_audio_command(p_cmd + 5);
   } else if (!strncmp(p_cmd, "beep", 4)) {
     presto_audio_test(p_cmd + 4);
 #endif
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
   } else if (!strncmp(p_cmd, "leds", 4)) {
     presto_ambient_command(p_cmd + 4);
 #endif

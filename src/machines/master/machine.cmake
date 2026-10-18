@@ -56,6 +56,18 @@ if (MACHINE_EXTRA_SOURCES)
     target_include_directories(presto_master PRIVATE ${MACHINE_EXTRA_INCLUDES})
     target_compile_definitions(presto_master PRIVATE ${MACHINE_EXTRA_DEFINES})
 endif()
+# -DSOUND=ON: the BBC's sound on the piezo, made on core 1 (src/common/presto_audio.c), from the
+# bytes the core's SN76489 takes (MACHINE_SOUND_WRITE, machine_unit.c).
+if (SOUND)
+    target_sources(presto_master PRIVATE ${COMMON_DIR}/presto_audio.c)
+    target_compile_definitions(presto_master PRIVATE WITH_SOUND=1)
+endif()
+# -DAMBIENT=ON: the LEDs on the back lit with what's on screen, on core 1 when it's idle.
+if (AMBIENT)
+    target_sources(presto_master PRIVATE ${BOARD_DIR}/presto_ambient.c)
+    pico_generate_pio_header(presto_master ${BOARD_DIR}/ws2812.pio)
+    target_compile_definitions(presto_master PRIVATE WITH_AMBIENT=1)
+endif()
 set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 KB; 8 KB slowed Evil Influences 56 -> 51%")
 target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
         PRESTO_DISC_STAGE_OFFSET=0  # a disc is expanded into track data as it goes in (presto_machine.c)

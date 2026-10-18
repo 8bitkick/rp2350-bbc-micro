@@ -21,7 +21,7 @@
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
  *   POST /api/wifi              body: "<ssid>\n<password>": save, and restart to join it
  *   POST /api/ambient           body: any of "on=0|1", "bright=<percent>", "locks=0|1", joined by
- *                               "&" (builds with PRESTO_BEEBJIT_AMBIENT; /api/status then has
+ *                               "&" (builds with -DAMBIENT=ON; /api/status then has
  *                               "ambient": the LEDs on the back)
  */
 #include <stdio.h>
@@ -46,7 +46,7 @@
 #include "presto_sd.h"
 #include "presto_psram.h"
 #include "presto_boot.h"
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
 #include "presto_ambient.h"
 #endif
 
@@ -738,7 +738,7 @@ static void status_json(char *j, size_t size) {
     json_str(err, sizeof(err), fetch.error);
     const char *fs = fetch.state == F_BUSY ? "downloading" : fetch.state == F_ERROR ? "error" : fetch.state == F_READY ? "loading" : "idle";
     char ambient[80] = "";
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
     if (presto_ambient_ready()) {
         bool on, locks;
         unsigned bright;
@@ -806,7 +806,7 @@ static void act(conn_t *c) {
             status_json(j, sizeof(j));
             respond_json(c, 200, j);
             break;
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
         case R_AMBIENT: {
             // "on=1&bright=40&locks=0", any of them
             int on = -1, bright = -1, locks = -1;
