@@ -38,7 +38,6 @@
 #include "hardware/vreg.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
-#include "pico/flash.h"
 #if PRESTO_BEEBJIT_AUDIO
 #include "presto_audio.h"
 #include "os_sound.h"
@@ -48,6 +47,7 @@ static struct bbc_struct* s_audio_bbc;
 #if PRESTO_BEEBJIT_WIRE
 #include "../beebjit_wire.h"
 #include "pico/multicore.h"
+#include "pico/flash.h"
 #include "hardware/structs/systick.h"
 #endif
 
@@ -320,8 +320,8 @@ static void prof_init(void);
 #endif
 
 static void __not_in_flash_func(core1_main)(void) {
-  /* Register core 1 so saving Wi-Fi credentials can safely write flash. */
-  (void) flash_safe_execute_core_init();
+  flash_safe_execute_core_init(); // Register for flash_safe to enable wifi command to work
+
 #if PRESTO_BEEBJIT_PROF && PRESTO_BEEBJIT_PROF_CORE
   prof_init();
 #endif
