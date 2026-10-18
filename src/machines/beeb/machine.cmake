@@ -80,26 +80,23 @@ option(PRESTO_BEEBJIT_WIRE "Draw on core 1" ON)
 if (PRESTO_BEEBJIT_WIRE)
     target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_WIRE=1 BEEBJIT_RENDER_WIRE=1)
 endif()
-# -DPRESTO_BEEBJIT_SOUND=ON: the BBC's sound on the piezo (presto_audio.c), made on core 1.
-option(PRESTO_BEEBJIT_SOUND "The BBC's sound on the piezo" OFF)
-if (PRESTO_BEEBJIT_SOUND)
+# -DSOUND=ON: the BBC's sound on the piezo (presto_audio.c), made on core 1.
+if (SOUND)
     if (NOT PRESTO_BEEBJIT_WIRE)
-        message(FATAL_ERROR "PRESTO_BEEBJIT_SOUND needs core 1 (PRESTO_BEEBJIT_WIRE)")
+        message(FATAL_ERROR "SOUND needs core 1 (PRESTO_BEEBJIT_WIRE)")
     endif()
     target_sources(presto_beebjit PRIVATE ${COMMON_DIR}/presto_audio.c)
-    target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_SOUND=1
+    target_compile_definitions(presto_beebjit PRIVATE WITH_SOUND=1
             BEEBJIT_SOUND_WRITE_HOOK=presto_audio_sn_write)
 endif()
-# -DPRESTO_BEEBJIT_AMBIENT=ON: the LEDs on the back lit with what's on screen (presto_ambient.c),
-# on core 1.
-option(PRESTO_BEEBJIT_AMBIENT "Light the LEDs on the back with what's on screen" OFF)
-if (PRESTO_BEEBJIT_AMBIENT)
+# -DAMBIENT=ON: the LEDs on the back lit with what's on screen (presto_ambient.c), on core 1.
+if (AMBIENT)
     if (NOT PRESTO_BEEBJIT_WIRE)
-        message(FATAL_ERROR "PRESTO_BEEBJIT_AMBIENT needs core 1 (PRESTO_BEEBJIT_WIRE)")
+        message(FATAL_ERROR "AMBIENT needs core 1 (PRESTO_BEEBJIT_WIRE)")
     endif()
     target_sources(presto_beebjit PRIVATE ${PRESTO_DIR}/presto_ambient.c)
     pico_generate_pio_header(presto_beebjit ${PRESTO_DIR}/ws2812.pio)
-    target_compile_definitions(presto_beebjit PRIVATE PRESTO_BEEBJIT_AMBIENT=1)
+    target_compile_definitions(presto_beebjit PRIVATE WITH_AMBIENT=1)
 endif()
 # -DPRESTO_BEEBJIT_FRAME_SKIP=OFF: draw every frame, even when the picture can't have changed.
 option(PRESTO_BEEBJIT_FRAME_SKIP "Skip drawing frames that can't have changed" ON)

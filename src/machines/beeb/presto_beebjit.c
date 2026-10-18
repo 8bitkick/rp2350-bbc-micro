@@ -22,7 +22,7 @@
 #include "timing.h"
 
 #include "presto_audio.h"
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
 #include "presto_ambient.h"
 #endif
 #include "presto_boot.h"
@@ -320,7 +320,7 @@ static void prof_init(void);
 static void __not_in_flash_func(core1_main)(void) {
   /* Let core 0 park this core while it writes the flash (saving WiFi details). */
   (void) flash_safe_execute_core_init();
-#if PRESTO_BEEBJIT_SOUND
+#if WITH_SOUND
   /* The sound: its DMA interrupt runs here. */
   presto_audio_init();
 #endif
@@ -333,7 +333,7 @@ static void __not_in_flash_func(core1_main)(void) {
   while (1) {
     uint32_t t0 = systick_hw->cvr;
     if (beebjit_wire_drain() == 0) {
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
       if (presto_ambient_due()) {
         presto_ambient_update();
         s_core1_busy_cycles += ((t0 - systick_hw->cvr) & 0xFFFFFF);
@@ -857,10 +857,10 @@ frame_callback(void* p, uint64_t cycles) {
   }
   watchdog_update();
   perf_frame(cycles);
-#if PRESTO_BEEBJIT_SOUND
+#if WITH_SOUND
   presto_audio_frame(cycles, s_turbo);
 #endif
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
   /* CAPS LOCK and SHIFT LOCK are lit when their IC32 latch bits are low. */
   presto_ambient_frame((uint8_t) (((IC32 & 0x40) ? 0 : 1) | ((IC32 & 0x80) ? 0 : 2)));
 #endif
@@ -974,7 +974,7 @@ run_beebjit(void) {
 
   presto_boot_step(4);
 #if PRESTO_BEEBJIT_WIRE
-#if PRESTO_BEEBJIT_SOUND
+#if WITH_SOUND
   presto_audio_set_ring(beebjit_embedded_malloc_big(presto_audio_ring_size()));
 #endif
   beebjit_wire_init(s_wire_buf, 0);
@@ -1038,7 +1038,7 @@ main(void) {
   s_row_table[PRESTO_LCD_HEIGHT] = NULL;
   presto_lcd_init(s_row_table);
 #if PRESTO_BEEBJIT_PANEL_PIO
-#if PRESTO_BEEBJIT_AMBIENT
+#if WITH_AMBIENT
   /* First: it moves PIO0 to GPIO 16-47, which it can only do before PIO0 has a program. */
   presto_ambient_init();
 #endif
