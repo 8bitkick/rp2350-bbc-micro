@@ -13,10 +13,6 @@ size_t presto_psram_init(void);
 size_t presto_psram_size(void);
 uint8_t *presto_psram(void);    // its start, or NULL
 
-// where disc images (PRESTO_DISC_MAX bytes) are loaded from the SD card and received: near
-// the top of the PSRAM, clear of the JIT's code (presto_beebjit.c)
-uint8_t *presto_disc_ram(void);
-
 #ifdef __cplusplus
 }
 #endif

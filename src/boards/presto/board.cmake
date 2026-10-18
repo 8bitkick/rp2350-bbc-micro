@@ -7,6 +7,9 @@ set(PICO_BOARD pimoroni_presto CACHE STRING "Board")
 set(PICO_PLATFORM rp2350 CACHE STRING "Platform")
 list(APPEND PICO_BOARD_HEADER_DIRS ${BOARD_DIR})
 set(BOARD_HAS_NET ON)       # WiFi and the web page (presto_net.c)
+# -DBOARD_FLASH_SAVE_SHIFT=<bytes>: the save disc that much lower in the flash (board_config.h), to
+# test saving without touching the real one
+set(BOARD_FLASH_SAVE_SHIFT 0 CACHE STRING "Move the save disc down the flash by this much (testing)")
 
 function(board_setup TARGET)
     target_sources(${TARGET} PRIVATE
@@ -23,6 +26,7 @@ function(board_setup TARGET)
     target_compile_definitions(${TARGET} PRIVATE
             BOARD_NAME="presto"
             BOARD_HAS_NET=1
+            BOARD_FLASH_SAVE_SHIFT=${BOARD_FLASH_SAVE_SHIFT}
             CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
     target_link_libraries(${TARGET} PRIVATE
             hardware_pio hardware_dma hardware_spi hardware_pwm hardware_adc hardware_flash pico_flash

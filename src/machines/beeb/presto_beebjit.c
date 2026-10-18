@@ -29,6 +29,7 @@
 #include "presto_lcd.h"
 #include "machine_if.h"
 #include "presto_psram.h"
+#include "drive.h"
 #include "presto_sd.h"
 
 #include "hardware/clocks.h"
@@ -480,15 +481,15 @@ beebjit_host_term_write(uint8_t byte) {
 /* The PSRAM (8MB at 0x11000000, through the cached XIP window) is split: the
  * thumb2 JIT's fixed region at the bottom (4MB of code, then its no-code and
  * stub pages; see asm/asm_platform.h), beebjit's big allocations above, and
- * at the top the disc RAM (presto_psram.h: disc images arriving from the SD
+ * at the top the disc RAM (drive.h: disc images arriving from the SD
  * card or the web) and a snapshot after it.
  */
 #define PRESTO_JIT_REGION_START 0x11000000u
 #define PRESTO_JIT_REGION_END   0x11410000u
-#define PRESTO_DISC_RAM_SIZE    (PRESTO_DISC_MAX + 0x10000)
+#define PRESTO_DISC_RAM_SIZE    (DRIVE_IMAGE_MAX + 0x10000)
 
 uint8_t*
-presto_disc_ram(void) {
+presto_beebjit_disc_ram(void) {
   size_t size = presto_psram_size();
   if ((presto_psram() == NULL) || (size < (8u << 20))) {
     return NULL;
@@ -649,7 +650,7 @@ static void __attribute__((naked)) __not_in_flash_func(prof_isr)(void) {
 
 static void
 prof_dump_previous(void) {
-  uint32_t* p_prof = (uint32_t*) presto_disc_ram();
+  uint32_t* p_prof = (uint32_t*) presto_beebjit_disc_ram();
   uint32_t i;
   if ((p_prof == NULL) || (p_prof[PROF_SAMPLES] != PROF_MAGIC)) {
     return;
@@ -666,7 +667,7 @@ prof_dump_previous(void) {
 static void
 prof_init(void) {
   uint irq;
-  s_prof = (uint32_t*) presto_disc_ram();
+  s_prof = (uint32_t*) presto_beebjit_disc_ram();
   if (s_prof == NULL) {
     return;
   }

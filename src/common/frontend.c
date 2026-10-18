@@ -26,6 +26,7 @@
 #include "hardware/watchdog.h"
 
 #include "frontend.h"
+#include "drive.h"
 #include "api.h"
 #include "machine_if.h"
 #include "machine_hook.h"
@@ -214,6 +215,7 @@ void frontend_frame(void) {
     if (frames < 100 && ++frames == 100) presto_boot_ok();     // running: disarm the boot guard (presto_boot.c)
     usb_poll();
     api_frame();
+    drive0_frame();     // the save disc
 #if BOARD_HAS_NET
     net_frame();
 #endif

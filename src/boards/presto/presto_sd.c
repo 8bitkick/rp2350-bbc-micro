@@ -15,6 +15,7 @@
 #include "diskio.h"
 #include "presto_psram.h"
 #include "presto_sd.h"
+#include "drive.h"
 
 #define SD_SPI      spi0
 #define SD_SCK      34
@@ -239,7 +240,7 @@ static bool find_disc(const char *want, char *found, size_t found_size) {
 static bool safe_disc_name(const char *name);
 
 bool presto_sd_load_disc(const char *want) {
-    uint8_t *ram = presto_disc_ram();
+    uint8_t *ram = drive0_staging();
     if (!ram) {
         printf("DISC no PSRAM\n");
         return false;
@@ -259,7 +260,7 @@ bool presto_sd_load_disc(const char *want) {
         return false;
     }
     uint32_t size = (uint32_t) f_size(&f);
-    if (size > PRESTO_DISC_MAX) {
+    if (size > DRIVE_IMAGE_MAX) {
         printf("DISC too big: %s\n", name);
         f_close(&f);
         return false;
@@ -267,7 +268,7 @@ bool presto_sd_load_disc(const char *want) {
     UINT got = 0;
     FRESULT fr = f_read(&f, ram, size, &got);
     f_close(&f);
-    if (fr != FR_OK || got != size || !presto_disc_insert(name, size)) {
+    if (fr != FR_OK || got != size || !drive0_insert(name, size)) {
         printf("DISC read failed: %s\n", name);
         return false;
     }

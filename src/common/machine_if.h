@@ -12,7 +12,6 @@ extern "C" {
 // asks of the emulated machine. Each machine provides these: src/machines/beeb/presto_machine.c
 // and presto_beebjit.c; src/machines/master/presto_machine.c and main.c. All are called on core 0,
 // between the machine's own work (from frontend_frame / frontend_poll, frontend.h).
-// Disc changes are in presto_sd.h (presto_disc_insert, presto_disc_name, presto_sd_eject_disc).
 
 // "beeb" (BBC Model B) or "master" (BBC Master 128): /api/status's "machine"
 const char *machine_name(void);
@@ -38,6 +37,17 @@ void machine_perf_get(unsigned *core0, unsigned *core1, unsigned *speed);
 void machine_print_stats(void);
 // the keyboard's LEDs: bit 0 CAPS LOCK, 1 SHIFT LOCK, 2 the cassette motor (each set when lit)
 unsigned machine_leds(void);
+// ---- Drive 0 (src/common/drive.c decides what goes in it)
+// put a disc image in drive 0, writeable (whole sectors; dsd: two sides interleaved; NULL: no
+// disc), and reset to boot it if boot. The image need last only until the call returns.
+void machine_drive_load(const uint8_t *image, uint32_t size, bool dsd, bool boot);
+// how many writes drive 0 has taken (a count that only goes up)
+uint32_t machine_drive_writes(void);
+// a sector of drive 0's disc (side 0) as it is now, if it may have been written since the last
+// machine_drive_clean (false: it hasn't, out is left alone)
+bool machine_drive_sector(int track, int sector, uint8_t *out);
+void machine_drive_clean(void);
+
 // a USB "!" command only this machine has (e.g. the Model B's crtc, state, peek): false if it
 // isn't one
 bool machine_usb_command(const char *cmd);

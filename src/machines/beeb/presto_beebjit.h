@@ -25,7 +25,13 @@ void presto_machine_frame(void);
  */
 void presto_machine_poll(void);
 
-/* presto_beebjit.c: "!mem"'s stacks. */
+/* presto_beebjit.c: the disc RAM (DRIVE_IMAGE_MAX bytes, where disc images
+ * arrive, then a snapshot's room), near the top of the PSRAM; NULL without
+ * the PSRAM.
+ */
+#include <stdint.h>
+uint8_t* presto_beebjit_disc_ram(void);
+/* "!mem"'s stacks. */
 void presto_beebjit_print_stacks(void);
 void presto_beebjit_lock(const char* p_arg);   /* "!lock [lead us]": the frame lock's state */
 /* With PRESTO_BEEBJIT_PROF: "!prof" (sample again from now) and "!profdump"

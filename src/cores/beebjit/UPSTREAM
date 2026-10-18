@@ -21,7 +21,8 @@ that the default (upstream) build is unchanged:
   alignment padding for the thumb2 backend.
 - bbc.c: BEEBJIT_NO_MMU (flat memory, ROM writes dropped, sideways RAM written
   by bbc_write_callback); bbc_request_reset() and a host reset hook;
-  bbc_replace_disc(); bbc_swap_roms().
+  bbc_replace_disc() (writeable and mutable on request: a writes-back drive
+  for the host's save disc); bbc_swap_roms().
 - disc.c, disc_ssd.c, disc_drive.c: BEEBJIT_DISC_COMPACT (tracks allocated,
   and .ssd/.dsd tracks built, when the drive first reaches them);
   disc_drive_replace_discs().
