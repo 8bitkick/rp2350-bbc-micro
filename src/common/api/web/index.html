@@ -111,6 +111,24 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #program progress { margin-top: 4px; }
 #program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 #program .row { margin-top: 10px; }
+/* the RP2350 application (GET /api/app): what it is and its state, its own panel inside; folds away */
+#app h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; margin: 0; display: flex; align-items: center; gap: 6px; }
+#app h2.fold .arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
+#app.folded h2.fold .arrow { transform: rotate(-90deg); }
+#app .appinfo { margin-top: 8px; }
+#app.folded #appbody { display: none; }
+#app .why { color: var(--accent); }
+#app .applog { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 6.5em; overflow-y: auto; white-space: pre-wrap; }
+#app .applog:empty { display: none; }
+#app .appdo { margin-top: 10px; }
+#app .appdo button { padding: 4px 12px; font-size: 14px; }
+#app .appdo .hint { color: var(--muted); font-size: 13px; }
+#app.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+#appmsg { margin-top: 6px; font-size: 14px; }
+#appmsg:empty { display: none; }
+#appmsg.err { color: var(--accent); } #appmsg.ok { color: var(--ok); }
+#program { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+#program h3 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -147,12 +165,27 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   </div>
 </section>
 
-<section id="program" hidden>
-  <h2 id="ptitle">Program</h2>
-  <div class="fields" id="pfields"></div>
-  <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
-  <div class="row" id="pactions"></div>
-  <div class="log" id="plog"></div>
+<section id="app" hidden>
+  <h2 class="fold" id="apphead" title="Show or hide the application"><span class="arrow">&#9660;</span>RP2350 Application</h2>
+  <div class="stats appinfo" id="appinfo"></div>
+  <div id="appbody">
+    <div class="row appdo">
+      <button id="appinstall" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button>
+      <button id="appremove" title="Erase the app in the app slot">Remove</button>
+      <span class="hint">or drop an app's .bin here</span>
+      <input type="file" id="appfile" accept=".bin" hidden>
+    </div>
+    <progress id="appprog" value="0" max="1" hidden></progress>
+    <div id="appmsg"></div>
+    <div class="applog" id="applog" title="What the application has logged lately"></div>
+    <div id="program" hidden>
+      <h3 id="ptitle">Program</h3>
+      <div class="fields" id="pfields"></div>
+      <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
+      <div class="row" id="pactions"></div>
+      <div class="log" id="plog"></div>
+    </div>
+  </div>
 </section>
 <section>
   <h2>Disc</h2>
@@ -433,6 +466,7 @@ function show(s) {
   $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
     `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` + memBars(s.mem, s.free);
+  showApp(s.app);
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
   const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
@@ -608,12 +642,92 @@ $('sdsel').onchange = async () => {
 poll();
 listDiscs();
 
-// --- a program run alongside the machine, if one's built in: its panel, every 2 s
+// --- the RP2350 application (status "app"): what it is, whether it runs and why not; folded as
+// the viewer left it
+const APP_MACHINES = {master: 'BBC Master 128', beeb: 'BBC Model B', any: 'any machine'};
+const APP_STATES = {running: 'Running', loaded: 'Starting', refused: 'Refused', off: 'Turned off', stopped: 'Stopped', none: 'None'};
+let appFold = null;
+try { appFold = localStorage.getItem('appFold'); } catch (e) {}
+function showApp(a) {
+  $('app').hidden = !a;
+  if (!a) return;
+  $('app').classList.toggle('folded', appFold === '1');
+  const ok = a.state === 'running' || a.state === 'loaded';
+  const bits = [`<span class="conn"><span class="dot ${ok ? 'ok' : a.state === 'none' ? '' : 'bad'}"></span>${APP_STATES[a.state] || esc(a.state)}</span>`];
+  if (a.name) bits.push(`<span><b>${esc(a.name)}</b> ${esc(a.version || '')}</span>`);
+  if (a.name) bits.push(`<span>for the <b>${APP_MACHINES[a.machine] || esc(a.machine)}</b></span>`);
+  if (a.name) bits.push(`<span>${a.from === 'slot' ? 'from the app slot' : 'built in'}</span>`);
+  $('appremove').hidden = a.from !== 'slot' || a.state === 'none' || a.state === 'installing';
+  $('appinstall').disabled = a.from === 'built in';
+  if (a.why) bits.push(`<span class="${ok || a.state === 'none' ? '' : 'why'}">${esc(a.why)}</span>`);
+  $('appinfo').innerHTML = bits.join('');
+}
+$('apphead').onclick = () => {
+  const folded = !$('app').classList.contains('folded');
+  $('app').classList.toggle('folded', folded);
+  appFold = folded ? '1' : '0';
+  try { localStorage.setItem('appFold', appFold); } catch (e) {}
+  if (!folded) pollProgram();
+};
+
+// installing one: the .bin up to POST /api/app (written into the slot as it arrives, checked, then
+// the board restarts into it); one for the other machine: offered the switch
+function appMsg(text, cls = '') { $('appmsg').textContent = text; $('appmsg').className = cls; }
+function installApp(f) {
+  if (!f) return;
+  if (!confirm(`Install ${f.name} in the app slot? The app there now is replaced, and the board restarts.`)) return;
+  const x = new XMLHttpRequest();
+  x.open('POST', '/api/app');
+  const p = $('appprog');
+  p.hidden = false; p.value = 0;
+  x.upload.onprogress = e => { p.max = e.total; p.value = e.loaded; appMsg(`Writing ${f.name} into the flash… ${Math.round(e.loaded / 1024)} KB`); };
+  x.onload = async () => {
+    p.hidden = true;
+    const j = JSON.parse(x.responseText || '{}');
+    if (x.status !== 200) { appMsg(`Not installed: ${j.error || x.statusText}. The app slot is empty.`, 'err'); return; }
+    const a = j.app || {};
+    appMsg(`Installed ${a.name} ${a.version}: restarting…`, 'ok');
+    const want = a.machine, t0 = Date.now();
+    await new Promise(r => setTimeout(r, 3000));
+    while (Date.now() - t0 < 90000) {
+      try { const s = await api('/api/status', null, 'GET'); show(s);
+        if (want && want !== 'any' && want !== s.machine && s.system &&
+            confirm(`${a.name} is for the ${APP_MACHINES[want] || want}; this is the ${MACHINES[s.machine]}. Restart as the ${MACHINES[want]}?`)) {
+          await api('/api/machine', want);
+          appMsg(`Restarting as the ${MACHINES[want]}…`, 'ok');
+        } else appMsg(`Installed ${a.name} ${a.version}.`, 'ok');
+        return;
+      } catch (e) { await new Promise(r => setTimeout(r, 1000)); }
+    }
+    appMsg('Installed, but the board hasn\'t come back yet.', 'err');
+  };
+  x.onerror = () => { p.hidden = true; appMsg('The upload failed: the app slot is left empty.', 'err'); };
+  x.send(f);
+}
+$('appinstall').onclick = () => $('appfile').click();
+$('appfile').onchange = () => { installApp($('appfile').files[0]); $('appfile').value = ''; };
+$('appremove').onclick = async () => {
+  if (!confirm('Remove the app from the app slot? It stops now.')) return;
+  try { await api('/api/app/remove'); appMsg('Removed.', 'ok'); poll(); } catch (e) { appMsg(e.message, 'err'); }
+};
+// a .bin dropped on the Application section is an app (anywhere else, a disc)
+for (const ev of ['dragover', 'dragenter']) $('app').addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); $('app').classList.add('over'); });
+$('app').addEventListener('dragleave', e => { if (!$('app').contains(e.relatedTarget)) $('app').classList.remove('over'); });
+$('app').addEventListener('drop', e => {
+  e.preventDefault(); e.stopPropagation();
+  $('app').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f && /\.bin$/i.test(f.name)) installApp(f); else appMsg('Drop an app\'s .bin here (discs go in the Disc section).', 'err');
+});
+
+// --- the app's own panel and log, every 2 s while unfolded
 let progTimer;
 async function pollProgram() {
   clearTimeout(progTimer);
+  if ($('app').classList.contains('folded')) { progTimer = setTimeout(pollProgram, 2000); return; }
+  try { const r = await fetch('/api/app'); if (r.ok) { const a = await r.json(); $('applog').textContent = (a.log || []).slice().reverse().join('\n'); } } catch (e) {}
   let pj = null;
-  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 15000); return; } } catch (e) {}
+  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 5000); return; } } catch (e) {}
   if (pj) {
     $('program').hidden = false;
     $('ptitle').textContent = pj.title || 'Program';
