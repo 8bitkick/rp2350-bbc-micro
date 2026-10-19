@@ -48,6 +48,9 @@ uint32_t board_display_frame_lines(void);       // lines a frame, blanking inclu
 int32_t board_display_scan_row(uint32_t now_us);  // the row being scanned then, from this frame's
                                                   // display area (< 0: before it; >= height: after)
 void board_display_debug(void);                 // "!lcd": the scanout's state
+// the display's frame interrupt, since boot: the most it ran late (us), the frames whose rows were
+// out of step (the picture rolled), the frames it missed, the frames it ran too late in to check
+void board_display_counters(uint32_t *late_max_us, uint32_t *rolled, uint32_t *missed, uint32_t *late);
 
 // ---- Big memory (the Presto: 8 MB of PSRAM, through the XIP cache at 0x11000000). The
 // machines lay it out themselves: the Model B's JIT code goes at its bottom.

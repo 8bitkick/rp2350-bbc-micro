@@ -155,12 +155,66 @@ static void __not_in_flash_func(load_colours)(void) {
     }
 }
 
+// What the frame interrupt saw (STATS): the most it ran late; the frames whose rows it found out of
+// step, and restarted (the picture rolled); the frames it never ran for at all (core 0 busy with
+// interrupts off: a flash write); and those it ran too late in to check
+static uint32_t late_max_us, late_frames, missed_frames, resyncs, last_isr_us, period_us;
+
+#if PRESTO_LCD_TIMING_DMA
+// Each frame's rows are started by DMA, not by the CPU: when the timing table comes round again
+// (the end of the front porch, a dozen lines before the display area), timing_dma2 chains to
+// frame_dma, which points lcd_dma2 back at the row table's second entry, then to frame_dma2, which
+// loads the first row into lcd_dma and starts it. So the panel keeps its picture through anything
+// that stops the cores, a flash write among them (it used to roll: this interrupt restarted the
+// rows, and a flash write held it off past the start of the picture).
+static uint frame_dma, frame_dma2;
+static const uint16_t *const *volatile row_table_1;    // &row_table[1], for frame_dma
+#endif
+
 static void __not_in_flash_func(frame_start_isr)(void) {
     if (lcd_pio->irq & 0x2) {
-        // start of frame
+        // start of frame (the front porch)
         hw_clear_bits(&lcd_pio->irq, 0x2);
+        uint32_t now = time_us_32();
+        if (last_isr_us && now - last_isr_us > period_us + period_us / 2)
+            missed_frames += (now - last_isr_us + period_us / 2) / period_us - 1;
+        last_isr_us = now;
         frame_count++;
-        frame_time_us = time_us_32() + display_offset_us;
+#if PRESTO_LCD_TIMING_DMA
+        // how late: the line the timing DMA is feeding (a line or two ahead of the panel, the
+        // FIFO's depth), from the frame interrupt's line
+        uint32_t line = (dma_hw->ch[timing_dma].read_addr - (uintptr_t) timing_table) / 16;
+        uint32_t late = (line + TIMING_V_FRONT - TIMING_V_DISPLAY) % TIMING_V_FRONT;
+        uint32_t late_us = (late * line_ns) / 1000;
+        if (late_us > late_max_us) late_max_us = late_us;
+        frame_time_us = now - late_us + display_offset_us;
+        if (late >= TIMING_V_FRONT - TIMING_V_DISPLAY - 4) {
+            // the DMA has started the next frame's rows already (or is about to): leave them be
+            late_frames++;
+            __sev();
+            return;
+        }
+        // in step: the last frame's rows all sent (lcd_dma2 past the table's NULL), the pixel
+        // program waiting for the next. Out of step (it never has been seen to be), stop the rows
+        // and restart the program; the DMA starts the next frame.
+        if (!dma_channel_is_busy(lcd_dma) && dma_hw->ch[lcd_dma2].read_addr == (uintptr_t) &row_table[BOARD_DISPLAY_HEIGHT + 1] &&
+            pio_sm_is_tx_fifo_empty(lcd_pio, parallel_sm)) {
+            __sev();
+            return;
+        }
+        resyncs++;
+        dma_channel_abort(lcd_dma2);
+        dma_channel_abort(lcd_dma);
+        dma_channel_wait_for_finish_blocking(lcd_dma);
+        pio_sm_set_enabled(lcd_pio, parallel_sm, false);
+        pio_sm_clear_fifos(lcd_pio, parallel_sm);
+        pio_sm_restart(lcd_pio, parallel_sm);
+        load_colours();
+        sm_exec(pio_encode_jmp(st7701_rgbe_offset_row_start));
+        pio_sm_set_enabled(lcd_pio, parallel_sm, true);
+#else
+        // (the timing from an interrupt too: the rows restarted here, each frame)
+        frame_time_us = now + display_offset_us;
         dma_channel_abort(lcd_dma);
         dma_channel_wait_for_finish_blocking(lcd_dma);
         pio_sm_set_enabled(lcd_pio, parallel_sm, false);
@@ -171,6 +225,7 @@ static void __not_in_flash_func(frame_start_isr)(void) {
         pio_sm_set_enabled(lcd_pio, parallel_sm, true);
         dma_hw->ch[lcd_dma2].read_addr = (uintptr_t) &row_table[1];
         dma_channel_set_read_addr(lcd_dma, row_table[0], true);
+#endif
         __sev();
     }
 }
@@ -317,6 +372,7 @@ void board_display_init(const uint16_t *const *rows) {
     line_ns = (uint32_t) (((uint64_t) (TIMING_H_FRONT + TIMING_H_PULSE + TIMING_H_BACK + TIMING_H_DISPLAY)
                            * clk_div * 2 * 1000000000ull) / clock_get_hz(clk_sys));
     display_offset_us = ((PRESTO_LCD_V_FRONT_PORCH + TIMING_V_BACK) * line_ns) / 1000;
+    period_us = board_display_frame_period_us();
 
     lcd_dma = dma_claim_unused_channel(true);
     lcd_dma2 = dma_claim_unused_channel(true);
@@ -334,7 +390,7 @@ void board_display_init(const uint16_t *const *rows) {
     channel_config_set_read_increment(&dc, false);
     // steps through the row table: each completed line loads (and starts) the next address
     channel_config_set_read_increment(&dc, true);
-    dma_channel_configure(lcd_dma2, &dc, &dma_hw->ch[lcd_dma].al3_read_addr_trig, &row_table[1], 1, false);
+    dma_channel_configure(lcd_dma2, &dc, &dma_hw->ch[lcd_dma].al3_read_addr_trig, &row_table[BOARD_DISPLAY_HEIGHT + 1], 1, false);
 
     lcd_panel_init();
 
@@ -343,6 +399,8 @@ void board_display_init(const uint16_t *const *rows) {
         for (uint phase = 0; phase < 4; phase++) timing_table[row * 4 + phase] = timing_word(row, phase);
     timing_dma = dma_claim_unused_channel(true);
     timing_dma2 = dma_claim_unused_channel(true);
+    frame_dma = dma_claim_unused_channel(true);
+    frame_dma2 = dma_claim_unused_channel(true);
     dc = dma_channel_get_default_config(timing_dma);
     channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
     channel_config_set_high_priority(&dc, true);   // the panel must never wait for other DMA
@@ -354,7 +412,23 @@ void board_display_init(const uint16_t *const *rows) {
     channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
     channel_config_set_high_priority(&dc, true);   // the panel must never wait for other DMA
     channel_config_set_read_increment(&dc, false);
+    channel_config_set_chain_to(&dc, frame_dma);    // and then the next frame's rows
     dma_channel_configure(timing_dma2, &dc, &dma_hw->ch[timing_dma].al3_read_addr_trig, &timing_table_addr, 1, false);
+    // the next frame's rows: lcd_dma2 back to the table's second entry, the first row into lcd_dma
+    row_table_1 = &row_table[1];
+    dc = dma_channel_get_default_config(frame_dma);
+    channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
+    channel_config_set_high_priority(&dc, true);
+    channel_config_set_read_increment(&dc, false);
+    channel_config_set_write_increment(&dc, false);
+    channel_config_set_chain_to(&dc, frame_dma2);
+    dma_channel_configure(frame_dma, &dc, &dma_hw->ch[lcd_dma2].read_addr, &row_table_1, 1, false);
+    dc = dma_channel_get_default_config(frame_dma2);
+    channel_config_set_transfer_data_size(&dc, DMA_SIZE_32);
+    channel_config_set_high_priority(&dc, true);
+    channel_config_set_read_increment(&dc, false);
+    channel_config_set_write_increment(&dc, false);
+    dma_channel_configure(frame_dma2, &dc, &dma_hw->ch[lcd_dma].al3_read_addr_trig, &row_table[0], 1, false);
     dma_channel_start(timing_dma);
 #else
     hw_set_bits(&timing_pio->inte1, 0x010 << timing_sm);  // TX not full
@@ -374,6 +448,11 @@ void board_display_init(const uint16_t *const *rows) {
 
 void board_display_set_rows(const uint16_t *const *rows) {
     row_table = rows;
+#if PRESTO_LCD_TIMING_DMA
+    // (from the next frame: what frame_dma and frame_dma2 read)
+    row_table_1 = &rows[1];
+    dma_hw->ch[frame_dma2].read_addr = (uintptr_t) &rows[0];
+#endif
 }
 
 // a pixel code -> RGB565
@@ -419,6 +498,13 @@ uint32_t board_display_frame_period_us(void) {
     if (clk_div & 1) clk_div++;
     uint64_t dots = (uint64_t) TIMING_V_FRONT * (TIMING_H_FRONT + TIMING_H_PULSE + TIMING_H_BACK + TIMING_H_DISPLAY);
     return (uint32_t) ((dots * clk_div * 2 * 1000000ull) / clock_get_hz(clk_sys));
+}
+
+void board_display_counters(uint32_t *late_max, uint32_t *rolled, uint32_t *missed, uint32_t *late) {
+    *late_max = late_max_us;
+    *rolled = resyncs;
+    *missed = missed_frames;
+    *late = late_frames;
 }
 
 void board_display_debug(void) {
