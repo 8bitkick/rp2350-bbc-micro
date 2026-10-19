@@ -80,6 +80,21 @@ INLINE struct machine *crtc_owner(struct crtc *c);
         } \
     } while (0)
 #define CRTC_RUN_END(c) do { if (vs_) vs_->head = vh_; } while (0)
+#define CRTC_RUN_RELOAD(c) do { if (vs_) vh_ = vs_->head; } while (0)   // after hooks that wrote the ring
+// A row address event from the fast paths, through the run's ring head.
+#define CRTC_RUN_RA(c, ra, isv) do { \
+        if (vs_) { \
+            vs_->ring[vh_ & (VS_RING - 1)] = VS_EV(VS_RA, (ra) | ((isv) ? 0x80 : 0)); \
+            vh_++; \
+        } \
+    } while (0)
+// An hsync event from the fast paths, through the run's ring head.
+#define CRTC_RUN_HSYNC(c, width) do { \
+        if (vs_) { \
+            vs_->ring[vh_ & (VS_RING - 1)] = VS_EV(VS_HSYNC, (width)); \
+            vh_++; \
+        } \
+    } while (0)
 // Linear fetch runs: a load and a store per character.
 INLINE void machine_display_run(const struct machine *m, uint16_t ma, uint8_t ra, uint32_t tick,
                                 const uint8_t **p, uint32_t *stride, uint32_t *chars);
@@ -535,7 +550,9 @@ static MACHINE_NOINLINE uint32_t machine_advance(struct machine *m, uint32_t cyc
 // so the IRQ history already recorded for it holds.
 static MACHINE_NOINLINE void machine_crtc_catch_up(struct machine *m)
 {
-    while (m->crtc_synced != m->synced) {
+    // (A display write can have run the CRTC past the rest: see
+    // machine_cpu_sync_write.)
+    while ((int32_t)(m->synced - m->crtc_synced) > 0) {
         STAT_CLK(m->stat_clk_crtc, m->crtc_synced += crtc_run(&m->crtc, m->crtc_synced, m->synced - m->crtc_synced));
         if (m->crtc.vsync_changed) {
             STAT(m->stat_crtc_deferred_vsync);
@@ -612,20 +629,35 @@ static MACHINE_NOINLINE void machine_schedule(struct machine *m)
     // catches up for writes inside this window. MA climbs within a line,
     // but a line end reloads it with the row's start and a frame start
     // with R12/R13, so past a line end those starts are in too. (A demo
-    // that runs one-line frames fetches the same bytes every line.)
-    // Conservative when the MA range crosses an addressing boundary.
+    // that runs one-line frames fetches the same bytes every line.) Past
+    // a start MA climbs R0 + 1 a line, and the start itself moves on by R1
+    // only at a row's last line, so at most once in R9 + 1 lines: a window
+    // of 4096 ticks is about four rows, not 4096 characters (which crossed
+    // the 16 K boundary and so covered all of RAM: evil-inf from 355 s
+    // drew into the screen with nearly every store a catch-up). R0, R1
+    // and R9 writes reschedule; an R12/R13 write adds its start
+    // (machine_window_add_start). Conservative when the MA range crosses
+    // an addressing boundary.
     {
         const struct crtc *c = &m->crtc;
-        uint32_t chars = due - m->crtc_synced;
+        uint32_t chars = (int32_t)(due - m->crtc_synced) > 0 ? due - m->crtc_synced : 0;
         if (!c->ula_clock_fast) {
             chars = chars / 2 + 1;
         }
         uint32_t ma0 = c->address_counter;
-        uint32_t ma1 = ma0 + chars + 1;
         uint32_t hc = c->horiz_counter, r0 = c->reg[CRTC_R0_HTOTAL];
         uint32_t to_eol = (hc <= r0) ? (r0 - hc + 1) : (256 - hc + r0 + 1);
+        uint32_t ma1 = ma0 + (chars < to_eol ? chars : to_eol) + 1;
+        m->win_extent = 0;
         if (chars >= to_eol) {
             uint32_t lines = (chars - to_eol) / (r0 + 1) + 1;   // line ends inside
+            uint32_t per_row = (c->reg[CRTC_R9_MAXRA] & c->scanline_mask) / c->scanline_stride + 1;
+            uint32_t advances = (lines + per_row) / per_row + 1;
+            uint32_t extent = advances * c->reg[CRTC_R1_HDISP] + r0 + 2;
+            if (extent > chars + 1) {
+                extent = chars + 1;
+            }
+            m->win_extent = (uint16_t)(extent < 0x4000 ? extent : 0x4000);   // (0x4000 or more: all of RAM anyway)
             uint32_t starts[2];
             int ns = 0;
             starts[ns++] = c->address_counter_saved;
@@ -638,8 +670,8 @@ static MACHINE_NOINLINE void machine_schedule(struct machine *m)
                 if (starts[i] < ma0) {
                     ma0 = starts[i];
                 }
-                if (starts[i] + chars + 1 > ma1) {
-                    ma1 = starts[i] + chars + 1;
+                if (starts[i] + extent > ma1) {
+                    ma1 = starts[i] + extent;
                 }
             }
         }
@@ -663,6 +695,31 @@ static MACHINE_NOINLINE void machine_schedule(struct machine *m)
 
 }
 
+// An R12/R13 write that kept the schedule: a frame start inside the
+// window would fetch from the new start, so its range joins the window.
+static MACHINE_NOINLINE void machine_window_add_start(struct machine *m)
+{
+    uint32_t e = m->win_extent;
+    if (!e) {
+        return;   // no line end before the sync point
+    }
+    const struct crtc *c = &m->crtc;
+    uint32_t ma0 = ((c->reg[CRTC_R12_MAH] << 8) | c->reg[CRTC_R13_MAL]) & 0x3fff;
+    uint32_t ma1 = ma0 + e;
+    uint32_t lo = machine_display_addr(m, ma0, 0);
+    uint32_t hi = machine_display_addr(m, ma1 & 0x3fff, 7);
+    if (ma1 > 0x3fff || ((ma0 ^ ma1) & 0x3000) || hi < lo) {
+        lo = 0;
+        hi = 0x7fff;
+    }
+    if (lo < m->wlo) {
+        m->wlo = lo;
+    }
+    if (hi > m->whi) {
+        m->whi = hi;
+    }
+}
+
 // `want_due` 0 skips the scheduling at the end (the next sync point and
 // the display write window) when the caller advances again at once.
 // `with_crtc` 0 leaves the CRTC where it is (crtc_synced): a register
@@ -676,7 +733,7 @@ static MACHINE_NOINLINE uint32_t machine_advance_ex(struct machine *m, uint32_t 
     if (skip & 1) {
         with_crtc = 0;
         m->crtc_synced = cyc;   // measurement: no CRTC at all
-    } else if (with_crtc && m->crtc_synced != m->synced) {
+    } else if (with_crtc && (int32_t)(m->synced - m->crtc_synced) > 0) {
         machine_crtc_catch_up(m);
     } else if (!with_crtc) {
         STAT(m->stat_crtc_deferred);
@@ -728,7 +785,13 @@ static MACHINE_NOINLINE uint32_t machine_advance_ex(struct machine *m, uint32_t 
         // The CRTC may cut the chunk short at a vsync change.
         uint32_t done = w;
         if (with_crtc) {
-            STAT_CLK(m->stat_clk_crtc, done = crtc_run(&m->crtc, s, w));
+            // The CRTC from where it is, which a display write may have
+            // taken past s (no vsync change can be there, see
+            // machine_cpu_sync_write).
+            uint32_t ahead = (int32_t)(m->crtc_synced - s) > 0 ? m->crtc_synced - s : 0;
+            if (ahead < w) {
+                STAT_CLK(m->stat_clk_crtc, done = ahead + crtc_run(&m->crtc, s + ahead, w - ahead));
+            }
         }
 
         // VIAs over `done` cycles; the event tick, if this chunk ends on
@@ -761,7 +824,7 @@ static MACHINE_NOINLINE uint32_t machine_advance_ex(struct machine *m, uint32_t 
             }
         }
         m->synced = s + done;
-        if (with_crtc) {
+        if (with_crtc && (int32_t)(m->synced - m->crtc_synced) > 0) {
             m->crtc_synced = m->synced;
         }
         if (fdc_e != 0xffffffffu) {
@@ -1122,6 +1185,11 @@ INLINE void io_schedule_quiet(struct machine *m)
         n = r_ >> 16; \
     } while (0)
 #define IO_TICK() do { cyc++; n++; k++; STAT(m->stat_io_ticks); mask = (mask << 1) | (machine_advance(m, cyc) & 1); } while (0)
+// The same tick when the caller schedules after the access anyway.
+#define IO_TICK_NO_DUE() do { \
+        cyc++; n++; k++; STAT(m->stat_io_ticks); \
+        mask = (mask << 1) | (machine_advance_ex(m, cyc, 0, 1) & 1); \
+    } while (0)
 #define IO_LEVEL_MOVED() (m->nmi_edge || machine_irq_level(m) != (mask & 1))
 // The cycle after an access (1 MHz devices, the video ULA).
 #define IO_AFTER_TICK() do { \
@@ -1173,6 +1241,18 @@ INLINE int io_write_keeps_schedule(const struct machine *m, uint16_t addr)
     return 0;
 }
 
+// Whether a paging write (FE30-FE37) changes what the CRTC fetches (see
+// machine_display_run): the display's RAM (ACCCON D), and with D set the
+// overlays of HAZEL (ACCCON Y) and ANDY (ROMSEL bit 7).
+INLINE int paging_moves_fetch(const struct machine *m, uint16_t addr, uint8_t val)
+{
+    if (addr & 4) {
+        uint8_t d = val ^ m->acccon;
+        return (d & 1) || ((d & 0x08) && (val & 1));
+    }
+    return ((val ^ m->romsel) & 0x80) && (m->acccon & 1);
+}
+
 static MACHINE_NOINLINE uint32_t machine_io_rd_slow(struct machine *m, uint16_t addr, uint32_t cyc)
 {
     STAT(m->stat_sync_io);
@@ -1206,6 +1286,16 @@ static MACHINE_NOINLINE uint32_t machine_io_rd_slow(struct machine *m, uint16_t 
         STAT(m->stat_io_page[(addr >> 4) & 7]);
         STAT_CLK(m->stat_clk_sheila[(addr >> 4) & 7], v = sheila_read(m, addr));  // at the odd count, mid 1 MHz cycle
         IO_AFTER_TICK();
+    } else if ((addr & 0xfff8) == 0xfe30 && io_quiet_window(m, cyc + 1, &mask, &n)) {
+        // Paging, read: no device is involved, so with nothing falling due
+        // before the tick the VIAs by subtraction and the CRTC left behind,
+        // as the general path below counts it. (evil-inf from 355 s reads
+        // ACCCON twice a line, TSB and TRB, each two general catch-ups.)
+        cyc++;
+        k++;
+        STAT(m->stat_io_page[(addr >> 4) & 7]);
+        STAT_CLK(m->stat_clk_sheila[(addr >> 4) & 7], v = sheila_read(m, addr));
+        IO_AFTER_ACCESS();
     } else {
         IO_SYNC();
         IO_TICK();
@@ -1259,19 +1349,27 @@ static MACHINE_NOINLINE uint32_t machine_io_wr_slow(struct machine *m, uint16_t 
         // and then writes ("required for CRTC"), one tick later than the
         // other 1 MHz devices here, which matters when the write lands on
         // a counter hit (Twisted Brain rewrites R8 on a line end).
+        // Nothing falls due before the access (the quiet window): the VIAs
+        // by subtraction and the CRTC run up to it, whatever the register;
+        // one that moves the schedule reschedules after the write. (R0 and
+        // R9 went through two general catch-ups: RVI writes them three
+        // times a scanline, at about 1100 clocks of machinery each.)
         int keep = io_write_keeps_schedule(m, addr);
         uint32_t t_ = (((cyc + 1) & 1) ? 1 : 2) + 1;
-        if (keep && io_quiet_window(m, cyc + t_, &mask, &n)) {
+        if (io_quiet_window(m, cyc + t_, &mask, &n)) {
             machine_crtc_catch_up(m);
             cyc += t_;
             k += t_;
         } else {
             IO_SYNC_IDLE();
-            IO_TICK();
-            keep = 0;   // IO_TICK scheduled; the write may move the schedule
+            IO_TICK_NO_DUE();   // scheduled once, after the write
+            keep = 0;
         }
         STAT(m->stat_io_page[(addr >> 4) & 7]);
         STAT_CLK(m->stat_clk_sheila[(addr >> 4) & 7], sheila_write(m, addr, val));
+        if (keep) {
+            machine_window_add_start(m);   // R12/R13
+        }
         if (IO_LEVEL_MOVED()) {
             m->irq_late = 1;   // R7/R8 can move vsync at once
             machine_schedule(m);
@@ -1310,6 +1408,23 @@ static MACHINE_NOINLINE uint32_t machine_io_wr_slow(struct machine *m, uint16_t 
         STAT(m->stat_io_page[(addr >> 4) & 7]);
         STAT_CLK(m->stat_clk_sheila[(addr >> 4) & 7], sheila_write(m, addr, val));  // video ULA: access then tick
         IO_AFTER_TICK_KEEP(keep);
+    } else if ((addr & 0xfff8) == 0xfe30 && io_quiet_window(m, cyc + 1, &mask, &n)) {
+        // Paging (ROMSEL, ACCCON), as the general path below: the tick,
+        // then the write. With nothing falling due before it, the VIAs by
+        // subtraction and the CRTC run up to it (paging changes what the
+        // CRTC fetches from ANDY and HAZEL); the schedule stands, as it
+        // does below. (evil-inf pages about once a scanline from 105 s.)
+        // Only a write that changes the CRTC's fetch catches it up: ACCCON's
+        // D, or with D set its Y (HAZEL) or ROMSEL's ANDY bit. evil-inf
+        // from 355 s rewrites ACCCON with the value it holds twice a line.
+        if (paging_moves_fetch(m, addr, val)) {
+            machine_crtc_catch_up(m);
+        }
+        cyc++;
+        k++;
+        STAT(m->stat_io_page[(addr >> 4) & 7]);
+        STAT_CLK(m->stat_clk_sheila[(addr >> 4) & 7], sheila_write(m, addr, val));
+        IO_AFTER_ACCESS();
     } else {
         IO_SYNC();
         IO_TICK();
@@ -1346,18 +1461,25 @@ static MACHINE_NOINLINE void machine_cpu_sync(struct cpu6502 *cpu)
 }
 
 // A write to display RAM the CRTC may fetch (see wr_cycle in cpu6502.c):
-// the machine up to the end of the last storing instruction, or, if it is
-// already past that, the CRTC alone if it was left behind; then the store.
+// the CRTC up to the end of the last storing instruction, then the store.
+// Only the CRTC: before the sync point no vsync change can fall (the
+// scheduler bounds it by the CRTC's own check), so nothing else needs
+// it, and the VIAs follow at the next catch-up, which takes the CRTC from
+// where this left it. Past the sync point (an instruction can overrun
+// it), the whole machine as before.
 static MACHINE_NOINLINE void machine_cpu_sync_write(struct cpu6502 *cpu)
 {
     struct machine *m = cpu->m;
     STAT(m->stat_sync_write);
     uint32_t to = cpu->last_wr;
-    if ((int32_t)(to - m->synced) > 0) {
+    if ((int32_t)(to - m->synced) > 0 && (int32_t)(to - m->sync_due) >= 0) {
         machine_cpu_sync_to(cpu, to);
     } else if ((int32_t)(to - m->crtc_synced) > 0) {
         while (m->crtc_synced != to) {
             m->crtc_synced += crtc_run(&m->crtc, m->crtc_synced, to - m->crtc_synced);
+            if (m->crtc.vsync_changed) {
+                STAT(m->stat_crtc_deferred_vsync);   // must not happen
+            }
         }
     }
 }

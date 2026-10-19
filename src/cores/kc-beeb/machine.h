@@ -100,6 +100,11 @@ struct machine {
     // happened on. Delivered by the catch-up hooks like the IRQ line.
     uint8_t nmi_edge;
     uint8_t irq_late;    // a key event moved the IRQ level after its cycle was recorded
+    // The display write window's MA extent past a line start (0: no line
+    // end inside it), for an R12/R13 write to add its start. (rp2350: a
+    // uint16_t in what was padding, so the struct's layout and saved
+    // states stay as they were; clamped to 0x4000, all of RAM anyway.)
+    uint16_t win_extent;
     // The tick the CRTC has reached: at most `synced`. A register access
     // to a device other than the CRTC, the ULA or paging leaves the CRTC
     // behind when no vsync change can fall in the window (machine.c).
