@@ -43,9 +43,13 @@ first. Sound and the LEDs are [build options](#build-options), off by default.
 To flash it: hold **BOOT** on the Presto, tap **RESET**, and copy the `.uf2` onto the **RP2350** drive
 that appears (or add `--flash` to `setup.sh`). It reboots into Elite.
 
-Then give it your WiFi network, once, over USB: copy [`tools/secrets.example.py`](tools/secrets.example.py)
-to `secrets.py`, put in your network name and password, and run `python3 tools/presto.py wifi secrets.py`. Open
-**[http://beeb.local/](http://beeb.local/)**.
+Then put it on your WiFi, once, with the Presto plugged in over USB:
+
+1. Copy [`tools/secrets.example.py`](tools/secrets.example.py) to `secrets.py` and fill in your network
+   name and password (`secrets.py` is ignored by git).
+2. Run `python3 tools/presto.py wifi secrets.py`. The Presto saves them in its flash and joins the
+   network; it remembers them through power-offs and new firmware.
+3. Open **[http://beeb.local/](http://beeb.local/)** in a browser on the same network.
 
 ## Web panel
 
@@ -156,11 +160,14 @@ build and measure, where things are, and what hasn't been tried yet.
 - **[Graham Sanderson](https://github.com/kilograham/b-em/tree/pico):** the BBC Micro on the
   RP2040, which showed it could be done on a microcontroller at all.
 - **[Kieran Connell](https://github.com/kieranhj):** for inspiring me to hack small devices again,
-  and for the [BBC Master 128 emulator](https://github.com/kieranhj/esp32-beeb) in `src/cores/kc-beeb/` (GPL v3).
+  and for the [BBC Master 128 emulator](https://github.com/kieranhj/esp32-beeb) in `src/cores/kc-beeb/` (GPL v3), the
+  sound, the ambient LEDs, the Windows build and the disc-track cap.
+- **[Andy Nightingale](https://github.com/andriodious):** the fix that lets the Presto save its WiFi
+  details over USB ([#1](https://github.com/8bitkick/rp2350-bbc-micro/pull/1)).
 - **ST7701 driver:** adapted from [Pimoroni's](https://github.com/pimoroni/presto) MIT-licensed driver.
 - **[Flicker-free Elite](https://github.com/markmoxon/elite-source-code-bbc-micro-disc):** Mark
-  Moxon. Elite is © Ian Bell and David Braben. The release `.uf2` includes it; the source tree
-  doesn't.
+  Moxon. Elite is © Ian Bell and David Braben. `setup.sh` fetches it and builds it into the firmware;
+  the source tree doesn't include it.
 - **Screenshots:** Exile © Superior Software; Wobble Colours by Tom Seddon of [Bitshifters](https://bitshifters.github.io/).
 
 beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The BBC Micro
