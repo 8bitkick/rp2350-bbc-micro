@@ -1,19 +1,24 @@
 /*
  * The BBC's sound on the board's audio out, a PWM pin (board_config.h: BOARD_AUDIO_PWM_PIN; the
- * Presto's piezo).
+ * Presto's piezo), or on another (-DSOUND_PIN; on the Presto, 40 is the Qw/ST socket's SDA, for
+ * an amplifier and a speaker: docs/presto/speaker.md).
  *
  * Core 0 runs the 6502: each byte the SN76489 takes goes into a ring here with its emulated time
  * (beebjit's sound.c calls audio_sn_write), and each frame says what the time is now.
  * Core 1 makes the samples: an SN76489 as beebjit's (sound.c: the same counters, noise and
- * volumes, at its 250 kHz), averaged in eights to 31.25 kHz. Each byte lands on the SN tick it
- * was written at, so sample playback through the volume registers comes out.
+ * volumes, at its 250 kHz), averaged in pairs to 125 kHz, then through a low-pass at 8 kHz (two
+ * one-pole filters in a row). Each byte lands on the SN tick it was written at, so sample
+ * playback through the volume registers comes out. Through a speaker, 31.25 kHz (eights, as at
+ * first) sounded harsh: the square waves' overtones fold back into the audible band; unfiltered
+ * at 125 kHz it sounded tinny. !audio rate / lp / dac change these while playing, to compare.
  *
  * The ring (in PSRAM: SRAM is short, and the XIP cache that both cores read it through is one)
  * holds each byte with the low 24 bits of its time.
  *
  * The PWM is a 10 bit DAC at 244 kHz (250 MHz / 1024). Two DMA channels, chained, feed its
- * level from two buffers (16 bit writes to CC land in both halves; only B is on a pin), paced
- * by a DMA timer at 31.25 kHz; as each buffer finishes, the DMA interrupt (on core 1) fills it.
+ * level from two buffers (16 bit writes to CC land in both halves, so either channel's pin
+ * works), paced by a DMA timer at the sample rate; as each buffer finishes, the DMA interrupt
+ * (on core 1) fills it. 8 bits at 977 kHz (!audio dac 8) sounded robotic.
  *
  * The sound runs LATENCY behind the emulated time. The emulation runs in bursts and sleeps, so a
  * frame's time is a poor clock: each frame gives the offset of the emulated time from the real
@@ -36,13 +41,13 @@
 #include "sound.h"
 #include "board.h"
 
-#define PIEZO_PIN       BOARD_AUDIO_PWM_PIN     // the board's audio out (board_config.h)
+#define SOUND_PIN       BOARD_AUDIO_PWM_PIN     // the board's audio out (board_config.h, -DSOUND_PIN)
 #define DAC_TOP         1023
-#define SAMPLE_HZ       31250
+#define SAMPLE_HZ       31250               // the test sounds' rate
 #define SAMPLE_US       32
-#define TICKS_PER_SAMPLE 64                 // 2 MHz ticks
-#define SN_TICKS        8                   // SN76489 ticks (250 kHz) a sample
-#define BUFFER_SAMPLES  256                 // 8.2 ms
+#define SN_HZ           250000              // the SN76489's ticks, 8 of the 2 MHz ticks
+#define BUFFER_SAMPLES  256                 // 2 ms at 125 kHz
+#define LP_HZ           8000                // the low-pass's corner
 #define LATENCY         100000              // ticks (50 ms) behind the emulated time
 #define SLACK           90000               // off by this much, jump back to LATENCY
 #define RING            1024                // bytes written to the SN76489, in flight
@@ -123,6 +128,13 @@ static uint16_t s_noise_rng;
 static uint8_t s_noise_type, s_noise_frequency, s_latched;
 static uint16_t s_volume_out[16];           // a channel's level, 0 .. 8191
 static uint32_t s_gain = 256;               // 256 is 4 channels at full volume = full scale
+// !audio rate / lp / dac: SN ticks a sample (2: 125 kHz, 4: 62.5, 8: 31.25), a two pole low-pass
+// (Q16 coefficient, 0 off), and the PWM's wrap (1023: 10 bits at 244 kHz, 255: 8 bits at 977 kHz)
+static volatile uint32_t s_sn_ticks = 2;
+static volatile uint32_t s_lp_a;
+static volatile uint32_t s_lp_hz;
+static volatile uint32_t s_dac_top = DAC_TOP;
+static int32_t s_lp_y1, s_lp_y2;            // the filter's state, levels << 16
 
 static void sn_reset(void) {
     for (int i = 0; i < 4; i++) {
@@ -216,12 +228,14 @@ static volatile uint32_t s_last_step;
 static void __not_in_flash_func(fill)(uint16_t *buf) {
     static uint32_t s_last_frames, s_still_buffers;
     uint32_t frames = s_frames;
-    // no frame for 8 buffers (65 ms): the machine is held (a disc loading, a test sound)
+    uint32_t sn_ticks = s_sn_ticks;
+    uint32_t ticks_per_sample = 8 * sn_ticks;           // 2 MHz ticks
+    // no frame for 65 ms: the machine is held (a disc loading, a test sound)
     s_still_buffers = (frames == s_last_frames) ? (s_still_buffers + 1) : 0;
     s_last_frames = frames;
-    bool quiet = s_mute || !s_have_now || (s_still_buffers >= 8);
+    bool quiet = s_mute || !s_have_now || (s_still_buffers >= 64 / sn_ticks);
     // ticks a sample, in 256ths: the machine's rate, steered towards LATENCY
-    uint32_t step = (TICKS_PER_SAMPLE << 8);
+    uint32_t step = (ticks_per_sample << 8);
     if (!quiet) {
         uint32_t now = (2 * time_us_32()) + s_offset;
         int32_t lag = (int32_t) (now - s_cursor);
@@ -239,12 +253,13 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
         }
         s_last_lag = lag;
         // 10 ms (20000 ticks) behind runs 1% fast to catch up
-        int32_t steer = (lag - LATENCY) / 122;
-        if (steer > 2048) steer = 2048;
-        if (steer < -2048) steer = -2048;
-        step = (uint32_t) ((int32_t) ((s_rate_q16 * TICKS_PER_SAMPLE) >> 8) + steer);
-        if (step < (16 << 8)) step = (16 << 8);
-        if (step > (128 << 8)) step = (128 << 8);
+        int32_t steer = (int32_t) (((lag - LATENCY) / 122) * (int32_t) sn_ticks) / 8;
+        int32_t most = (int32_t) (256 * sn_ticks);
+        if (steer > most) steer = most;
+        if (steer < -most) steer = -most;
+        step = (uint32_t) ((int32_t) ((s_rate_q16 * ticks_per_sample) >> 8) + steer);
+        if (step < (ticks_per_sample << 6)) step = (ticks_per_sample << 6);
+        if (step > (ticks_per_sample << 9)) step = (ticks_per_sample << 9);
     } else {
         s_running = false;
     }
@@ -258,6 +273,7 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
             s_ring_tail++;
         }
         for (int i = 0; i < BUFFER_SAMPLES; i++) buf[i] = 0;
+        s_lp_y1 = s_lp_y2 = 0;
         s_quiet_buffers++;
         return;
     }
@@ -266,12 +282,17 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
     uint32_t head = s_ring_head;
     __dmb();
     uint32_t tail = s_ring_tail;
-    uint32_t gain = s_gain;
+    // sum: up to sn_ticks x 4 channels x 8191; gain 256 makes that full scale (DAC_TOP)
+    uint32_t gain = (s_gain * 8) / sn_ticks;
+    uint32_t top = s_dac_top;
+    uint32_t shift = (top == DAC_TOP) ? 16 : 18;
+    int32_t lp_a = (int32_t) s_lp_a;
+    int32_t y1 = s_lp_y1, y2 = s_lp_y2;
     for (int i = 0; i < BUFFER_SAMPLES; i++) {
         uint32_t sum = 0;
-        for (int k = 0; k < SN_TICKS; k++) {
+        for (uint32_t k = 0; k < sn_ticks; k++) {
             // the emulated time this SN tick ends at
-            uint32_t t = cursor + ((frac + (((uint32_t) (k + 1) * step) / SN_TICKS)) >> 8);
+            uint32_t t = cursor + ((frac + (((k + 1) * step) / sn_ticks)) >> 8);
             // the bytes written before it (the time's low 24 bits, against t's)
             while ((tail != head) &&
                    ((int32_t) ((s_ring[tail % RING] & ~0xffu) - (t << 8)) < 0)) {
@@ -281,14 +302,21 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
             }
             sum += sn_tick();
         }
-        // sum: up to 8 ticks x 4 channels x 8191; 256 >> 16 makes that full scale
-        uint32_t level = (sum * gain) >> 16;
-        if (level > DAC_TOP) level = DAC_TOP;
+        uint32_t level = (uint32_t) (((uint64_t) sum * gain) >> shift);
+        if (lp_a) {
+            // two one-pole low-passes in a row, in levels << 16
+            y1 += (int32_t) (((int64_t) (((int32_t) level << 16) - y1) * lp_a) >> 16);
+            y2 += (int32_t) (((int64_t) (y1 - y2) * lp_a) >> 16);
+            level = (uint32_t) ((y2 + 0x8000) >> 16);
+        }
+        if (level > top) level = top;
         buf[i] = (uint16_t) level;
         frac += step;
         cursor += (frac >> 8);
         frac &= 0xff;
     }
+    s_lp_y1 = y1;
+    s_lp_y2 = y2;
     s_ring_tail = tail;
     s_cursor = cursor;
     s_cursor_frac = frac;
@@ -307,10 +335,17 @@ static void __not_in_flash_func(dma_isr)(void) {
 static void pwm_dac(void) {
     pwm_config cfg = pwm_get_default_config();
     pwm_config_set_clkdiv(&cfg, 1.0f);
-    pwm_config_set_wrap(&cfg, DAC_TOP);
-    gpio_set_function(PIEZO_PIN, GPIO_FUNC_PWM);
-    pwm_init(pwm_gpio_to_slice_num(PIEZO_PIN), &cfg, true);
-    pwm_set_gpio_level(PIEZO_PIN, 0);
+    pwm_config_set_wrap(&cfg, (uint16_t) s_dac_top);
+    gpio_set_function(SOUND_PIN, GPIO_FUNC_PWM);
+    pwm_init(pwm_gpio_to_slice_num(SOUND_PIN), &cfg, true);
+    pwm_set_gpio_level(SOUND_PIN, 0);
+}
+
+// a channel's CHAIN_TO, through the alias that doesn't trigger it (to itself: no chain)
+static void chain(int ch, int to) {
+    uint32_t ctrl = dma_hw->ch[ch].al1_ctrl;
+    dma_hw->ch[ch].al1_ctrl = (ctrl & ~DMA_CH0_CTRL_TRIG_CHAIN_TO_BITS) |
+                              ((uint32_t) to << DMA_CH0_CTRL_TRIG_CHAIN_TO_LSB);
 }
 
 static void start(void) {
@@ -318,31 +353,48 @@ static void start(void) {
     for (int b = 0; b < 2; b++) {
         for (int i = 0; i < BUFFER_SAMPLES; i++) s_buffer[b][i] = 0;
         dma_channel_set_read_addr(s_dma[b], s_buffer[b], false);
+        chain(s_dma[b], s_dma[b ^ 1]);
     }
     s_running = false;
     dma_channel_start(s_dma[0]);
 }
 
 static void stop(void) {
-    // both at once, as each chains to the other
+    // unchained first: aborting a channel can fire its chain, restarting the other
     uint32_t mask = (1u << s_dma[0]) | (1u << s_dma[1]);
-    for (int b = 0; b < 2; b++) dma_irqn_set_channel_enabled(1, s_dma[b], false);
+    for (int b = 0; b < 2; b++) {
+        dma_irqn_set_channel_enabled(1, s_dma[b], false);
+        chain(s_dma[b], s_dma[b]);
+    }
     dma_hw->abort = mask;
     while (dma_hw->abort & mask) tight_loop_contents();
     for (int b = 0; b < 2; b++) {
         dma_irqn_acknowledge_channel(1, s_dma[b]);
         dma_irqn_set_channel_enabled(1, s_dma[b], true);
     }
-    pwm_set_gpio_level(PIEZO_PIN, 0);
+    pwm_set_gpio_level(SOUND_PIN, 0);
+}
+
+// the DMA timer at the sample rate: 250 MHz x 1 / 2000 = 125 kHz (2 SN ticks a sample)
+static void set_rate(void) {
+    dma_timer_set_fraction((uint) s_dma_timer, 1,
+                           (uint16_t) (clock_get_hz(clk_sys) / (SN_HZ / s_sn_ticks)));
+}
+
+static void set_lp(uint32_t hz) {
+    uint32_t rate = SN_HZ / s_sn_ticks;
+    s_lp_hz = hz;
+    s_lp_a = (hz == 0) ? 0 : (uint32_t) lroundf(65536.0f *
+                                                (1.0f - expf(-6.2831853f * (float) hz / (float) rate)));
 }
 
 void audio_init(void) {
-    uint slice = pwm_gpio_to_slice_num(PIEZO_PIN);
+    uint slice = pwm_gpio_to_slice_num(SOUND_PIN);
     if (s_ring == NULL) return;
     sn_reset();
     s_dma_timer = dma_claim_unused_timer(true);
-    // 250 MHz x 1 / 8000 = 31.25 kHz
-    dma_timer_set_fraction((uint) s_dma_timer, 1, (uint16_t) (clock_get_hz(clk_sys) / SAMPLE_HZ));
+    set_rate();
+    set_lp(LP_HZ);
     s_dma[0] = dma_claim_unused_channel(true);
     s_dma[1] = dma_claim_unused_channel(true);
     for (int b = 0; b < 2; b++) {
@@ -362,16 +414,28 @@ void audio_init(void) {
 }
 
 void audio_command(const char *args) {
-    unsigned percent;
+    unsigned percent, n;
     while (*args == ' ') args++;
     if (sscanf(args, "vol %u", &percent) == 1) {
         if (percent > 1600) percent = 1600;
         s_gain = (percent * 256) / 100;
+    } else if ((sscanf(args, "rate %u", &n) == 1) && (s_dma_timer >= 0)) {
+        // kHz: 31, 62 or 125
+        s_sn_ticks = (n >= 100) ? 2 : (n >= 50) ? 4 : 8;
+        set_rate();
+        set_lp(s_lp_hz);
+    } else if (sscanf(args, "lp %u", &n) == 1) {
+        if (n >= (SN_HZ / s_sn_ticks) / 2) n = 0;     // below the Nyquist frequency
+        set_lp(n);
+    } else if ((sscanf(args, "dac %u", &n) == 1) && (s_dma[0] >= 0)) {
+        s_dac_top = (n == 8) ? 255 : DAC_TOP;
+        pwm_set_wrap(pwm_gpio_to_slice_num(SOUND_PIN), (uint16_t) s_dac_top);
     }
     // the lag's range is since the last !audio
-    printf("AUDIO vol=%u%% writes=%lu dropped=%lu buffers=%lu quiet=%lu jumps=%lu "
-           "(behind %lu, ahead %lu) lag_ms=%ld (%ld..%ld) rate=%lu.%lu%% step=%lu.%02lu%s\n",
-           (unsigned) ((s_gain * 100) / 256), (unsigned long) s_events,
+    printf("AUDIO vol=%u%% hz=%lu lp=%lu dac=%u writes=%lu dropped=%lu buffers=%lu quiet=%lu "
+           "jumps=%lu (behind %lu, ahead %lu) lag_ms=%ld (%ld..%ld) rate=%lu.%lu%% step=%lu.%02lu%s\n",
+           (unsigned) ((s_gain * 100) / 256), (unsigned long) (SN_HZ / s_sn_ticks),
+           (unsigned long) s_lp_hz, (s_dac_top == DAC_TOP) ? 10u : 8u, (unsigned long) s_events,
            (unsigned long) s_dropped, (unsigned long) s_buffers,
            (unsigned long) s_quiet_buffers, (unsigned long) s_jumps,
            (unsigned long) s_jumps_behind, (unsigned long) s_jumps_ahead,
@@ -397,9 +461,9 @@ static void square(float hz) {
     pwm_config cfg = pwm_get_default_config();
     pwm_config_set_clkdiv(&cfg, div);
     pwm_config_set_wrap(&cfg, (uint16_t) top);
-    gpio_set_function(PIEZO_PIN, GPIO_FUNC_PWM);
-    pwm_init(pwm_gpio_to_slice_num(PIEZO_PIN), &cfg, true);
-    pwm_set_gpio_level(PIEZO_PIN, (uint16_t) ((top + 1) / 2));
+    gpio_set_function(SOUND_PIN, GPIO_FUNC_PWM);
+    pwm_init(pwm_gpio_to_slice_num(SOUND_PIN), &cfg, true);
+    pwm_set_gpio_level(SOUND_PIN, (uint16_t) ((top + 1) / 2));
 }
 
 static void wait_ms(uint32_t ms) {
@@ -418,11 +482,11 @@ static void dac_play(uint32_t n, float (*fn)(uint32_t i, void *ctx), void *ctx, 
         float v = fn(i, ctx) * gain;
         if (v > 1.0f) v = 1.0f;
         if (v < -1.0f) v = -1.0f;
-        int level = (int) ((v + 1.0f) * 0.5f * DAC_TOP + 0.5f);
+        int level = (int) ((v + 1.0f) * 0.5f * (float) s_dac_top + 0.5f);
         t += SAMPLE_US;
         while (time_us_64() < t) {
         }
-        pwm_set_gpio_level(PIEZO_PIN, (uint16_t) level);
+        pwm_set_gpio_level(SOUND_PIN, (uint16_t) level);
         if ((i & 1023) == 0) watchdog_update();
     }
 }
@@ -502,8 +566,11 @@ void audio_test(const char *args) {
     if (playing) {
         start();
     } else {
-        pwm_set_enabled(pwm_gpio_to_slice_num(PIEZO_PIN), false);
-        gpio_init(PIEZO_PIN);
+        // driven low, as board_init leaves it (a floating piezo picks up the WiFi and buzzes)
+        pwm_set_enabled(pwm_gpio_to_slice_num(SOUND_PIN), false);
+        gpio_init(SOUND_PIN);
+        gpio_set_dir(SOUND_PIN, GPIO_OUT);
+        gpio_put(SOUND_PIN, 0);
     }
     printf("BEEP done\n");
 }
