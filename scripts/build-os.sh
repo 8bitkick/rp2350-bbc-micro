@@ -3,6 +3,8 @@
 #
 #   scripts/build-os.sh [build root]      (default: build-os) -> <root>/presto_os.uf2
 #
+# APP=<app.bin> puts an app (src/common/app_api.h: elite-agent's presto/app/build.sh makes one) in
+# the app slot too.
 # builds <root>/launcher, <root>/master and <root>/beeb, each machine a plain build of its own
 # (OS_CMAKE_ARGS, default "-DSOUND=ON -DAMBIENT=ON", is passed to both), then joins them with
 # tools/os_uf2.py. Needs the toolchain and the SDK set up (. deps/env.sh, or PICO_SDK_PATH and the
@@ -28,4 +30,4 @@ for m in master beeb; do
     ninja -C "$OUT/$m" $J
 done
 python3 "$ROOT/tools/os_uf2.py" "$ROOT/src/launcher/partitions.json" "$OUT/launcher/presto_launcher.uf2" \
-    "$OUT/master/presto_master.uf2" "$OUT/beeb/presto_beebjit.uf2" "$OUT/presto_os.uf2"
+    "$OUT/master/presto_master.uf2" "$OUT/beeb/presto_beebjit.uf2" ${APP:+--app "$APP"} "$OUT/presto_os.uf2"
