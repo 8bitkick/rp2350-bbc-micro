@@ -8,15 +8,18 @@
  * way the next boot finds the record still "starting", and instead of running the emulator it
  * brings up just USB and reports, over and over: the last step reached (boot_guard_step) and any
  * fault's PC, LR and fault status. "!bootsel" then drops it into the USB bootloader for the next
- * flash, so a broken build never needs the buttons.
+ * flash, so a broken build never needs the buttons; with both machines in the flash, "!machine
+ * <name>" boots the other one instead (system.h).
  */
 #include <stdio.h>
+#include <string.h>
 #include "pico/stdlib.h"
 #include "pico/bootrom.h"
 #include "hardware/watchdog.h"
 #include "hardware/structs/watchdog.h"
 #include "hardware/structs/scb.h"
 #include "boot_guard.h"
+#include "system.h"
 
 #define BOOT_STARTING 0xb00757a7u
 #define BOOT_FAULTED  0xb007fa17u
@@ -39,15 +42,27 @@ static void report_forever(boot_record_t r) {
                r.state == BOOT_FAULTED ? "fault" : r.state == BOOT_PANICKED ? "panic" : "hang",
                (uint) r.step, (uint) r.pc, (uint) r.lr,
                (uint) r.cfsr, (uint) r.bfar, (uint) r.core, (uint) r.xpsr);
-        // wait a second for "!bootsel"
+        // wait a second for "!bootsel", or "!machine <name>" (the launcher boots that one next)
         absolute_time_t until = make_timeout_time_ms(1000);
-        static int matched;
+        static char line[24];
+        static int len = -1;
         while (!time_reached(until)) {
             int c = getchar_timeout_us(10000);
             if (c == PICO_ERROR_TIMEOUT) continue;
-            static const char want[] = "!bootsel";
-            matched = c == want[matched] ? matched + 1 : c == '!';
-            if (!want[matched]) reset_usb_boot(0, 0);
+            if (c == '!') {
+                len = 0;
+            } else if (len >= 0 && (c == '\n' || c == '\r')) {
+                line[len] = 0;
+                len = -1;
+                if (!strcmp(line, "bootsel")) reset_usb_boot(0, 0);
+                if (!strncmp(line, "machine ", 8) && system_choose(line + 8)) {
+                    printf("MACHINE %s: restarting\n", line + 8);
+                    sleep_ms(100);
+                    watchdog_reboot(0, 0, 10);
+                }
+            } else if (len >= 0 && len < (int) sizeof line - 1) {
+                line[len++] = (char) c;
+            }
         }
     }
 }

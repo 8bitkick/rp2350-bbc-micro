@@ -30,22 +30,26 @@
 #endif
 
 // ---- The flash layout (16 MB), the board's one table of it (src/common/mem.h's regions).
-// The firmware from the bottom; at the top, down from the end: the WiFi network (a sector), a
-// spare sector, the save disc (80 tracks x 10 sectors x 256 bytes), its header (a sector).
+// The firmware from the bottom; at the top, down from the end: the WiFi network (a sector), the
+// system's settings (a sector: which machine boots, once a spare sector), the save disc (80
+// tracks x 10 sectors x 256 bytes), its header (a sector). With both machines in the flash
+// (docs/mini-os.md), all of this is the shared data partition, and the Model B's save disc is
+// BOARD_FLASH_SAVE_SLOT lower than the Master's.
 #define BOARD_FLASH_SAVE_DATA_SIZE  (80 * 10 * 256)
 #define BOARD_FLASH_WIFI_OFFSET     (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
-#define BOARD_FLASH_SPARE_OFFSET    (BOARD_FLASH_WIFI_OFFSET - FLASH_SECTOR_SIZE)
+#define BOARD_FLASH_SYSTEM_OFFSET   (BOARD_FLASH_WIFI_OFFSET - FLASH_SECTOR_SIZE)
 // (-DBOARD_FLASH_SAVE_SHIFT=<bytes>, a multiple of the sector: the save disc that much lower, to
 // test saving without touching the real one)
 #ifndef BOARD_FLASH_SAVE_SHIFT
 #define BOARD_FLASH_SAVE_SHIFT 0
 #endif
-#define BOARD_FLASH_SAVE_DATA_OFFSET (BOARD_FLASH_SPARE_OFFSET - BOARD_FLASH_SAVE_DATA_SIZE - BOARD_FLASH_SAVE_SHIFT)
+#define BOARD_FLASH_SAVE_DATA_OFFSET (BOARD_FLASH_SYSTEM_OFFSET - BOARD_FLASH_SAVE_DATA_SIZE - BOARD_FLASH_SAVE_SHIFT)
 #define BOARD_FLASH_SAVE_HEAD_OFFSET (BOARD_FLASH_SAVE_DATA_OFFSET - FLASH_SECTOR_SIZE)
+#define BOARD_FLASH_SAVE_SLOT       (256 * 1024)
 #define BOARD_FLASH_LAYOUT { \
     [MEM_FLASH_SAVE_HEAD] = {BOARD_FLASH_SAVE_HEAD_OFFSET, FLASH_SECTOR_SIZE}, \
     [MEM_FLASH_SAVE_DATA] = {BOARD_FLASH_SAVE_DATA_OFFSET, BOARD_FLASH_SAVE_DATA_SIZE}, \
-    [MEM_FLASH_SPARE] = {BOARD_FLASH_SPARE_OFFSET, FLASH_SECTOR_SIZE}, \
+    [MEM_FLASH_SYSTEM] = {BOARD_FLASH_SYSTEM_OFFSET, FLASH_SECTOR_SIZE}, \
     [MEM_FLASH_WIFI] = {BOARD_FLASH_WIFI_OFFSET, FLASH_SECTOR_SIZE}, \
 }
 

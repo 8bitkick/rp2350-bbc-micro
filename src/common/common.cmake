@@ -9,6 +9,7 @@ function(common_setup TARGET)
             ${COMMON_DIR}/frontend.c
             ${COMMON_DIR}/drive.c           # the disc in drive 0, the save disc
             ${COMMON_DIR}/mem.c             # the flash, by the board's layout
+            ${COMMON_DIR}/system.c          # both machines in one flash: which boots (docs/mini-os.md)
             ${COMMON_DIR}/boot_guard.c
             ${COMMON_DIR}/app.c             # a program built in alongside (machine_hook.h)
             )
