@@ -169,6 +169,11 @@ const char *machine_name(void)
     return "master";
 }
 
+uint32_t machine_psram_used(void)
+{
+    return (uint32_t)(s_psram_next - (uint8_t *)0x11000000);
+}
+
 bool machine_turbo_get(void)
 {
     return s_turbo;
