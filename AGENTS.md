@@ -35,6 +35,9 @@ To test saving without touching the save disc already in the flash, build with
 `-DBOARD_FLASH_SAVE_SHIFT=0x100000` (the save disc 1 MB lower). `!restore` (or `/api/disc/restore`)
 forgets the save disc for good.
 
+Both machines in one firmware, chosen from the web panel: `scripts/build-os.sh` ->
+`build-os/presto_os.uf2` (a launcher and the two plain builds; docs/mini-os.md).
+
 Flash by copying the `.uf2` to the RP2350 drive. To get the drive: hold BOOT and tap RESET, send
 `!bootsel` over USB, or open the USB serial port at 1200 baud. `BOOT_GUARD` (on by default)
 catches a build that hangs or faults at boot, and reports where it died over USB, still accepting

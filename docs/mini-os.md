@@ -18,11 +18,13 @@ know or care which slot it's in.
 0x408000   4 MB  1 "beeb"        the BBC Model B image (a plain -DMACHINE=beeb build)
 0x808000         (free)          room for either to grow
 0xE00000   1 MB  2 "app"         reserved for the app (the later phase): empty for now
-0xF00000   1 MB  3 "data"        shared, outside every image: the board's flash regions
-                                 (BOARD_FLASH_LAYOUT), the same physical offsets as ever
+0xF00000   1 MB  (shared)        unpartitioned, outside every image: the board's flash regions
+                                 (BOARD_FLASH_LAYOUT), at the same physical offsets as ever
 ```
 
-The data partition, from the top down (`src/boards/presto/board_config.h`):
+The shared area isn't a partition: picotool's RP2350-E10 workaround needs the last page of the
+flash (0x10ffff00, where a UF2's "ignore" block points) in unpartitioned space that takes the
+`absolute` family, and the WiFi sector is the last one. The shared area, from the top down (`src/boards/presto/board_config.h`):
 
 | Where | What | Who |
 |---|---|---|
@@ -31,14 +33,17 @@ The data partition, from the top down (`src/boards/presto/board_config.h`):
 | 204 KB + a header sector below that | the Master's save disc (`MEM_FLASH_SAVE_*`) | the Master, where it always was |
 | 256 KB lower | the Model B's save disc | the Model B, in the combined firmware |
 
-The slots are 4 MB because both images are well under 2 MB (Master 1.1 MB with elite-agent built
-in, Model B 0.8 MB) and the boot ROM's address translation maps a slot to 0x10000000 in 4 MB
+The slots are 4 MB because both images are well under 2 MB (Master 0.8 MB, 1.1 MB with
+elite-agent built in; Model B 0.9 MB) and the boot ROM's address translation maps a slot to 0x10000000 in 4 MB
 windows. The partition table is `src/launcher/partitions.json`; the launcher and
 `tools/os_uf2.py` both take the slots from it.
 
 The partitions accept made-up UF2 families (none of them `rp2350-arm-s`), so a plain machine
 `.uf2` dropped on the drive never lands in a slot by accident. The unpartitioned space accepts
-`absolute` (the combined `.uf2`) and `rp2350-arm-s`.
+`absolute` (the combined `.uf2`) and `rp2350-arm-s`, but on the Presto the boot ROM still
+ignores a plain `rp2350-arm-s` `.uf2` once the table is there (it stays in BOOTSEL, nothing
+written): to go back to one machine, flash the plain build made `absolute` with
+`tools/os_uf2.py --plain`.
 
 ## How it boots
 
@@ -99,6 +104,13 @@ other machine saved. The Master keeps the slot it always had (so a save disc mad
 single-machine Master build carries over); the Model B's sits 256 KB lower
 (`BOARD_FLASH_SAVE_SLOT`), only when launched. A single-machine Model B build is unchanged.
 
+And a save never lands on another disc's save disc: if the region holds a save disc whose
+header names another built-in disc (another build's, or the other machine's in a single-machine
+build, where both share one region), the save is refused (`DISC not saved: the save disc is
+another disc's`) and the game's writes last only the session. `!restore` gives the region to the
+disc in use. (Before this, the first save of a different built-in disc silently replaced the
+save disc there.)
+
 Before restarting into the other machine the firmware commits any save still pending
 (`drive0_sync`), so a game saved a moment before a switch isn't lost.
 
@@ -111,7 +123,7 @@ Before restarting into the other machine the firmware commits any save still pen
   once the reply has gone. 404 without the launcher, 400 for an unknown name. An empty body
   replies with the same `"system"` object.
 - USB: `!machine` prints `MACHINE master (choice master; master beeb)`; `!machine beeb` prints
-  `MACHINE beeb: restarting` and restarts. `tools/presto.py machine [beeb|master]` does that, then
+  `MACHINE beeb: restarting (asked by USB)` and restarts (over HTTP the log names the client's address). `tools/presto.py machine [beeb|master]` does that, then
   waits for the board to come back and says which machine answered and how long it took.
 - The panel: a Machine switch in the header (BBC Master / BBC Model B), shown only when the status
   has `"system"`. Choosing the other asks first, then the page waits for the board to come back
@@ -177,8 +189,8 @@ render rows, the sound buffers and the cores' stacks.
 | no settings sector, or garbage in it | the launcher boots the Master |
 | the chosen slot is empty or its image is bad | the launcher boots the other machine; its status shows `"choice"` differing from `"machine"` |
 | both slots bad | the launcher enters BOOTSEL: drop the combined `.uf2` |
-| the chosen machine crashes at boot | the boot guard reports over USB on the next boot and takes `!bootsel` or `!machine <name>` there |
-| a plain machine `.uf2` dropped on the drive | it goes to the start of the flash, over the launcher and its partition table: the flash is a single-machine one again (WiFi and save discs kept). The combined `.uf2` puts the launcher back |
+| the chosen machine crashes at boot | the Model B's boot guard (the Master has none yet) reports over USB on the next boot and takes `!bootsel` or `!machine <name>` there; otherwise BOOT and RESET, below |
+| a plain machine `.uf2` dropped on the drive | ignored: the board stays in BOOTSEL. Its `os_uf2.py --plain` version (family `absolute`) goes to the start of the flash, over the launcher and its partition table: the flash is a single-machine one again (WiFi, settings and save discs kept). The combined `.uf2` puts the launcher back |
 | no USB, no panel | hold BOOT and tap RESET: BOOTSEL, whatever the flash holds |
 
 The settings and the save discs live outside every image, so flashing either kind of `.uf2`

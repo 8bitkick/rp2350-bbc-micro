@@ -8,6 +8,8 @@
 
 #include "mem.h"
 #include "board_config.h"
+#include "system.h"
+#include "machine_if.h"
 
 typedef struct {
     uint32_t offset, size;
@@ -19,11 +21,14 @@ bool mem_flash_region(int region, uint32_t *offset, uint32_t *size) {
     if (region < 0 || region >= MEM_FLASH_REGIONS || !s_layout[region].size) return false;
     *offset = s_layout[region].offset;
     *size = s_layout[region].size;
+    // both machines in one flash (system.h): each its own save disc, the Model B's lower down
+    if ((region == MEM_FLASH_SAVE_HEAD || region == MEM_FLASH_SAVE_DATA) && !strcmp(machine_name(), "beeb") &&
+        system_launched()) *offset -= BOARD_FLASH_SAVE_SLOT;
     return true;
 }
 
 const uint8_t *mem_flash_ptr(uint32_t offset) {
-    return (const uint8_t *) (XIP_BASE + offset);
+    return (const uint8_t *) (XIP_NOCACHE_NOALLOC_NOTRANSLATE_BASE + offset);
 }
 
 static struct {
