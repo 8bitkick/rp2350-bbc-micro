@@ -123,8 +123,9 @@ Before restarting into the other machine the firmware commits any save still pen
   once the reply has gone. 404 without the launcher, 400 for an unknown name. An empty body
   replies with the same `"system"` object.
 - USB: `!machine` prints `MACHINE master (choice master; master beeb)`; `!machine beeb` prints
-  `MACHINE beeb: restarting (asked by USB)` and restarts (over HTTP the log names the client's address). `tools/presto.py machine [beeb|master]` does that, then
-  waits for the board to come back and says which machine answered and how long it took.
+  `MACHINE beeb: restarting (asked by USB)` and restarts (a switch from the panel logs the
+  client's address there instead). `tools/presto.py machine [beeb|master]` does that, then waits
+  for the board to come back and says which machine answered and how long it took.
 - The panel: a Machine switch in the header (BBC Master / BBC Model B), shown only when the status
   has `"system"`. Choosing the other asks first, then the page waits for the board to come back
   and rebuilds itself for that machine's keyboard.

@@ -8,6 +8,8 @@ as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) o
 "presto.py api <name> [args]" (its JSON reply, as over HTTP).
 
   presto.py status                 the machine, board, speed, disc, LEDs, ... (as /api/status)
+  presto.py machine [master|beeb]  with both machines in the flash (docs/mini-os.md): which runs,
+                                   which is chosen; or choose one, restart into it and wait for it
   presto.py stats                  speed (100.0% = the real machine) and the two cores' load
   presto.py turbo                  toggle turbo: run as fast as it can (every frame still drawn)
   presto.py shot out.png [hold ms] screenshot of the panel (480x480, as shown); the hold (Model B
@@ -108,6 +110,27 @@ def main():
             sys.exit('no WIFI_SSID in ' + a[1])
         command(s, 'wifi "%s" %s' % (ssid, pw))
         print(readline_prefix(s, 'WIFI'))
+    elif a[0] == 'machine' and len(a) > 1:
+        # choose, then wait for the port to go and come back, and ask the machine that answers
+        t0 = time.time()
+        command(s, 'machine ' + a[1])
+        reply = readline_prefix(s, 'MACHINE')
+        print(reply)
+        if 'restarting' not in reply:
+            return
+        s.close()
+        while True:
+            time.sleep(0.5)
+            if time.time() - t0 > 60:
+                sys.exit('no machine came back within a minute')
+            try:
+                s = open_port()
+                command(s, 'machine')
+                reply = readline_prefix(s, 'MACHINE')
+                break
+            except (OSError, serial.SerialException, TimeoutError):
+                continue
+        print('%s, answering after %.1f s' % (reply, time.time() - t0))
     elif a[0] == 'net':
         command(s, 'net')
         print(readline_prefix(s, 'NET'))
@@ -179,7 +202,7 @@ def main():
         prefix = {'stats': 'STATS', 'status': 'STATUS', 'api': 'API', 'turbo': 'TURBO', 'crtc': 'CRTC', 'view': 'VIEW',
                   'bootsel': 'BOOTSEL', 'touch': 'TOUCH', 'program': 'PROGRAM', 'audio': 'AUDIO', 'leds': 'LEDS',
                   'ambient': 'LEDS', 'temp': 'TEMP', 'net': 'NET', 'peek': 'PEEK', 'boot': 'BOOT', 'break': 'BREAK',
-                  'keys': 'KEYS'}.get(a[0], '')
+                  'keys': 'KEYS', 'machine': 'MACHINE'}.get(a[0], '')
         command(s, cmd)
         print(readline_prefix(s, prefix) if prefix else s.readline().decode().strip())
 

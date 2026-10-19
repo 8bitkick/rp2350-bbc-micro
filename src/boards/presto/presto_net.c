@@ -11,8 +11,8 @@
  *
  *   GET  /                      the page (src/common/api/web/index.html, gzipped into flash)
  *   GET|POST /api/<name>        a command (api.c's table: status, keys, turbo, overlay, boot,
- *                               eject, discs, sd, disc/restore, wifi, ambient, program, command, ...),
- *                               its JSON reply; the body is its arguments
+ *                               eject, discs, sd, disc/restore, wifi, ambient, program, command,
+ *                               machine, ...), its JSON reply; the body is its arguments
  * and two that move a disc image in, so are the transport's own:
  *   POST /api/disc?name=&save=&boot=  body: a disc image to boot (save=1 also writes it to the card;
  *                               boot=0 only writes it to the card)
@@ -84,7 +84,7 @@ bool net_wifi_save(const char *ssid, const char *pass) {
 }
 
 static void restart_soon(void) {
-    printf("NET restarting to join the network\n");
+    printf("NET restarting\n");
     fflush(stdout);
     sleep_ms(100);
     watchdog_reboot(0, 0, 10);
@@ -636,7 +636,9 @@ static void act(conn_t *c) {
         case R_API: {
             size_t size;
             char *j = api_buffer(&size);
-            api_req_t r = {.args = c->body, .query = c->query, .json = true, .out = j, .size = size};
+            char from[20];
+            snprintf(from, sizeof from, "%s", c->pcb ? ipaddr_ntoa(&c->pcb->remote_ip) : "?");
+            api_req_t r = {.args = c->body, .query = c->query, .from = from, .json = true, .out = j, .size = size};
             api_run(c->cmd, &r);
             respond_json(c, r.code, j);
             break;
