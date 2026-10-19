@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Join the launcher and the two machines into one .uf2 (docs/mini-os.md):
 
-  os_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> <out.uf2>
+  os_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> [--app <app.bin>] <out.uf2>
 
 Each machine's .uf2 is a plain build, linked at 0x10000000; its blocks go to its slot's place in
 the flash (the partitions' order: master, beeb), where the boot ROM's address translation runs
-it as if it were at 0x10000000. The launcher stays at the bottom. All of it is written in the
+it as if it were at 0x10000000. The launcher stays at the bottom. --app puts an app's image (its
+.bin, as its build packs it: src/common/app_api.h) at the start of the app slot. All of it is written in the
 'absolute' family, so the boot ROM puts each block where it says, whatever partition table the
 flash has now. The flash above the slots (WiFi, the settings, the save discs) isn't touched.
 
@@ -49,6 +50,11 @@ def write(path, placed):
 
 def main():
     a = sys.argv[1:]
+    app = None
+    if '--app' in a:
+        i = a.index('--app')
+        app = a[i + 1]
+        del a[i:i + 2]
     if len(a) == 3 and a[0] == '--plain':
         write(a[2], blocks(a[1]))
         print('wrote', a[2])
@@ -70,6 +76,15 @@ def main():
             sys.exit('%s: doesn\'t fit slot "%s" (%d KB of %d KB)' % (path, p['name'], end // 1024, size // 1024))
         placed += [(addr + start, payload) for addr, payload in image]
         print('%-6s %4d KB at %06x, of %d KB' % (p['name'], end // 1024, start, size // 1024))
+    if app:
+        p = parts[2]
+        start, size = size_k(p['start']), size_k(p['size'])
+        data = open(app, 'rb').read()
+        if data[:4] != b'BAPP' or len(data) > size:
+            sys.exit('%s: not an app image for slot "%s" (%d KB of %d KB)' % (app, p['name'], len(data) // 1024, size // 1024))
+        data += b'\xff' * (-len(data) % 256)
+        placed += [(FLASH + start + i, data[i:i + 256]) for i in range(0, len(data), 256)]
+        print('%-6s %4d KB at %06x, of %d KB' % (p['name'], len(data) // 1024, start, size // 1024))
     write(a[4], placed)
     print('wrote', a[4])
 
