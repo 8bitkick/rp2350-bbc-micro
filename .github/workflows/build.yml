@@ -36,7 +36,9 @@ jobs:
             curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
           done
           curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
-            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
+            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
+            || { echo "::warning::the Elite disc's host is unreachable: building with a blank disc (only the build is checked)"; \
+                 head -c 204800 /dev/zero > discs/elite-master-flicker-free-sng47.ssd; }
       - name: Build
         run: |
           . deps/env.sh
@@ -74,7 +76,9 @@ jobs:
             curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
           done
           curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
-            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
+            https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
+            || { echo "::warning::the Elite disc's host is unreachable: building with a blank disc (only the build is checked)"; \
+                 head -c 204800 /dev/zero > discs/elite-master-flicker-free-sng47.ssd; }
       - name: Build with a program built in
         run: |
           . deps/env.sh
