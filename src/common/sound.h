@@ -25,6 +25,11 @@ void audio_frame(uint64_t ticks, bool mute);
 //   audio dac 10|8         the PWM: 10 bits at 244 kHz, or 8 bits at 977 kHz (10)
 void audio_command(const char *args);
 
+// the user's settings (the web panel's Sound, "!sound"): on (1) / off (0, as it starts), and the volume in percent
+// (100: full scale); -1 leaves either as it is
+void audio_set(int on, int percent);
+void audio_get(bool *on, unsigned *percent);
+
 // "!beep ...": test sounds, holding the machine still meanwhile (the BBC's sound stops).
 //   beep tone <hz> [ms]   a square wave at that pitch, full volume (as Pimoroni's Buzzer)
 //   beep sweep            square waves 100 Hz - 8 kHz

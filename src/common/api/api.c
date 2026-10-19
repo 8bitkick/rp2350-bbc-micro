@@ -20,6 +20,9 @@
 #endif
 #if WITH_AMBIENT
 #endif
+#if WITH_SOUND
+#include "sound.h"
+#endif
 
 // ---- Replies
 
@@ -153,6 +156,14 @@ static void status_json(char *j, size_t size) {
     if (n > 0 && (size_t) n < size) {
         net_status_json(j + n, size - (size_t) n);
         n += (int) strlen(j + n);
+    }
+#endif
+#if WITH_SOUND
+    if (n > 0 && (size_t) n < size) {
+        bool on;
+        unsigned vol;
+        audio_get(&on, &vol);
+        n += snprintf(j + n, size - (size_t) n, ",\"sound\":{\"on\":%s,\"vol\":%u}", on ? "true" : "false", vol);
     }
 #endif
 #if WITH_AMBIENT
@@ -360,6 +371,40 @@ static void cmd_ambient(api_req_t *r) {
 }
 #endif
 
+// ---- The sound
+
+#if WITH_SOUND
+// USB: "sound [on|off|vol <percent>]"; HTTP: any of "on=0|1", "vol=<percent>", joined by "&"
+static void cmd_sound(api_req_t *r) {
+    int on = -1, vol = -1;
+    char body[64];
+    snprintf(body, sizeof body, "%s", r->args);
+    if (!r->json) {
+        char *p = body;
+        while (*p == ' ') p++;
+        if (!strncmp(p, "on", 2) && (p[2] == 0 || p[2] == ' ')) on = 1;
+        else if (!strncmp(p, "off", 3)) on = 0;
+        else if (!strncmp(p, "vol ", 4)) vol = atoi(p + 4);
+        audio_set(on, vol);
+        bool o;
+        unsigned v;
+        audio_get(&o, &v);
+        printf("SOUND %s vol=%u%%\n", o ? "on" : "off", v);
+        return;
+    }
+    for (char *p = body; *p;) {
+        char *amp = strchr(p, '&');
+        if (amp) *amp = 0;
+        if (!strncmp(p, "on=", 3)) on = atoi(p + 3) ? 1 : 0;
+        else if (!strncmp(p, "vol=", 4)) vol = atoi(p + 4);
+        if (!amp) break;
+        p = amp + 1;
+    }
+    audio_set(on, vol);
+    cmd_status(r);
+}
+#endif
+
 // ---- A program run alongside the machine
 
 static void cmd_program(api_req_t *r) {
@@ -410,6 +455,9 @@ static const api_cmd_t s_cmds[] = {
 #endif
 #if WITH_AMBIENT
     {"ambient", NULL, true, cmd_ambient},
+#endif
+#if WITH_SOUND
+    {"sound", NULL, true, cmd_sound},
 #endif
     {"program", NULL, false, cmd_program},
     {"command", NULL, true, cmd_command},
