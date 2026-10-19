@@ -52,11 +52,19 @@ static void __no_inline_not_in_flash_func(write_sector)(void *arg) {
     qmi_hw->m[0].timing = timing;
 }
 
+static uint32_t s_writes;
+
+uint32_t mem_flash_writes(void) {
+    return s_writes;
+}
+
 bool mem_flash_write_sector(uint32_t offset, const void *data, uint32_t len) {
     if (offset % FLASH_SECTOR_SIZE || len > FLASH_SECTOR_SIZE) return false;
+    s_writes++;
     s_w.offset = offset;
     s_w.data = data;
     s_w.len = data ? len : 0;
-    // (core 1 is parked, the panel freezes for a moment, while the flash is busy)
+    // (core 1 is parked and core 0's interrupts are off while the flash is busy: the machine
+    // pauses for a moment; the panel's rows are fed by DMA alone, so its picture stays)
     return flash_safe_execute(write_sector, NULL, 1000) == PICO_OK;
 }

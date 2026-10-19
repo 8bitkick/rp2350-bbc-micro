@@ -29,6 +29,7 @@
 #include "boot_guard.h"
 #include "machine_if.h"
 #include "drive.h"
+#include "frontend.h"
 
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
@@ -852,13 +853,13 @@ machine_overlay_set(bool on) {
 void
 machine_print_stats(void) {
   (void) printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 "
-                "core0=%lu%% core1=%lu%% speed=%lu%%%s\n",
+                "core0=%lu%% core1=%lu%% speed=%lu%%%s%s\n",
                 (unsigned long) s_frames,
                 (unsigned long) board_display_frames(),
                 (unsigned long) s_perf_core0,
                 (unsigned long) s_perf_core1,
                 (unsigned long) s_perf_speed,
-                (s_turbo ? " (turbo)" : ""));
+                (s_turbo ? " (turbo)" : ""), frontend_stats_tail());
 }
 
 static void

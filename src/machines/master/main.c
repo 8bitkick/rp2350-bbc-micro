@@ -224,10 +224,10 @@ void main_machine_was_reset(void)
 
 void machine_print_stats(void)
 {
-    printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%\n",
+    printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%%s\n",
            (unsigned long)s_frames, (unsigned long)board_display_frames(), (unsigned long)s_core0_pct,
            (unsigned long)s_core1_pct, (unsigned long)(s_speed_permille / 10),
-           (unsigned long)(s_speed_permille % 10));
+           (unsigned long)(s_speed_permille % 10), frontend_stats_tail());
 }
 
 static struct machine *s_hook_m;

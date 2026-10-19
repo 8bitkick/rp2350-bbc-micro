@@ -29,6 +29,8 @@ const uint8_t *mem_flash_ptr(uint32_t offset);
 // while the flash is busy. Core 1 is parked meanwhile (its loop must have called
 // flash_safe_execute_core_init), and the slower flash timing the firmware runs with is kept.
 bool mem_flash_write_sector(uint32_t offset, const void *data, uint32_t len);
+// sectors written since boot (STATS)
+uint32_t mem_flash_writes(void);
 
 #ifdef __cplusplus
 }

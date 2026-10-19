@@ -79,7 +79,7 @@ bool net_wifi_save(const char *ssid, const char *pass) {
     cred_t c = {.magic = CRED_MAGIC};
     strcpy(c.ssid, ssid);
     strcpy(c.pass, pass);
-    // core 1 is parked (the panel freezes for a moment) while the flash is busy
+    // core 1 is parked (the machine pauses for a moment; the panel's picture stays) while the flash is busy
     return mem_flash_write_sector(off, &c, sizeof(c));
 }
 
