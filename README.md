@@ -43,8 +43,8 @@ first. Sound and the LEDs are [build options](#build-options), off by default.
 To flash it: hold **BOOT** on the Presto, tap **RESET**, and copy the `.uf2` onto the **RP2350** drive
 that appears (or add `--flash` to `setup.sh`). It reboots into Elite.
 
-Then give it your WiFi network, once, over USB: `python3 tools/presto.py wifi secrets.py`, with a
-Pimoroni-style `secrets.py` holding `WIFI_SSID` and `WIFI_PASSWORD`. Open
+Then give it your WiFi network, once, over USB: copy [`tools/secrets.example.py`](tools/secrets.example.py)
+to `secrets.py`, put in your network name and password, and run `python3 tools/presto.py wifi secrets.py`. Open
 **[http://beeb.local/](http://beeb.local/)**.
 
 ## Web panel

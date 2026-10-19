@@ -11,3 +11,6 @@ discs/*
 roms/general/gxr.rom
 roms/mos3.20/
 __pycache__/
+
+# your WiFi details (tools/secrets.example.py)
+secrets.py
