@@ -33,9 +33,9 @@ jobs:
         run: |
           mkdir -p roms/mos3.20 discs
           for r in mos dfs viewsht edit basic4 adfs view terminal; do
-            curl -fsSL -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
+            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
           done
-          curl -fsSL -o discs/elite-master-flicker-free-sng47.ssd \
+          curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
             https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
       - name: Build
         run: |
@@ -71,9 +71,9 @@ jobs:
         run: |
           mkdir -p roms/mos3.20 discs
           for r in mos dfs viewsht edit basic4 adfs view terminal; do
-            curl -fsSL -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
+            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
           done
-          curl -fsSL -o discs/elite-master-flicker-free-sng47.ssd \
+          curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
             https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd
       - name: Build with a program built in
         run: |
