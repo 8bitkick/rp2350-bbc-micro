@@ -25,13 +25,28 @@ const char *system_choice(void) {
     return s ? system_settings_machine(s) : SYSTEM_DEFAULT_MACHINE;
 }
 
-bool system_choose(const char *machine) {
+uint32_t system_app_off(void) {
+    const system_settings_t *s = settings();
+    if (!s || s->magic != SYSTEM_MAGIC || s->version != SYSTEM_VERSION || s->app_off == 0xffffffffu) return 0;
+    return s->app_off;
+}
+
+// the settings with the machine and the app turned off as given, written if they changed
+static bool write_settings(const char *machine, uint32_t app_off) {
     uint32_t off, size;
-    if (system_slot(machine) < 0 || !mem_flash_region(MEM_FLASH_SYSTEM, &off, &size)) return false;
-    if (!strcmp(system_choice(), machine)) return true;
-    system_settings_t s = {.magic = SYSTEM_MAGIC, .version = SYSTEM_VERSION};
+    if (!mem_flash_region(MEM_FLASH_SYSTEM, &off, &size)) return false;
+    if (!strcmp(system_choice(), machine) && system_app_off() == app_off) return true;
+    system_settings_t s = {.magic = SYSTEM_MAGIC, .version = SYSTEM_VERSION, .app_off = app_off};
     snprintf(s.machine, sizeof s.machine, "%s", machine);
     return mem_flash_write_sector(off, &s, sizeof s);
+}
+
+bool system_choose(const char *machine) {
+    return system_slot(machine) >= 0 && write_settings(machine, system_app_off());
+}
+
+bool system_set_app_off(uint32_t id) {
+    return write_settings(system_choice(), id);
 }
 
 const char *system_machines(void) {

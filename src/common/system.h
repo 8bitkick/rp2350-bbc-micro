@@ -18,7 +18,7 @@ extern "C" {
 // the slots: partitions of the table in src/launcher/partitions.json, in this order
 #define SYSTEM_SLOT_MASTER 0
 #define SYSTEM_SLOT_BEEB   1
-#define SYSTEM_SLOT_APP    2        // (reserved: the app, a later phase)
+#define SYSTEM_SLOT_APP    2        // the app (app_api.h)
 // (the board's flash regions, WiFi, settings and save discs, are above them all, unpartitioned)
 
 // what the settings sector holds
@@ -27,6 +27,9 @@ extern "C" {
 typedef struct {
     uint32_t magic, version;
     char machine[16];               // "master" or "beeb": the machine to boot
+    // (the launcher reads only the above: what follows came later, and is erased flash, all
+    // ones, in a sector written before)
+    uint32_t app_off;               // an app that died at boot (app.c): its id, so it isn't run
 } system_settings_t;
 
 // the machine booted when nothing (or nothing sensible) is chosen
@@ -53,6 +56,10 @@ bool system_launched(void);
 const char *system_choice(void);
 // choose a machine for the next boot: false if it's none, or the setting couldn't be written
 bool system_choose(const char *machine);
+// the app turned off after it died at boot (its id, app.c; 0: none), and turning one off (0: on
+// again): false if the setting couldn't be written
+uint32_t system_app_off(void);
+bool system_set_app_off(uint32_t id);
 // "master" and "beeb", space separated: the machines there are to choose from ("" unless launched)
 const char *system_machines(void);
 // /api/status's "system" member (",\"system\":{...}"), or "" unless launched
