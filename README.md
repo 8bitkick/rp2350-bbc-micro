@@ -57,6 +57,7 @@ Pimoroni-style `secrets.py` holding `WIFI_SSID` and `WIFI_PASSWORD`. Open
   CAPS LOCK and SHIFT LOCK lights; or type on your own keyboard, or send a line of text.
 - **Discs:** drop in a `.ssd`, `.dsd` or `.zip` (or a link to one) to boot it, or pick one from the SD
   card. **Restore original disc** forgets what games saved to the built-in disc.
+- **Sound:** with `-DSOUND=ON`, turn it on (it starts off) and set the volume.
 - **Status:** each core's load, the clock, the chip temperature and free RAM; **Turbo** runs flat out.
 - **Lights, program:** with `-DAMBIENT=ON`, the LEDs on the back; with a program built in alongside
   the machine (such as the [Elite agent](https://github.com/8bitkick/elite-agent)), its own panel.

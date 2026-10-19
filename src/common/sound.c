@@ -62,6 +62,7 @@ static volatile uint32_t s_offset;          // emulated ticks - 2 x time_us_32()
 static volatile uint32_t s_rate_q16 = 65536;  // emulated time / real time
 static volatile uint32_t s_frames;
 static volatile bool s_mute;
+static volatile bool s_off = true;         // off until the user turns it on (the web panel, "sound on")
 static volatile bool s_have_now;
 static uint32_t s_dropped;
 
@@ -233,7 +234,7 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
     // no frame for 65 ms: the machine is held (a disc loading, a test sound)
     s_still_buffers = (frames == s_last_frames) ? (s_still_buffers + 1) : 0;
     s_last_frames = frames;
-    bool quiet = s_mute || !s_have_now || (s_still_buffers >= 64 / sn_ticks);
+    bool quiet = s_mute || s_off || !s_have_now || (s_still_buffers >= 64 / sn_ticks);
     // ticks a sample, in 256ths: the machine's rate, steered towards LATENCY
     uint32_t step = (ticks_per_sample << 8);
     if (!quiet) {
@@ -413,6 +414,16 @@ void audio_init(void) {
     start();
 }
 
+void audio_set(int on, int percent) {
+    if (on >= 0) s_off = !on;
+    if (percent >= 0) s_gain = ((uint32_t) (percent > 400 ? 400 : percent) * 256) / 100;
+}
+
+void audio_get(bool *on, unsigned *percent) {
+    *on = !s_off;
+    *percent = (unsigned) ((s_gain * 100 + 128) / 256);
+}
+
 void audio_command(const char *args) {
     unsigned percent, n;
     while (*args == ' ') args++;
@@ -434,7 +445,7 @@ void audio_command(const char *args) {
     // the lag's range is since the last !audio
     printf("AUDIO vol=%u%% hz=%lu lp=%lu dac=%u writes=%lu dropped=%lu buffers=%lu quiet=%lu "
            "jumps=%lu (behind %lu, ahead %lu) lag_ms=%ld (%ld..%ld) rate=%lu.%lu%% step=%lu.%02lu%s\n",
-           (unsigned) ((s_gain * 100) / 256), (unsigned long) (SN_HZ / s_sn_ticks),
+           (unsigned) ((s_gain * 100 + 128) / 256), (unsigned long) (SN_HZ / s_sn_ticks),
            (unsigned long) s_lp_hz, (s_dac_top == DAC_TOP) ? 10u : 8u, (unsigned long) s_events,
            (unsigned long) s_dropped, (unsigned long) s_buffers,
            (unsigned long) s_quiet_buffers, (unsigned long) s_jumps,

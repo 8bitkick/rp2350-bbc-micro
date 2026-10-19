@@ -40,6 +40,8 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#av > .row { gap: 28px; }
+#av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 button:hover { border-color: var(--muted); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -115,12 +117,18 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   </div>
 </section>
 
-<section id="lights" hidden>
-  <h2>Lights</h2>
+<section id="av" hidden>
+  <h2 id="avtitle">Sound and lights</h2>
   <div class="row">
-    <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
-    <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
-    <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
+    <span class="row" id="sound" hidden>
+      <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
+      <label class="check" for="vol">Volume <input type="range" id="vol" min="0" max="200" step="5"></label>
+    </span>
+    <span class="row" id="lights" hidden>
+      <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
+      <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
+      <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
+    </span>
   </div>
 </section>
 
@@ -380,9 +388,19 @@ function show(s) {
   $('restore').hidden = !(s.saves >= 0);
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
+  // the sound: only in builds that have it
+  const snd = s.sound;
+  $('sound').hidden = !snd;
+  if (snd) {
+    $('soundon').classList.toggle('on', snd.on);
+    if (document.activeElement !== $('vol')) $('vol').value = snd.vol;
+  }
   // the LEDs on the back: only in builds that have them
   const a = s.ambient;
   $('lights').hidden = !a;
+  // one bar for both, titled for what this build has
+  $('av').hidden = !snd && !a;
+  $('avtitle').textContent = snd && a ? 'Sound and lights' : snd ? 'Sound' : 'Lights';
   if (a) {
     $('ambient').classList.toggle('on', a.on);
     $('locks').classList.toggle('on', a.locks);
@@ -413,6 +431,13 @@ $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0'
 $('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
 $('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
+$('soundon').onclick = async () => show(await api('/api/sound', 'on=' + (status.sound.on ? 0 : 1)));
+// the volume as the slider moves, at most every 150 ms
+let volTimer;
+$('vol').oninput = () => {
+  clearTimeout(volTimer);
+  volTimer = setTimeout(async () => show(await api('/api/sound', 'vol=' + $('vol').value)), 150);
+};
 // the brightness as the slider moves, at most every 150 ms
 let brightTimer;
 $('bright').oninput = () => {
