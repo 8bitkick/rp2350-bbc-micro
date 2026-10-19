@@ -47,9 +47,13 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 
 1. Copy [`tools/secrets.example.py`](tools/secrets.example.py) to `secrets.py` and fill in your network
    name and password (`secrets.py` is ignored by git).
-2. Run `python3 tools/presto.py wifi secrets.py`. The Presto saves them in its flash and joins the
-   network; it remembers them through power-offs and new firmware.
-3. Open **[http://beeb.local/](http://beeb.local/)** in a browser on the same network.
+2. Run `python3 tools/presto.py wifi secrets.py`. The Presto saves them in its flash and restarts by
+   itself (the machine reboots too). It remembers them through power-offs and new firmware.
+3. Give it 10–20 seconds to join: the machine is back at once, and the WiFi connects in the
+   background (it retries every 15 seconds if it can't). `python3 tools/presto.py net` shows the link
+   and its address.
+4. Open **[http://beeb.local/](http://beeb.local/)** in a browser on the same network (or the address
+   `net` shows, if your network doesn't do `.local` names).
 
 ## Web panel
 
