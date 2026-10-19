@@ -14,6 +14,7 @@
 #include "machine_if.h"
 #include "machine_hook.h"
 #include "drive.h"
+#include "mem.h"
 #include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
@@ -175,6 +176,20 @@ static void status_json(char *j, size_t size) {
                       on ? "true" : "false", bright, locks ? "true" : "false");
     }
 #endif
+    if (n > 0 && (size_t) n < size) {
+        // the firmware and the regions the board keeps in the flash; the PSRAM the machine has
+        // taken; the SRAM not free (the heap's free blocks and the gap below the stack are)
+        extern char __flash_binary_end;
+        uint32_t flash_used = (uint32_t) ((uintptr_t) &__flash_binary_end - XIP_BASE), off, sz;
+        for (int i = 0; i < MEM_FLASH_REGIONS; i++)
+            if (mem_flash_region(i, &off, &sz)) flash_used += sz;
+        const uint32_t ram_total = SRAM_END - SRAM_BASE;
+        n += snprintf(j + n, size - (size_t) n,
+                      ",\"mem\":{\"flash\":[%lu,%lu],\"psram\":[%lu,%lu],\"ram\":[%lu,%lu]}",
+                      (unsigned long) flash_used, (unsigned long) PICO_FLASH_SIZE_BYTES,
+                      (unsigned long) machine_psram_used(), (unsigned long) board_psram_size(),
+                      (unsigned long) (ram_total - free_ram), (unsigned long) ram_total);
+    }
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
 }
 

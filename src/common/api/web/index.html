@@ -36,6 +36,11 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .stats .group > span { white-space: nowrap; }
 .machine .stats { gap: 4px 14px; }
 .stats .group { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; }
+/* the memory: a small bar each for the flash, the PSRAM and the RAM, used of all */
+.stats .mem { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.stats .mem i { display: inline-block; width: 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.stats .mem i b { display: block; height: 100%; border-radius: 3px; background: var(--muted); }
+.stats .mem.full i b { background: var(--warn); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
@@ -409,12 +414,24 @@ function show(s) {
   const board = BOARDS[s.board] || s.board || 'the board';
   $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
-    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span><span>free RAM <b>${Math.round(s.free / 1024)} KB</b></span></span>`;
+    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` + memBars(s.mem, s.free);
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
   const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
   else if (watchingFetch && f.state === 'error') { watchingFetch = false; msg(f.error, 'err'); progress(); }
   else if (watchingFetch && f.state === 'idle') { watchingFetch = false; msg(''); progress(); }
+}
+// the flash, PSRAM and RAM: used of all, as a bar each (older firmware: only the free RAM)
+function memBars(m, free) {
+  if (!m) return `<span class="group"><span>free RAM <b>${Math.round(free / 1024)} KB</b></span></span>`;
+  const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
+  const bar = (name, [used, total]) => {
+    if (!total) return '';
+    const pc = Math.min(100, Math.round(100 * used / total));
+    return `<span class="mem${pc >= 90 ? ' full' : ''}" title="${name}: ${size(used)} used of ${size(total)}">` +
+      `${name} <i><b style="width:${pc}%"></b></i> <b>${pc}%</b></span>`;
+  };
+  return `<span class="group">${bar('Flash', m.flash)}${bar('PSRAM', m.psram)}${bar('RAM', m.ram)}</span>`;
 }
 function esc(s) { return s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]); }
 let pollFails = 0, pollTimer;
