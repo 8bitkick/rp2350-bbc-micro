@@ -13,7 +13,7 @@
 #include "api.h"
 #include "frontend.h"
 #include "machine_if.h"
-#include "machine_hook.h"
+#include "app.h"
 #include "drive.h"
 #include "mem.h"
 #include "system.h"
@@ -154,7 +154,7 @@ static void status_json(char *j, size_t size) {
                      machine_name(), BOARD_NAME, machine_turbo_get() ? "true" : "false", overlay, speed, c0, c1,
                      disc, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
                      (frontend_temp_centi() + 50) / 100, machine_leds(),
-                     machine_program_json() ? "true" : "false");
+                     app_program_json() ? "true" : "false");
 #if BOARD_HAS_NET
     if (n > 0 && (size_t) n < size) {
         net_status_json(j + n, size - (size_t) n);
@@ -185,6 +185,7 @@ static void status_json(char *j, size_t size) {
         uint32_t flash_used = (uint32_t) ((uintptr_t) &__flash_binary_end - XIP_BASE), off, sz;
         for (int i = 0; i < MEM_FLASH_REGIONS; i++)
             if (mem_flash_region(i, &off, &sz)) flash_used += sz;
+        flash_used += app_flash_used();     // (the app slot's app; the other machine's slot not counted)
         const uint32_t ram_total = SRAM_END - SRAM_BASE;
         n += snprintf(j + n, size - (size_t) n,
                       ",\"mem\":{\"flash\":[%lu,%lu],\"psram\":[%lu,%lu],\"ram\":[%lu,%lu]}",
@@ -194,6 +195,11 @@ static void status_json(char *j, size_t size) {
     }
     if (n > 0 && (size_t) n < size) {
         system_status_json(j + n, size - (size_t) n);
+        n += (int) strlen(j + n);
+    }
+    if (n > 0 && (size_t) n + 8 < size) {
+        n += snprintf(j + n, size - (size_t) n, ",\"app\":");
+        app_json(j + n, (uint32_t) (size - (size_t) n), false);
         n += (int) strlen(j + n);
     }
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
@@ -477,10 +483,51 @@ static void cmd_sound(api_req_t *r) {
 }
 #endif
 
-// ---- A program run alongside the machine
+// ---- The app run alongside the machine (app.c)
+
+// what it is (GET /api/app, "!app"); "on" (POST /api/app/on, "!app on"): let one the app guard
+// turned off run again, from the next boot; "remove" (POST /api/app/remove, DELETE /api/app,
+// "!app remove"): erase the slot's. (Installing: POST /api/app with the image, presto_net.c, or
+// "!app install <size>" over USB, frontend.c: both app.c's app_install_*.)
+static void cmd_app(api_req_t *r) {
+    if (!strcmp(r->args, "on")) {
+        if (!app_turn_on()) {
+            api_error(r, 500, "the setting couldn't be written");
+            return;
+        }
+        if (!r->json) printf("APP on: it runs from the next boot\n");
+    } else if (!strcmp(r->args, "remove")) {
+        if (!app_remove()) {
+            api_error(r, 409, "no app to remove (or one built in, or installing)");
+            return;
+        }
+    } else if (r->args[0]) {
+        api_error(r, 400, "app [on|remove|install <size>]");
+        return;
+    }
+    if (r->json) {
+        app_json(r->out, (uint32_t) r->size, true);
+        r->code = 200;
+    } else {
+        size_t size;
+        char *j = api_buffer(&size);
+        app_text(j, (uint32_t) size);
+        printf("%s\n", j);
+    }
+}
+
+static void cmd_app_on(api_req_t *r) {
+    r->args = "on";
+    cmd_app(r);
+}
+
+static void cmd_app_remove(api_req_t *r) {
+    r->args = "remove";
+    cmd_app(r);
+}
 
 static void cmd_program(api_req_t *r) {
-    const char *pj = machine_program_json();
+    const char *pj = app_program_json();
     if (!pj) {
         api_error(r, 404, "no program built in");
         return;
@@ -494,7 +541,7 @@ static void cmd_command(api_req_t *r) {
     char cmd[256], reply[256] = "";
     snprintf(cmd, sizeof cmd, "%s", r->args);
     for (char *e = cmd + strlen(cmd); e > cmd && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ');) *--e = 0;
-    if (!machine_command_hook(cmd, reply, sizeof reply)) {
+    if (!app_command(cmd, reply, sizeof reply)) {
         api_error(r, 404, "command not taken");
         return;
     }
@@ -532,6 +579,9 @@ static const api_cmd_t s_cmds[] = {
 #if WITH_SOUND
     {"sound", NULL, true, cmd_sound},
 #endif
+    {"app", NULL, false, cmd_app},
+    {"app on", "/api/app/on", true, cmd_app_on},
+    {"app remove", "/api/app/remove", true, cmd_app_remove},
     {"program", NULL, false, cmd_program},
     {"command", NULL, true, cmd_command},
 };

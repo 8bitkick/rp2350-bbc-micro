@@ -5,11 +5,12 @@
 //   0x1a 0x01 <SDL scancode>   key up
 //   !<command> [args]          a command of the command layer (api.c), its text reply:
 //                              status, machine, stats, keys, turbo, overlay, boot, break, eject,
-//                              discs, sd, restore, net, wifi, ambient, program, command
+//                              discs, sd, restore, net, wifi, ambient, app, program, command
 //   !api <command> [args]      the same, its JSON reply (as the HTTP API's): "API <code> <json>"
 //   !shot [ms]                 SHOT <w> <h>, then the panel's rows as RGB565 (then hold the
 //                              machine still ms, for a camera to take the same frame)
 //   !put <name> <size>         receive a disc image and write it to the SD card
+//   !app install <size>        receive an app's image and install it in the app slot (app.c)
 //   !temp, !bootsel            the chip's temperature; reboot to the USB bootloader
 //   !flashtest [n]             (a test aid) rewrite a flash sector n times: STATS shows what it
 //                              did to the display (lcd_rolls, lcd_missed) and flash_writes
@@ -17,7 +18,7 @@
 // and the first spellings, still taken: !disc (eject), !disc restore (restore), !disc <name> (sd),
 // !perf (overlay), !leds (ambient), !wifi <ssid> <password>. Anything else goes to the machine
 // (machine_usb_command: the Model B's crtc, state, peek, ...), then to a program built in
-// alongside (machine_command_hook).
+// alongside (app.c: app_command).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,7 @@
 #include "drive.h"
 #include "api.h"
 #include "machine_if.h"
-#include "machine_hook.h"
+#include "app.h"
 #include "boot_guard.h"
 #include "mem.h"
 #include "board.h"
@@ -152,6 +153,8 @@ static void usb_command(char *cmd) {
         fflush(stdout);
         sleep_ms(100);
         reset_usb_boot(0, 0);
+    } else if (is(cmd, "app install")) {
+        app_usb_install(after(cmd, "app install"));
     } else if (is(cmd, "put")) {
         board_sd_put(after(cmd, "put"));
     } else if (is(cmd, "flashtest")) {
@@ -188,7 +191,7 @@ static void usb_command(char *cmd) {
         }
         if (machine_usb_command(cmd)) return;
         char reply[256] = "";
-        if (machine_command_hook(cmd, reply, sizeof reply)) {
+        if (app_command(cmd, reply, sizeof reply)) {
             if (reply[0]) printf("%s\n", reply);
             return;
         }

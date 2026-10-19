@@ -67,7 +67,12 @@ static void report_forever(boot_record_t r) {
     }
 }
 
+static volatile struct { uint32_t state, id; } app_record __attribute__((section(".uninitialized_data")));
+#define APP_IN 0xa99c0de5u
+
 void boot_guard_begin(void) {
+    // the app died, not the boot: the app guard takes it (app.c runs the machine without it)
+    if (app_record.state == APP_IN && record.state != 0) record.state = 0;
     if (record.state == BOOT_STARTING || record.state == BOOT_FAULTED || record.state == BOOT_PANICKED) {
         boot_record_t r = record;
         record.state = 0;           // next boot runs normally
@@ -136,3 +141,26 @@ void __attribute__((naked)) isr_hardfault(void) {
         "b boot_guard_fault\n");
 }
 #endif
+
+// ---- The app guard (boot_guard.h): in every build
+#include "hardware/watchdog.h"
+
+#if !BOOT_GUARD
+static volatile struct { uint32_t state, id; } app_record __attribute__((section(".uninitialized_data")));
+#define APP_IN 0xa99c0de5u
+#endif
+
+void boot_guard_app_enter(uint32_t id) {
+    app_record.id = id;
+    app_record.state = APP_IN;
+}
+
+void boot_guard_app_leave(void) {
+    app_record.state = 0;
+}
+
+uint32_t boot_guard_app_died(void) {
+    uint32_t id = app_record.state == APP_IN && watchdog_caused_reboot() ? app_record.id : 0;
+    app_record.state = 0;
+    return id;
+}

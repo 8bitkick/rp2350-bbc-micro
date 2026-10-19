@@ -1,9 +1,10 @@
 // The interface for a program run alongside the machine (a player: it reads the BBC's RAM and
 // presses keys, nothing else). The platform fills in a machine_hook_io and calls
 // machine_frame_hook once per emulated frame, between frames; passes any command it doesn't know
-// to machine_command_hook; and shows machine_program_json on its web page. All weak in the
-// platform (src/common/app.c), doing nothing unless a build supplies them: -DAPP_SOURCES=...
-// (and _INCLUDES, _DEFINES; first called MACHINE_EXTRA_SOURCES ...).
+// to machine_command_hook; and shows machine_program_json on its web page. Weak references in
+// the platform (src/common/app.c), nothing unless a build supplies them: -DAPP_SOURCES=... (and
+// _INCLUDES, _DEFINES; first called MACHINE_EXTRA_SOURCES ...). The loader makes a program with
+// these an app (app_api.h), the way programs are now built: on their own, or compiled in.
 //
 // Either machine (-DMACHINE=beeb|master) runs a program: io->model says which it is, and a program
 // built for one machine checks it before trusting anything else (the Model B has no shadow RAM,
