@@ -34,13 +34,13 @@ same run with the throttle off, so it shows how much headroom is left.
 | Elite (flicker-free, Master) | shadow RAM switched around every line it plots | 100% | 2.45× | 38% / 32% |
 | Prince of Persia | big sideways-RAM game, display tricks through the CRTC | 100% | 1.91× | 50% / 33% |
 | Twisted Brain (demo) | per-scanline raster effects | 100% | 1.27–1.58× (varies by part) | 54% / 34% |
-| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **60%** | — | 98% / 49% |
+| Evil Influences (demo), late part | ~1,000 CRTC writes a frame | **100%** (was 60%) | — | 81% / 61% |
 | Arcadians | software sprites: the convoy, divers, shots, all drawn by the CPU | 100% | 2.39× | 43% / 45% |
 
-- **Five of the six run in real time with room to spare.** The other, the late part of Evil
-  Influences, reprograms the 6845 CRTC about a thousand times a frame in mini-frames a few
-  scanlines tall. It runs at 60% of real speed here, held by core 0. The emulator doesn't keep up there on the hardware it
-  was written for either.
+- **All six run in real time.** The late part of Evil Influences reprograms the 6845 CRTC about
+  a thousand times a frame, in mini-frames a few scanlines tall. It ran at 60% until Kieran's later
+  work on his core for exactly this demo was brought in (below). Now every 5 s of its 370 s runs
+  at 100%, with core 0 at most 81% busy.
 - **About 115 KB of the 520 KB of SRAM is still free** with WiFi and the web panel running (below),
   and they cost no measurable speed.
 
@@ -69,6 +69,42 @@ since, analogue inputs and saved games: `src/cores/kc-beeb/UPSTREAM` lists them 
 - **Two pixel tables of each kind kept.** On the board the tables depend on the screen mode alone;
   Elite's MODE 4 top and MODE 5 dashboard rebuilt a 4 KB table twice a frame. (`render.c`,
   `render.h`; 6 KB more SRAM)
+
+**Evil Influences at real speed (Kieran's later commits).** Kieran's upstream went on from
+ca72230 with nine commits on this demo (its RVI part: R0 = 1 two-character lines, R0, R9, R12
+and R13 rewritten every scanline, and palette writes between them). They are merged into
+`src/cores/kc-beeb/` as they are, and `UPSTREAM` lists them. There are two small changes, both so that
+`struct machine` keeps its layout and size, and states saved from it still load. The hot spot was
+the machine's catch-ups. The CRTC's vsync bound stopped the whole machine at every CRTC line end in
+case a vsync started there, and with R0 = 1 a line ends every 2 ticks. On the host, 1,000 frames of
+the late part took 4.6 million machine catch-ups (one every 9 emulated cycles) and 4.8 million exact
+CRTC ticks. The core 0 cost came to about 2,000 clocks a CRTC write. Upstream bounds it by the line
+ends to R7 instead. Short lines run in their own loops (`crtc_short_lines`, and `crtc_short_block`
+for R0 = 1). CRTC register, paging and display writes take the quiet window. The display write
+window counts rows. The renderer's run loops take DISPEN changes and row address events in passing. After this, the
+same 1,000 frames take 32 thousand catch-ups and 0.7 million exact ticks.
+
+Checked on the host, with the board's renderer settings, against the build before. Every rendered
+frame is identical over all of Evil Influences (19,000 frames), and so is the video stream (in a
+form that ignores how runs are split). Every rendered frame is also identical over 8,000 frames of
+each other disc. The stream differs only on Twisted Brain and Arcadians, and only where a display
+store races the beam on a byte that is not shown. With fewer machine catch-ups, the CRTC follows the
+"the fetches since the last store see it" model (beebjit's) more closely.
+
+On the board, the same build of main before and after, same scenes, core 0 / core 1:
+
+| Disc | Before | After |
+|---|---|---|
+| Evil Influences, late part (80-115 s) | 60% speed, 97–98% / 49% | 100%, 80–81% / 61% |
+| Evil Influences, other heavy parts (120-370 s) | 60–66% speed, 97–98% / 44–49% | 100%, 68–79% / 51–60% |
+| Stunt Car Racer (menus, 51–81 s) | 100%, 52–53% / 33% | 100%, 47–48% / 37% |
+| Prince of Persia (100 s) | 100%, 50% / 33% | 100%, 46% / 38% |
+| Twisted Brain (51–121 s) | 100%, 44–70% / 34–57% | 100%, 39–71% / 38–60% |
+| Elite (title, 100 s) | 100%, 38% / 32% (table above) | 100%, 34% / 35% |
+| Arcadians (in play, 70 s) | 100%, 43% / 45% (table above) | 100%, 37% / 33% |
+
+Core 0 is 3–5 points lower everywhere. Core 1 is 2–5 points higher on the other discs, from the
+renderer's wider run loops. The rest of the table above is from before this merge.
 
 `src/machines/master/` is the port: `main.c` (pacing, keys, stats), `master_machine.c` (drive 0,
 resets), `machine_unit.c` and `render_unit.c` (the two halves, built to run from SRAM); the panel,

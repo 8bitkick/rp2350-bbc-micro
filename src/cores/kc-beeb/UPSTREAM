@@ -8,6 +8,19 @@ and others, GPL).
 Only the machine is copied (the files here, from main/); the ESP32 platform, host tools, ROMs and
 discs are not. Its RP2350 glue lives in src/machines/master.
 
+Since then, merged from upstream (its later commits, written for Evil Influences):
+  dcf074b..2d265dd (to "Paging reads through the quiet window", 2026-10-14) in crtc.c, crtc.h,
+  machine.c, machine.h and render.c: the CRTC's vsync bound counts line ends to R7 (no machine
+  sync at every line end of a short line), crtc_short_lines and crtc_short_block for R0 < 8 lines,
+  CRTC register and paging accesses through the quiet window, display writes catching up the
+  CRTC alone, the display write window counted in rows, the renderer's run loops taking DISPEN
+  changes and row address events, and a renderer hang fix at the right edge. With two changes so
+  that struct machine keeps its layout (saved states made of it stay valid):
+  - machine.h: win_extent is a uint16_t in what was padding after irq_late (upstream: a
+    uint32_t added before win_due); machine.c clamps it to 0x4000 (all of RAM anyway).
+  - crtc.h, crtc.c: the short-line statistics (stat_short and friends) are static counters in
+    crtc.c under MACHINE_STATS, not fields of struct crtc.
+
 Local changes, each kept small:
 
 - cpu6502.c, cpu6502.h: the CPU's registers and flags kept as 32-bit fields (byte-sized fields
