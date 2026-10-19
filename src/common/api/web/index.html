@@ -27,6 +27,13 @@ header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; mar
 .machine .buttons button { padding: 4px 12px; font-size: 14px; }
 section.machine { display: flex; align-items: center; gap: 8px 16px; padding: 8px 14px; }
 section.machine > .machine { flex: 1; }
+/* the machine switch: with both machines in the flash, the one running lit; the other restarts as it */
+.msel { display: inline-flex; align-items: center; margin-left: auto; }
+.msel > span { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin-right: 10px; }
+.msel button { padding: 4px 12px; font-size: 14px; border-radius: 0; }
+.msel button:first-of-type { border-radius: 8px 0 0 8px; }
+.msel button:last-of-type { border-radius: 0 8px 8px 0; border-left: 0; }
+.msel button:disabled { opacity: .6; cursor: progress; }
 h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
 h1 span { color: var(--accent); }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
@@ -110,6 +117,9 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <main>
 <header>
   <h1><span id="mname">BBC Micro</span> <span>RP2350</span></h1>
+  <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
+    <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
+  </div>
 </header>
 
 <section class="machine">
@@ -375,7 +385,8 @@ async function api(path, body, method = 'POST') {
   return j;
 }
 const BOARDS = {presto: 'Pimoroni Presto'};
-let builtFor;
+const MACHINES = {master: 'BBC Master', beeb: 'BBC Model B'};
+let builtFor, switchingTo;
 function show(s) {
   status = s;
   if (s.machine && s.machine !== builtFor) {
@@ -384,6 +395,13 @@ function show(s) {
     const name = s.machine === 'master' ? 'BBC Master' : 'BBC Micro';
     $('mname').textContent = name;
     document.title = name + ' RP2350';
+  }
+  // both machines in the flash: the switch, the one running lit
+  if (switchingTo && s.machine === switchingTo) switchingTo = null;
+  $('msel').hidden = !s.system;
+  for (const b of $('msel').querySelectorAll('button')) {
+    b.classList.toggle('on', b.dataset.m === s.machine);
+    b.disabled = !!switchingTo;
   }
   $('turbo').classList.toggle('on', s.turbo);
   // the panel's figures: only in builds that have them
@@ -441,9 +459,22 @@ async function poll() {
   clearTimeout(pollTimer);
   try { show(await api('/api/status', null, 'GET')); pollFails = 0; }
   // one failed poll can be a dropped WiFi packet: only say so after two in a row
-  catch (e) { if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>'; }
+  catch (e) {
+    if (switchingTo) $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[switchingTo]}…</span>`;
+    else if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>';
+  }
   pollTimer = setTimeout(poll, watchingFetch ? 400 : 1500);
 }
+for (const b of $('msel').querySelectorAll('button')) b.onclick = async () => {
+  const m = b.dataset.m;
+  if (m === status.machine || switchingTo) return;
+  if (!confirm(`Restart as the ${MACHINES[m]}? The machine running now stops (games saved to the built-in disc are kept).`)) return;
+  try { await api('/api/machine', m); } catch (e) { msg(e.message, 'err'); return; }
+  switchingTo = m;
+  setTimeout(() => { switchingTo = null; }, 60000);   // (not back as it in a minute: give up waiting)
+  b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
+  $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[m]}…</span>`;
+};
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
 $('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));

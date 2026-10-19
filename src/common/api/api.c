@@ -8,6 +8,7 @@
 
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include "hardware/watchdog.h"
 
 #include "api.h"
 #include "frontend.h"
@@ -15,6 +16,7 @@
 #include "machine_hook.h"
 #include "drive.h"
 #include "mem.h"
+#include "system.h"
 #include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
@@ -190,6 +192,10 @@ static void status_json(char *j, size_t size) {
                       (unsigned long) machine_psram_used(), (unsigned long) board_psram_size(),
                       (unsigned long) (ram_total - free_ram), (unsigned long) ram_total);
     }
+    if (n > 0 && (size_t) n < size) {
+        system_status_json(j + n, size - (size_t) n);
+        n += (int) strlen(j + n);
+    }
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
 }
 
@@ -244,6 +250,57 @@ static void cmd_break(api_req_t *r) {
     machine_break();
     api_reply(r, 200, "{}");
     if (!r->json) printf("BREAK\n");
+}
+
+// ---- The machine: with both in the flash (system.h), the one to boot
+
+// "" (which there are, and which is chosen) or "master" / "beeb": choose it and restart into it
+static void cmd_machine(api_req_t *r) {
+    char want[16];
+    snprintf(want, sizeof want, "%s", r->args);
+    want[strcspn(want, " \r\n")] = 0;
+    if (!system_launched()) {
+        if (want[0]) api_error(r, 404, "one machine in this build (no launcher)");
+        else if (r->json) api_reply(r, 200, "{\"machine\":\"%s\"}", machine_name());
+        else printf("MACHINE %s (no launcher)\n", machine_name());
+        return;
+    }
+    if (!want[0]) {
+        if (r->json) {
+            char sys[96];
+            system_status_json(sys, sizeof sys);
+            api_reply(r, 200, "{\"machine\":\"%s\"%s}", machine_name(), sys);
+        } else {
+            printf("MACHINE %s (choice %s; %s)\n", machine_name(), system_choice(), system_machines());
+        }
+        return;
+    }
+    if (system_slot(want) < 0) {
+        api_error(r, 400, "no such machine (master or beeb)");
+        return;
+    }
+    if (!system_choose(want)) {
+        api_error(r, 500, "couldn't save the choice");
+        return;
+    }
+    if (!strcmp(want, machine_name())) {
+        api_reply(r, 200, "{\"restart\":false}");
+        if (!r->json) printf("MACHINE %s (running)\n", want);
+        return;
+    }
+    drive0_sync();              // a game saved a moment ago: keep it
+    api_reply(r, 200, "{\"restart\":true}");
+    printf("MACHINE %s: restarting (asked by %s)\n", want, r->from ? r->from : "USB");
+#if BOARD_HAS_NET
+    if (r->json) {
+        net_restart(true);      // once the reply has gone
+        return;
+    }
+#endif
+    fflush(stdout);
+    sleep_ms(100);
+    watchdog_reboot(0, 0, 10);
+    while (true) tight_loop_contents();
 }
 
 // ---- Discs
@@ -454,6 +511,7 @@ static void cmd_command(api_req_t *r) {
 
 static const api_cmd_t s_cmds[] = {
     {"status", NULL, false, cmd_status},
+    {"machine", NULL, true, cmd_machine},
     {"stats", NULL, false, cmd_stats},
     {"keys", NULL, true, cmd_keys},
     {"turbo", NULL, true, cmd_turbo},

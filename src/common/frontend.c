@@ -4,8 +4,8 @@
 //   0x1a 0x00 <SDL scancode>   key down
 //   0x1a 0x01 <SDL scancode>   key up
 //   !<command> [args]          a command of the command layer (api.c), its text reply:
-//                              status, stats, keys, turbo, overlay, boot, break, eject, discs,
-//                              sd, restore, net, wifi, ambient, program, command
+//                              status, machine, stats, keys, turbo, overlay, boot, break, eject,
+//                              discs, sd, restore, net, wifi, ambient, program, command
 //   !api <command> [args]      the same, its JSON reply (as the HTTP API's): "API <code> <json>"
 //   !shot [ms]                 SHOT <w> <h>, then the panel's rows as RGB565 (then hold the
 //                              machine still ms, for a camera to take the same frame)
