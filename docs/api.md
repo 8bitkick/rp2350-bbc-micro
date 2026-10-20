@@ -22,8 +22,8 @@ curl --data-binary @Repton.ssd "http://beeb.local/api/disc?name=Repton.ssd"
 | `GET /api/stats` | `{"speed", "core0", "core1", "turbo"}`: the speed against the real machine and each core's load, in % |
 | `GET /api/discs` | `{"discs": [{"name", "size"}...], "card": true}`: the disc images on the SD card (`"card": false` without one) |
 | `GET /api/net` | `{"fetch": {...}, "wifi": "up"}`: the WiFi link, and a download in progress (`/api/fetch`) |
-| `GET /api/app` | the app in the app slot ([mini-os.md](mini-os.md#the-app)), with its RAM, flash and its last log lines |
-| `GET /api/program` | the app's own panel, as it describes it (404 without one) |
+| `GET /api/app` | the plugin in the plugin slot ([dual-boot.md](dual-boot.md#the-plugin)), with its RAM, flash and its last log lines |
+| `GET /api/program` | the plugin's own panel, as it describes it (404 without one) |
 
 `GET /api/status`:
 
@@ -54,7 +54,7 @@ curl --data-binary @Repton.ssd "http://beeb.local/api/disc?name=Repton.ssd"
 | `sound`, `ambient` | only in builds with sound (`-DSOUND=ON`) or the LEDs (`-DAMBIENT=ON`) |
 | `mem` | flash, PSRAM and SRAM: `[used, total]` bytes |
 | `system` | only in the combined firmware (both machines): which there are, and which boots |
-| `app` | the app's state: none, loaded, running, refused, off, stopped, installing, installed |
+| `app` | the plugin's state: none, loaded, running, refused, off, stopped, installing, installed |
 
 ## Doing
 
@@ -71,7 +71,7 @@ the new `/api/status`.
 | `POST /api/sound` | `on=1&vol=<0-200>` (either) | the sound, in builds with it |
 | `POST /api/ambient` | `on=1&bright=<5-100>&locks=1` (any) | the LEDs on the back, in builds with them |
 | `POST /api/machine` | `master` or `beeb` | the machine to boot: saved, and the board restarts into it (`{"restart": true}`). Empty: which there are |
-| `POST /api/command` | a command | for the app (`{"reply": "..."}`; 404 if it doesn't take it) |
+| `POST /api/command` | a command | for the plugin (`{"reply": "..."}`; 404 if it doesn't take it) |
 
 The keys for the examples: RETURN `49`, SPACE `62`, SHIFT `00`, CTRL `01`, Z `61`, X `42`. The
 panel's keyboard (`ROWS_BEEB` and `ROWS_MASTER` in `src/common/api/web/index.html`) has them all. Pressing SPACE:
@@ -92,15 +92,15 @@ curl -X POST -d "d62 u62" http://beeb.local/api/keys
 
 A `.zip` isn't taken: the panel unzips it in the browser first.
 
-## The app
+## The plugin
 
 | Request | Body | |
 |---|---|---|
-| `POST /api/app` | the app's image (`.bin`) | installed into the app slot, checked, and the board restarts into it |
-| `DELETE /api/app` (or `POST /api/app/remove`) | | the app removed |
-| `POST /api/app/on` | | an app the app guard turned off runs again, from the next boot |
+| `POST /api/app` | the plugin's image (`.bin`) | installed into the plugin slot, checked, and the board restarts into it |
+| `DELETE /api/app` (or `POST /api/app/remove`) | | the plugin removed |
+| `POST /api/app/on` | | a plugin the plugin guard turned off runs again, from the next boot |
 
-[mini-os.md](mini-os.md#the-app) says what an app is, and how it's checked.
+[dual-boot.md](dual-boot.md#the-plugin) says what a plugin is, and how it's checked.
 
 ## The network
 

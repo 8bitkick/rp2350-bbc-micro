@@ -1,4 +1,4 @@
-// The app interface (docs/mini-os.md): an RP2350 program run alongside the machine, built on its
+// The app interface (docs/dual-boot.md): an RP2350 program run alongside the machine, built on its
 // own and flashed into the app slot (partition 2), or compiled into the firmware. Either way it
 // starts with a struct app_header, and the firmware's loader (app.c) checks it, sets up its RAM
 // and calls its entry points; the app does everything else through the struct app_api the
