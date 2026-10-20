@@ -52,6 +52,9 @@ section { background: var(--panel); border: 1px solid var(--line); border-radius
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #av > .row { gap: 10px 28px; }
 #turbo { margin-left: auto; }
+/* System: no card, straight on the page */
+#av { background: none; border: 0; padding: 4px 14px; }
+#av button { padding: 4px 12px; font-size: 14px; }      /* as the machine switch's */
 #av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 button:hover { border-color: var(--muted); }
@@ -125,6 +128,14 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #app .appinfo { margin-top: 8px; }
 #app.folded #appbody { display: none; }
 #app .why { color: var(--accent); }
+/* no app: one short line, the heading and Install */
+#app h2 .none, #app h2 #appadd { display: none; }
+#app.empty { padding: 8px 14px; }
+#app.empty h2.fold { cursor: default; }
+#app.empty h2 .none { display: inline; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#app.empty h2 #appadd { display: inline-block; margin-left: auto; padding: 2px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#app.empty .arrow, #app.empty .appinfo, #app.empty .appdo, #app.empty .applog, #app.empty #program { display: none !important; }
+#app.empty #appbody { display: block; }
 #app .applog { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 6.5em; overflow-y: auto; white-space: pre-wrap; }
 #app .applog:empty { display: none; }
 #app .appdo { margin-top: 10px; }
@@ -147,12 +158,6 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   </div>
 </header>
 
-<section class="machine">
-  <div class="machine">
-    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
-  </div>
-</section>
-
 <section id="av">
   <h2>System</h2>
   <div class="row">
@@ -161,16 +166,22 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
       <label class="check" for="vol">Volume <input type="range" id="vol" min="0" max="200" step="5"></label>
     </span>
     <span class="row" id="lights" hidden>
-      <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
+      <button id="ambient" title="The LEDs on the back glow with what's on screen">Back LEDs</button>
       <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
-      <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
     </span>
     <button id="turbo" title="Run the machine as fast as it can, not at the real speed">Turbo</button>
   </div>
 </section>
 
+<section class="machine">
+  <div class="machine">
+    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
+  </div>
+</section>
+
+
 <section id="app" hidden>
-  <h2 class="fold" id="apphead" title="Show or hide the application"><span class="arrow">&#9660;</span>RP2350 Application</h2>
+  <h2 class="fold" id="apphead" title="Show or hide the application"><span class="arrow">&#9660;</span>RP2350 Application<span class="none"> · none</span><button id="appadd" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button></h2>
   <div class="stats appinfo" id="appinfo"></div>
   <div id="appbody">
     <div class="row appdo">
@@ -469,7 +480,6 @@ function show(s) {
   $('lights').hidden = !a;
   if (a) {
     $('ambient').classList.toggle('on', a.on);
-    $('locks').classList.toggle('on', a.locks);
     if (document.activeElement !== $('bright')) $('bright').value = a.bright;
   }
   const board = BOARDS[s.board] || s.board || 'the board';
@@ -521,7 +531,6 @@ for (const b of $('msel').querySelectorAll('button')) b.onclick = async () => {
 };
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
-$('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
 $('soundon').onclick = async () => show(await api('/api/sound', 'on=' + (status.sound.on ? 0 : 1)));
 // the volume as the slider moves, at most every 150 ms
 let volTimer;
@@ -652,6 +661,7 @@ async function sthBoot(path, title) {
     if (!r.ok) throw new Error('the archive said ' + r.status);
     await bootImage(path.split('/').pop(), await r.arrayBuffer());
     msg(`Booting ${title}`);
+    $('sthfind').hidden = true;     // booted: the search folds away (Search games... opens it again)
   } catch (e) { progress(); msg(`Couldn't load ${title} (${e.message})`, 'err'); }
 }
 function sthShow() {
@@ -730,6 +740,7 @@ function showApp(a) {
   $('app').hidden = !a;
   if (!a) return;
   $('app').classList.toggle('folded', appFold === '1');
+  $('app').classList.toggle('empty', a.state === 'none' && a.from !== 'built in');
   const ok = a.state === 'running' || a.state === 'loaded';
   const bits = [`<span class="conn"><span class="dot ${ok ? 'ok' : a.state === 'none' ? '' : 'bad'}"></span>${APP_STATES[a.state] || esc(a.state)}</span>`];
   if (a.name) bits.push(`<span><b>${esc(a.name)}</b> ${esc(a.version || '')}</span>`);
@@ -741,6 +752,7 @@ function showApp(a) {
   $('appinfo').innerHTML = bits.join('');
 }
 $('apphead').onclick = () => {
+  if ($('app').classList.contains('empty')) return;
   const folded = !$('app').classList.contains('folded');
   $('app').classList.toggle('folded', folded);
   appFold = folded ? '1' : '0';
@@ -782,7 +794,7 @@ function installApp(f) {
   x.onerror = () => { p.hidden = true; appMsg('The upload failed: the app slot is left empty.', 'err'); };
   x.send(f);
 }
-$('appinstall').onclick = () => $('appfile').click();
+$('appinstall').onclick = $('appadd').onclick = e => { e.stopPropagation(); $('appfile').click(); };
 $('appfile').onchange = () => { installApp($('appfile').files[0]); $('appfile').value = ''; };
 $('appremove').onclick = async () => {
   if (!confirm('Remove the app from the app slot? It stops now.')) return;
