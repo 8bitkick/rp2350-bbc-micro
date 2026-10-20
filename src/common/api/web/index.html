@@ -642,7 +642,6 @@ async function sthBoot(path, title) {
     const r = await fetch(STH + path.split('/').map(encodeURIComponent).join('/'));
     if (!r.ok) throw new Error('the archive said ' + r.status);
     await bootImage(path.split('/').pop(), await r.arrayBuffer());
-    msg(`Booting ${title}`);
     $('sthfind').hidden = true;     // booted: the search folds away (Search games... opens it again)
   } catch (e) { progress(); msg(`Couldn't load ${title} (${e.message})`, 'err'); }
 }
