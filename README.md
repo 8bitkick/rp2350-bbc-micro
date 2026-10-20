@@ -32,7 +32,8 @@ No tools needed: one file onto the Presto.
 3. Drag the `.uf2` onto that drive. The Presto restarts by itself.
 
 It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite.bbcelite.com/), and after a few
-seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it. The BBC Model B, with its own
+seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it as Commander JAMESON, already
+Deadly, carrying on from its last save after a power-off. (Flashing a release replaces the Master's saves.) The BBC Model B, with its own
 flicker-free Elite, is one click away on the [web panel](#web-panel---httpbeeblocal) once the Presto is on your
 WiFi. Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
 repository doesn't contain them (`setup.sh` downloads them when you build).
