@@ -50,27 +50,27 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-#av > .row { gap: 28px; }
-#av .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-#av .head h2 { margin: 0; }
-#av .head .buttons { margin-left: auto; }
-#av .head .buttons button { padding: 4px 12px; font-size: 14px; }
-#av:not(:has(#sound:not([hidden]), #lights:not([hidden]))) > .row { display: none; }
-#av:not(:has(#sound:not([hidden]), #lights:not([hidden]))) .head { margin-bottom: 0; }
+#av > .row { gap: 10px 28px; }
+#turbo { margin-left: auto; }
 #av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 button:hover { border-color: var(--muted); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 input[type=text], input[type=url], input[type=search] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-input[type=range] { accent-color: var(--accent); width: 140px; }
+input[type=range] { accent-color: var(--accent); width: 110px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
 .discs { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
 #sdsel, #sthsel, #sthres { font: inherit; flex: 1 1 140px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+.indrive { display: flex; align-items: center; gap: 4px 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.indrive .what { color: var(--muted); font-size: 14px; }
+#dname { font-weight: 700; font-size: 17px; }
+#dnote { color: var(--muted); font-size: 13px; }
+.indrive #boot { margin-left: auto; padding: 4px 12px; font-size: 14px; }
 #sthfind { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 #sthfind input { flex: 1 1 100%; }
 #sthres { flex: 1 1 100%; cursor: pointer; }
-#drop { flex: 2 1 290px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
+#drop { flex: 1 1 140px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
 #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
 #msg { margin-top: 6px; font-size: 14px; }
 #msg:empty { display: none; }
@@ -154,13 +154,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 </section>
 
 <section id="av">
-  <div class="head">
-    <h2>System</h2>
-    <span class="row buttons">
-      <button id="turbo" title="Run as fast as it can">Turbo</button>
-      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
-    </span>
-  </div>
+  <h2>System</h2>
   <div class="row">
     <span class="row" id="sound" hidden>
       <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
@@ -171,6 +165,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
       <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
       <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
     </span>
+    <button id="turbo" title="Run the machine as fast as it can, not at the real speed">Turbo</button>
   </div>
 </section>
 
@@ -198,13 +193,17 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 </section>
 <section>
   <h2>Disc</h2>
+  <div class="indrive">
+    <span class="what">In the drive</span>
+    <span id="dname">…</span>
+    <span id="dnote"></span>
+    <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK)">Boot</button>
+  </div>
   <div class="discs">
-    <select id="sthsel" title="Boot a disc from the Stairway to Hell archive (fetched by this browser, from the internet)"><option value="">Disc archive…</option></select>
+    <select id="sthsel" title="Boot a disc from the Stairway to Hell archive (fetched by this browser, from the internet)"><option value="">Download game…</option></select>
     <select id="sdsel" title="Boot a disc image from the SD card"><option value="">SD card…</option></select>
-    <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
+    <div id="drop" title="Drop a .ssd, .dsd or .zip (or a link to one) here, or click to choose a file">Drop or choose a file</div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
-    <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
-    <button id="restore" hidden title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
   </div>
   <div id="sthfind" hidden>
     <input type="search" id="sthq" placeholder="Search the archive: a title or a publisher" autocomplete="off">
@@ -452,10 +451,10 @@ function show(s) {
   }
   $('turbo').classList.toggle('on', s.turbo);
   // the panel's figures: only in builds that have them
-  $('overlay').hidden = s.overlay == null;
-  $('overlay').classList.toggle('on', !!s.overlay);
-  // the built-in disc's saved games: only on a machine that keeps a save disc
-  $('restore').hidden = !(s.saves >= 0);
+  // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
+  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '')
+    : (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
+  $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `built in · ${s.saves} saved` : 'built in';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
   // the sound: only in builds that have it
@@ -521,7 +520,6 @@ for (const b of $('msel').querySelectorAll('button')) b.onclick = async () => {
   $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[m]}…</span>`;
 };
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
-$('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
 $('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
 $('soundon').onclick = async () => show(await api('/api/sound', 'on=' + (status.sound.on ? 0 : 1)));
@@ -538,7 +536,6 @@ $('bright').oninput = () => {
   brightTimer = setTimeout(async () => show(await api('/api/ambient', 'bright=' + $('bright').value)), 150);
 };
 $('boot').onclick = () => api('/api/boot');
-$('restore').onclick = () => { if (confirm('Forget everything saved to the built-in disc and boot it as it came?')) api('/api/disc/restore'); };
 
 // --- discs
 function msg(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
@@ -686,7 +683,7 @@ async function sthFind() {
 {
   const sel = $('sthsel');
   for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
-  sel.add(new Option('Search 1,600 more…', '?'));
+  sel.add(new Option('Search games…', '?'));
   sel.onchange = () => {
     const v = sel.value;
     sel.value = '';

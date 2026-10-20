@@ -35,6 +35,8 @@ uint8_t *drive0_staging(void);
 bool drive0_insert(const char *name, uint32_t size);
 // the name of the disc in drive 0, or NULL for the built-in one
 const char *drive0_name(void);
+// the built-in disc's title, from its catalogue ("" if it has none, or there's no built-in disc)
+const char *drive0_builtin_title(void);
 // back to the built-in disc (its save disc, if any), booted
 void drive0_eject(void);
 // the built-in disc as it came (what games saved to it forgotten), booted

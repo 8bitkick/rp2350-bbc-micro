@@ -80,6 +80,21 @@ const char *drive0_name(void) {
     return s_name[0] ? s_name : NULL;
 }
 
+const char *drive0_builtin_title(void) {
+    // DFS: the title's first 8 characters at the start of sector 0, the last 4 at sector 1's
+    static char t[13];
+    uint32_t n = 0;
+    if (s_golden && s_golden_size >= 512)
+        for (int i = 0; i < 12; i++) {
+            uint8_t c = s_golden[i < 8 ? i : 256 + i - 8];
+            if (c == 0) break;
+            t[n++] = c >= 32 && c < 127 ? (char) c : ' ';
+        }
+    while (n && t[n - 1] == ' ') n--;
+    t[n] = 0;
+    return t;
+}
+
 int drive0_saves(void) {
     if (!s_save_ok) return -1;
     const save_head_t *h = save_head();
