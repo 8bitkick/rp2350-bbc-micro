@@ -23,8 +23,6 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 syste
 main { max-width: 980px; margin: 0 auto; padding: 16px; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
 .machine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.machine .buttons { display: flex; gap: 8px; margin-left: auto; }
-.machine .buttons button { padding: 4px 12px; font-size: 14px; }
 section.machine { display: flex; align-items: center; gap: 8px 16px; padding: 8px 14px; }
 section.machine > .machine { flex: 1; }
 /* the machine switch: with both machines in the flash, the one running lit; the other restarts as it */
@@ -53,17 +51,26 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 #av > .row { gap: 28px; }
+#av .head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#av .head h2 { margin: 0; }
+#av .head .buttons { margin-left: auto; }
+#av .head .buttons button { padding: 4px 12px; font-size: 14px; }
+#av:not(:has(#sound:not([hidden]), #lights:not([hidden]))) > .row { display: none; }
+#av:not(:has(#sound:not([hidden]), #lights:not([hidden]))) .head { margin-bottom: 0; }
 #av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 button:hover { border-color: var(--muted); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-input[type=text], input[type=url] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input[type=text], input[type=url], input[type=search] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
 input[type=range] { accent-color: var(--accent); width: 140px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
 .discs { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
-#sdsel { font: inherit; flex: 1 1 200px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
-#drop { flex: 2 1 260px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
+#sdsel, #sthsel, #sthres { font: inherit; flex: 1 1 140px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+#sthfind { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+#sthfind input { flex: 1 1 100%; }
+#sthres { flex: 1 1 100%; cursor: pointer; }
+#drop { flex: 2 1 290px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
 #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
 #msg { margin-top: 6px; font-size: 14px; }
 #msg:empty { display: none; }
@@ -143,15 +150,17 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <section class="machine">
   <div class="machine">
     <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
-    <div class="buttons">
-      <button id="turbo" title="Run as fast as it can">Turbo</button>
-      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
-    </div>
   </div>
 </section>
 
-<section id="av" hidden>
-  <h2 id="avtitle">Sound and lights</h2>
+<section id="av">
+  <div class="head">
+    <h2>System</h2>
+    <span class="row buttons">
+      <button id="turbo" title="Run as fast as it can">Turbo</button>
+      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
+    </span>
+  </div>
   <div class="row">
     <span class="row" id="sound" hidden>
       <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
@@ -190,11 +199,16 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <section>
   <h2>Disc</h2>
   <div class="discs">
+    <select id="sthsel" title="Boot a disc from the Stairway to Hell archive (fetched by this browser, from the internet)"><option value="">Disc archive…</option></select>
     <select id="sdsel" title="Boot a disc image from the SD card"><option value="">SD card…</option></select>
     <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
     <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
     <button id="restore" hidden title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
+  </div>
+  <div id="sthfind" hidden>
+    <input type="search" id="sthq" placeholder="Search the archive: a title or a publisher" autocomplete="off">
+    <select id="sthres" size="8" title="Click one to boot it"></select>
   </div>
   <progress id="prog" value="0" max="1" hidden></progress>
   <div id="msg"></div>
@@ -454,9 +468,6 @@ function show(s) {
   // the LEDs on the back: only in builds that have them
   const a = s.ambient;
   $('lights').hidden = !a;
-  // one bar for both, titled for what this build has
-  $('av').hidden = !snd && !a;
-  $('avtitle').textContent = snd && a ? 'Sound and lights' : snd ? 'Sound' : 'Lights';
   if (a) {
     $('ambient').classList.toggle('on', a.on);
     $('locks').classList.toggle('on', a.locks);
@@ -617,6 +628,76 @@ async function fetchUrl(url) {
     watchingFetch = true;
     progress(0, 0, 'Downloading on the RP2350…');
   } catch (e) { msg(`Couldn't fetch that (${e.message}). Download it and drop the file in.`, 'err'); }
+}
+
+// the Stairway to Hell archive, as jsbeeb loads it: a mirror that lets any page fetch its manifest
+// and its zipped discs; the browser fetches the disc and sends it on as a dropped file
+const STH = 'https://bbc.xania.org/archive/sth/diskimages/';
+const STH_TOP = [
+  ['Chuckie Egg', 'AnF/ChuckieEgg.zip'], ['Repton', 'Superior/Repton.zip'], ['Exile', 'Superior/Exile.zip'],
+  ['Citadel', 'Superior/Citadel.zip'], ['Revs', 'Acornsoft/Revs.zip'], ['Thrust', 'Superior/Thrust.zip'],
+  ['Frak!', 'Aardvark/Frak.zip'], ['Planetoid', 'Acornsoft/Planetoid.zip'],
+  ['Starship Command', 'Acornsoft/StarshipCommand.zip'], ['The Sentinel', 'Firebird/TheSentinel.zip'],
+];
+let sthFiles = null;
+// "Superior/Repton2-alt.zip" -> "Repton 2-alt · Superior"; "Cheats/CHT_Repton-..." -> "Repton-... · Cheats"
+function sthTitle(path) {
+  const spaced = t => t.replace(/([a-z])([A-Z0-9])/g, '$1 $2').replace(/([0-9])([A-Z])/g, '$1 $2');
+  const parts = path.replace(/\.zip$/i, '').replace(/\/CHT_/, '/').split('/');
+  const name = spaced(parts.pop());
+  return parts.length ? `${name} · ${spaced(parts.join(' / '))}` : name;
+}
+async function sthBoot(path, title) {
+  try {
+    msg('');
+    progress(0, 0, `Fetching ${title}…`);
+    const r = await fetch(STH + path.split('/').map(encodeURIComponent).join('/'));
+    if (!r.ok) throw new Error('the archive said ' + r.status);
+    await bootImage(path.split('/').pop(), await r.arrayBuffer());
+    msg(`Booting ${title}`);
+  } catch (e) { progress(); msg(`Couldn't load ${title} (${e.message})`, 'err'); }
+}
+function sthShow() {
+  const words = $('sthq').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const sel = $('sthres');
+  sel.innerHTML = '';
+  if (!sthFiles) return;
+  const hits = sthFiles.filter(f => words.every(w => f.key.includes(w)));
+  for (const f of hits.slice(0, 300)) sel.add(new Option(f.title, f.path));
+  if (!hits.length) sel.add(new Option('Nothing matches', ''));
+  else if (hits.length > 300) sel.add(new Option(`…and ${hits.length - 300} more: narrow the search`, ''));
+}
+async function sthFind() {
+  $('sthfind').hidden = false;
+  $('sthq').focus();
+  if (sthFiles) return sthShow();
+  $('sthres').innerHTML = '';
+  $('sthres').add(new Option('Fetching the archive\'s list…', ''));
+  try {
+    const r = await fetch(STH + 'manifest.json');
+    if (!r.ok) throw new Error('the archive said ' + r.status);
+    sthFiles = (await r.json()).files.map(f => {
+      const title = sthTitle(f.path);
+      return {path: f.path, title, cheat: f.path.startsWith('Cheats/'), key: (f.path + ' ' + title).toLowerCase()};
+    }).sort((a, b) => a.cheat - b.cheat || a.title.localeCompare(b.title, undefined, {numeric: true, sensitivity: 'base'}));
+    sthShow();
+  } catch (e) { $('sthres').innerHTML = ''; $('sthres').add(new Option(`Couldn't fetch the list (${e.message})`, '')); }
+}
+{
+  const sel = $('sthsel');
+  for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
+  sel.add(new Option('Search 1,600 more…', '?'));
+  sel.onchange = () => {
+    const v = sel.value;
+    sel.value = '';
+    if (v === '?') sthFind();
+    else if (v) sthBoot(v, STH_TOP.find(t => t[1] === v)[0]);
+  };
+  $('sthq').oninput = sthShow;
+  $('sthres').onchange = () => {
+    const f = sthFiles && sthFiles.find(f => f.path === $('sthres').value);
+    if (f) sthBoot(f.path, f.title);
+  };
 }
 
 async function listDiscs() {

@@ -63,10 +63,13 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 
 - **Keyboard:** the machine's own, a Model B's or a Master 128's with its numeric keypad, with live
   CAPS LOCK and SHIFT LOCK lights; or type on your own keyboard, or send a line of text.
-- **Discs:** drop in a `.ssd`, `.dsd` or `.zip` (or a link to one) to boot it, or pick one from the SD
-  card. **Restore original disc** forgets what games saved to the built-in disc.
+- **Discs:** pick one of ten classics from the [Stairway to Hell](https://www.stairwaytohell.com/)
+  archive or search all 1,600 of its discs, as [jsbeeb](https://github.com/mattgodbolt/jsbeeb) does
+  (your browser fetches them from the archive's mirror). Or drop in a `.ssd`, `.dsd` or `.zip` (or a
+  link to one) to boot it, or pick one from the SD card. **Restore original disc** forgets what games saved to the built-in disc.
 - **Sound:** with `-DSOUND=ON`, turn it on (it starts off) and set the volume.
-- **Status:** each core's load, the clock, the chip temperature and free RAM; **Turbo** runs flat out.
+- **Status:** each core's load, the clock, the chip temperature and free RAM.
+- **System:** **Turbo** runs flat out; with the build options below, the sound and the LEDs.
 - **Lights, program:** with `-DAMBIENT=ON`, the LEDs on the back; with a program built in alongside
   the machine (such as the [Elite agent](https://github.com/8bitkick/elite-agent)), its own panel.
 
