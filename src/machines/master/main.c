@@ -161,12 +161,17 @@ static uint32_t s_frames;
 static bool s_turbo;
 static bool s_turbo_ended;
 static bool s_was_reset;
-static struct machine_hook_io s_hook_io;     // what a program run alongside sees (frame_hook)
+static struct machine_hook_io s_hook_io;     // what the app run alongside sees (frame_hook)
 
 // For the front end (machine_if.h).
 const char *machine_name(void)
 {
     return "master";
+}
+
+uint32_t machine_psram_used(void)
+{
+    return (uint32_t)(s_psram_next - (uint8_t *)0x11000000);
 }
 
 bool machine_turbo_get(void)
@@ -219,10 +224,10 @@ void main_machine_was_reset(void)
 
 void machine_print_stats(void)
 {
-    printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%\n",
+    printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 core0=%lu%% core1=%lu%% speed=%lu.%lu%%%s\n",
            (unsigned long)s_frames, (unsigned long)board_display_frames(), (unsigned long)s_core0_pct,
            (unsigned long)s_core1_pct, (unsigned long)(s_speed_permille / 10),
-           (unsigned long)(s_speed_permille % 10));
+           (unsigned long)(s_speed_permille % 10), frontend_stats_tail());
 }
 
 static struct machine *s_hook_m;
@@ -265,6 +270,10 @@ static void run(void)
     // a program's loading screen, if it has one, until core 1 starts drawing the machine: what's
     // loading and how far (the ROMs into PSRAM the first 30%, the disc's tracks going in the rest)
     uint64_t boot_t0 = time_us_64();
+    // the app (app.c): checked, its RAM set up, its disc (if it carries one) the built-in disc
+    const uint8_t *disc = disc_image;
+    uint32_t disc_size = disc_image_size;
+    app_load(MACHINE_MODEL_MASTER_128, &disc, &disc_size);
     bool splash = panel_splash_picture();
     if (splash) panel_splash_status("ROMS INTO PSRAM", 0);
     machine_init(m);
@@ -298,7 +307,7 @@ static void run(void)
     uint32_t *pulses = psram_alloc(2 * (size_t)DISC_TRACKS * DISC_BYTES_PER_TRACK * sizeof(uint32_t));
     uint8_t *disc_ram = psram_alloc(DRIVE_IMAGE_MAX);
     presto_disc_progress(splash ? splash_disc_progress : NULL);
-    presto_machine_init(m, pulses, disc_ram, disc_image, disc_image_size);
+    presto_machine_init(m, pulses, disc_ram, disc, disc_size);
     presto_disc_progress(NULL);
     if (splash) {
         panel_splash_status("READY", 1000);

@@ -37,6 +37,13 @@ static const save_head_t *save_head(void) {
     return h->magic == SAVE_MAGIC && h->golden_hash == s_golden_hash && h->golden_size == s_golden_size ? h : NULL;
 }
 
+// another disc's save disc is there (another build's built-in disc, or the other machine's): it
+// isn't this one's to write over. !restore (drive0_restore) gives the region to this disc.
+static bool save_taken(void) {
+    if (!s_save_ok || save_head()) return false;
+    return ((const save_head_t *) mem_flash_ptr(s_head_off))->magic == SAVE_MAGIC;
+}
+
 static const uint8_t *save_data(void) {
     return mem_flash_ptr(s_data_off);
 }
@@ -61,6 +68,7 @@ void drive0_init(const uint8_t *golden, uint32_t golden_size, uint8_t *staging) 
                 mem_flash_region(MEM_FLASH_SAVE_DATA, &s_data_off, &s_save_size) &&
                 golden_size <= s_save_size;
     if (s_save_ok) s_golden_hash = fnv(golden, golden_size);
+    if (save_taken()) printf("DISC the save disc is another disc's: saves to this one aren't kept (restore to start one)\n");
     load_builtin(false);
 }
 
@@ -70,6 +78,21 @@ uint8_t *drive0_staging(void) {
 
 const char *drive0_name(void) {
     return s_name[0] ? s_name : NULL;
+}
+
+const char *drive0_builtin_title(void) {
+    // DFS: the title's first 8 characters at the start of sector 0, the last 4 at sector 1's
+    static char t[13];
+    uint32_t n = 0;
+    if (s_golden && s_golden_size >= 512)
+        for (int i = 0; i < 12; i++) {
+            uint8_t c = s_golden[i < 8 ? i : 256 + i - 8];
+            if (c == 0) break;
+            t[n++] = c >= 32 && c < 127 ? (char) c : ' ';
+        }
+    while (n && t[n - 1] == ' ') n--;
+    t[n] = 0;
+    return t;
 }
 
 int drive0_saves(void) {
@@ -123,6 +146,10 @@ void drive0_restore(void) {
 static void commit(void) {
     static uint8_t blk[FLASH_SECTOR_SIZE];
     const save_head_t *h = save_head();
+    if (!h && save_taken()) {
+        printf("DISC not saved: the save disc is another disc's (restore to start one for this disc)\n");
+        return;
+    }
     int blocks = 0;
     for (uint32_t off = 0; off < s_save_size; off += FLASH_SECTOR_SIZE) {
         // what's there now (the first save copies the whole disc), then the sectors written
@@ -157,6 +184,15 @@ void drive0_frame(void) {
         s_last_writes = w;
         s_quiet = 0;
     } else if (s_quiet < 50 && ++s_quiet == 50) {
+        commit();
+    }
+}
+
+void drive0_sync(void) {
+    if (!s_persist) return;
+    if (machine_drive_writes() != s_last_writes || s_quiet < 50) {
+        s_last_writes = machine_drive_writes();
+        s_quiet = 50;
         commit();
     }
 }

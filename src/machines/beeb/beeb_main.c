@@ -29,6 +29,7 @@
 #include "boot_guard.h"
 #include "machine_if.h"
 #include "drive.h"
+#include "frontend.h"
 
 #include "hardware/clocks.h"
 #include "hardware/irq.h"
@@ -519,6 +520,23 @@ beebjit_host_big_region(uint8_t** p_base) {
           PRESTO_DISC_RAM_SIZE);
 }
 
+/* For /api/status (machine_if.h): the JIT's fixed region and the disc RAM,
+ * set aside whole, and what's allocated from the big region between them.
+ */
+uint32_t
+machine_psram_used(void) {
+  size_t big_used, big_peak, small_total;
+  if (board_psram() == NULL) {
+    return 0;
+  }
+  beebjit_embedded_get_alloc_stats(&big_used, &big_peak, &small_total);
+  if (board_psram_size() < (8u << 20)) {
+    return (uint32_t) big_used;
+  }
+  return (uint32_t) ((PRESTO_JIT_REGION_END - PRESTO_JIT_REGION_START) +
+                     big_used + PRESTO_DISC_RAM_SIZE);
+}
+
 /* ---- Clocks ---- */
 
 /* Slow the flash interface before raising the clock: on RP2350 nothing else
@@ -835,13 +853,13 @@ machine_overlay_set(bool on) {
 void
 machine_print_stats(void) {
   (void) printf("STATS frames=%lu late=0 lcd_frames=%lu avg_busy_us=0 "
-                "core0=%lu%% core1=%lu%% speed=%lu%%%s\n",
+                "core0=%lu%% core1=%lu%% speed=%lu%%%s%s\n",
                 (unsigned long) s_frames,
                 (unsigned long) board_display_frames(),
                 (unsigned long) s_perf_core0,
                 (unsigned long) s_perf_core1,
                 (unsigned long) s_perf_speed,
-                (s_turbo ? " (turbo)" : ""));
+                (s_turbo ? " (turbo)" : ""), frontend_stats_tail());
 }
 
 static void

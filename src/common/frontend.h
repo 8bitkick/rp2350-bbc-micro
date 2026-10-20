@@ -19,6 +19,9 @@ void frontend_frame(void);
 
 // the chip's temperature, in hundredths of a degree (the RP2350's sensor)
 int frontend_temp_centi(void);
+// the end of the STATS line both machines print: the display's frame interrupt (the most it ran
+// late, the frames it rolled or missed) and the flash sectors written
+const char *frontend_stats_tail(void);
 
 #ifdef __cplusplus
 }

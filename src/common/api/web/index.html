@@ -23,12 +23,21 @@ body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 syste
 main { max-width: 980px; margin: 0 auto; padding: 16px; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 12px; }
 .machine { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.machine .buttons { display: flex; gap: 8px; margin-left: auto; }
-.machine .buttons button { padding: 4px 12px; font-size: 14px; }
 section.machine { display: flex; align-items: center; gap: 8px 16px; padding: 8px 14px; }
 section.machine > .machine { flex: 1; }
+/* the machine switch: with both machines in the flash, the one running lit; the other restarts as it */
+.msel { display: inline-flex; align-items: center; margin-left: auto; }
+.msel > span { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; margin-right: 10px; }
+.msel button { padding: 4px 12px; font-size: 14px; border-radius: 0; }
+.msel button:first-of-type { border-radius: 8px 0 0 8px; }
+.msel button:last-of-type { border-radius: 0 8px 8px 0; border-left: 0; }
+.msel button:disabled { opacity: .6; cursor: progress; }
 h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
 h1 span { color: var(--accent); }
+h1 a { color: inherit; text-decoration: none; }
+h1 a:hover span { text-decoration: underline; }
+.stats .api { color: var(--muted); text-decoration: none; font-size: 16px; line-height: 1; }
+.stats .api:hover { color: var(--ink); }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
 .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .stats b { color: var(--ink); font-weight: 600; }
@@ -36,22 +45,35 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .stats .group > span { white-space: nowrap; }
 .machine .stats { gap: 4px 14px; }
 .stats .group { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; }
+/* the memory: a small bar each for the flash, the PSRAM and the RAM, used of all */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-#av > .row { gap: 28px; }
+#av > .row { gap: 10px 28px; }
+#turbo { margin-left: auto; }
+/* System: no card, straight on the page */
+#av { background: none; border: 0; padding: 0; }     /* the buttons out to the cards' edges */
+#av button { padding: 4px 12px; font-size: 14px; }      /* as the machine switch's */
 #av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
 button:hover { border-color: var(--muted); }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-input[type=text], input[type=url] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-input[type=range] { accent-color: var(--accent); width: 140px; }
+input[type=text], input[type=url], input[type=search] { font: inherit; flex: 1 1 220px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+input[type=range] { accent-color: var(--accent); width: 110px; }
 label.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
 .discs { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
-#sdsel { font: inherit; flex: 1 1 200px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
-#drop { flex: 2 1 260px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
+#sdsel, #sthsel, #sthres { font: inherit; flex: 1 1 140px; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+h2.indrive { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+h2.indrive .sep, #dnote { font-weight: 400; text-transform: none; letter-spacing: 0; }
+#dname { color: var(--ink); font-weight: 700; font-size: 14px; text-transform: none; letter-spacing: 0; }
+#dnote:not(:empty)::before { content: "· "; }
+h2.indrive #boot { margin-left: auto; padding: 2px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#sthfind { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+#sthfind input { flex: 1 1 100%; }
+#sthres { flex: 1 1 100%; cursor: pointer; }
+#drop { flex: 1 1 140px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
 #drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
 #msg { margin-top: 6px; font-size: 14px; }
 #msg:empty { display: none; }
@@ -99,54 +121,97 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #program progress { margin-top: 4px; }
 #program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 #program .row { margin-top: 10px; }
+/* the RP2350 application (GET /api/app): what it is and its state, its own panel inside; folds away */
+#app h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; margin: 0; display: flex; align-items: center; gap: 6px; }
+#app h2.fold .arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
+#app.folded h2.fold .arrow { transform: rotate(-90deg); }
+#app .appinfo { margin-top: 8px; }
+#app.folded #appbody { display: none; }
+#app .why { color: var(--accent); }
+/* no app: one short line, the heading and Install */
+#app h2 .none, #app h2 #appadd { display: none; }
+#app.empty { padding: 8px 14px; }
+#app.empty h2.fold { cursor: default; }
+#app.empty h2 .none { display: inline; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#app.empty h2 #appadd { display: inline-block; margin-left: auto; padding: 2px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
+#app.empty .arrow, #app.empty .appinfo, #app.empty .appdo, #app.empty .applog, #app.empty #program { display: none !important; }
+#app.empty #appbody { display: block; }
+#app .applog { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 6.5em; overflow-y: auto; white-space: pre-wrap; }
+#app .applog:empty { display: none; }
+#app .appdo { margin-top: 10px; }
+#app .appdo button { padding: 4px 12px; font-size: 14px; }
+#app .appdo .hint { color: var(--muted); font-size: 13px; }
+#app.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+#appmsg { margin-top: 6px; font-size: 14px; }
+#appmsg:empty { display: none; }
+#appmsg.err { color: var(--accent); } #appmsg.ok { color: var(--ok); }
+#program { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+#program h3 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
 </style>
 </head>
 <body>
 <main>
 <header>
-  <h1><span id="mname">BBC Micro</span> <span>RP2350</span></h1>
+  <h1><a href="https://github.com/8bitkick/rp2350-bbc-micro" target="_blank" rel="noopener" title="The project on GitHub"><span id="mname">BBC Micro</span> <span>RP2350</span></a></h1>
+  <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
+    <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
+  </div>
 </header>
 
-<section class="machine">
-  <div class="machine">
-    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
-    <div class="buttons">
-      <button id="turbo" title="Run as fast as it can">Turbo</button>
-      <button id="overlay" title="The load and speed display on the panel" hidden>Overlay</button>
-    </div>
-  </div>
-</section>
-
-<section id="av" hidden>
-  <h2 id="avtitle">Sound and lights</h2>
+<section id="av">
   <div class="row">
     <span class="row" id="sound" hidden>
       <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
       <label class="check" for="vol">Volume <input type="range" id="vol" min="0" max="200" step="5"></label>
     </span>
     <span class="row" id="lights" hidden>
-      <button id="ambient" title="The LEDs on the back glow with what's on screen">Ambient light</button>
+      <button id="ambient" title="The LEDs on the back glow with what's on screen">LEDs</button>
       <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
-      <button id="locks" title="CAPS LOCK (left) and SHIFT LOCK (bottom left) on the LEDs, red">Lock lights</button>
     </span>
+    <button id="turbo" title="Run the machine as fast as it can, not at the real speed">Turbo</button>
   </div>
 </section>
 
-<section id="program" hidden>
-  <h2 id="ptitle">Program</h2>
-  <div class="fields" id="pfields"></div>
-  <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
-  <div class="row" id="pactions"></div>
-  <div class="log" id="plog"></div>
+<section class="machine">
+  <div class="machine">
+    <div class="stats" id="stats"><span class="conn"><span class="dot" id="live"></span>Connecting</span></div>
+  </div>
+</section>
+
+
+<section id="app" hidden>
+  <h2 class="fold" id="apphead" title="Show or hide the application"><span class="arrow">&#9660;</span>RP2350 Application<span class="none"> · none</span><button id="appadd" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button></h2>
+  <div class="stats appinfo" id="appinfo"></div>
+  <div id="appbody">
+    <div class="row appdo">
+      <button id="appinstall" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button>
+      <button id="appremove" title="Erase the app in the app slot">Remove</button>
+      <span class="hint">or drop an app's .bin here</span>
+      <input type="file" id="appfile" accept=".bin" hidden>
+    </div>
+    <progress id="appprog" value="0" max="1" hidden></progress>
+    <div id="appmsg"></div>
+    <div class="applog" id="applog" title="What the application has logged lately"></div>
+    <div id="program" hidden>
+      <h3 id="ptitle">Program</h3>
+      <div class="fields" id="pfields"></div>
+      <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
+      <div class="row" id="pactions"></div>
+      <div class="log" id="plog"></div>
+    </div>
+  </div>
 </section>
 <section>
-  <h2>Disc</h2>
+  <h2 class="indrive" title="The disc in the drive">Disc<span class="sep">·</span><span id="dname">…</span><span id="dnote"></span><button id="boot" title="Boot the disc in the drive (SHIFT+BREAK)">Boot</button></h2>
   <div class="discs">
+    <select id="sthsel" title="Boot a disc from the Stairway to Hell archive (fetched by this browser, from the internet)"><option value="">Download game…</option></select>
     <select id="sdsel" title="Boot a disc image from the SD card"><option value="">SD card…</option></select>
-    <div id="drop" title="Drop a disc image (or a link to one) here, or click to choose a file">Drop or choose a <b>.ssd</b> / <b>.dsd</b> / <b>.zip</b></div>
+    <div id="drop" title="Drop a .ssd, .dsd or .zip (or a link to one) here, or click to choose a file">Drop or choose a file</div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
-    <button id="boot" title="Boot the disc in the drive (SHIFT+BREAK): Elite, unless you've loaded another">Boot disc</button>
-    <button id="restore" hidden title="The built-in disc as it came: forget what games have saved to it, and boot it">Restore original disc</button>
+  </div>
+  <div id="sthfind" hidden>
+    <input type="search" id="sthq" placeholder="Search the archive: a title or a publisher" autocomplete="off">
+    <select id="sthres" size="8" title="Click one to boot it"></select>
   </div>
   <progress id="prog" value="0" max="1" hidden></progress>
   <div id="msg"></div>
@@ -370,7 +435,8 @@ async function api(path, body, method = 'POST') {
   return j;
 }
 const BOARDS = {presto: 'Pimoroni Presto'};
-let builtFor;
+const MACHINES = {master: 'BBC Master', beeb: 'BBC Model B'};
+let builtFor, switchingTo;
 function show(s) {
   status = s;
   if (s.machine && s.machine !== builtFor) {
@@ -380,12 +446,19 @@ function show(s) {
     $('mname').textContent = name;
     document.title = name + ' RP2350';
   }
+  // both machines in the flash: the switch, the one running lit
+  if (switchingTo && s.machine === switchingTo) switchingTo = null;
+  $('msel').hidden = !s.system;
+  for (const b of $('msel').querySelectorAll('button')) {
+    b.classList.toggle('on', b.dataset.m === s.machine);
+    b.disabled = !!switchingTo;
+  }
   $('turbo').classList.toggle('on', s.turbo);
   // the panel's figures: only in builds that have them
-  $('overlay').hidden = s.overlay == null;
-  $('overlay').classList.toggle('on', !!s.overlay);
-  // the built-in disc's saved games: only on a machine that keeps a save disc
-  $('restore').hidden = !(s.saves >= 0);
+  // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
+  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '')
+    : (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
+  $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `built in · ${s.saves} saved` : 'built in';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
   // the sound: only in builds that have it
@@ -398,18 +471,16 @@ function show(s) {
   // the LEDs on the back: only in builds that have them
   const a = s.ambient;
   $('lights').hidden = !a;
-  // one bar for both, titled for what this build has
-  $('av').hidden = !snd && !a;
-  $('avtitle').textContent = snd && a ? 'Sound and lights' : snd ? 'Sound' : 'Lights';
   if (a) {
     $('ambient').classList.toggle('on', a.on);
-    $('locks').classList.toggle('on', a.locks);
     if (document.activeElement !== $('bright')) $('bright').value = a.bright;
   }
   const board = BOARDS[s.board] || s.board || 'the board';
   $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
-    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span><span>free RAM <b>${Math.round(s.free / 1024)} KB</b></span></span>`;
+    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` +
+    `<a class="api" href="https://github.com/8bitkick/rp2350-bbc-micro/blob/main/docs/api.md" target="_blank" rel="noopener" title="The HTTP API: what this page does, for your own scripts">⚙</a>`;
+  showApp(s.app);
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
   const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
@@ -424,13 +495,24 @@ async function poll() {
   clearTimeout(pollTimer);
   try { show(await api('/api/status', null, 'GET')); pollFails = 0; }
   // one failed poll can be a dropped WiFi packet: only say so after two in a row
-  catch (e) { if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>'; }
+  catch (e) {
+    if (switchingTo) $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[switchingTo]}…</span>`;
+    else if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>';
+  }
   pollTimer = setTimeout(poll, watchingFetch ? 400 : 1500);
 }
+for (const b of $('msel').querySelectorAll('button')) b.onclick = async () => {
+  const m = b.dataset.m;
+  if (m === status.machine || switchingTo) return;
+  if (!confirm(`Restart as the ${MACHINES[m]}? The machine running now stops (games saved to the built-in disc are kept).`)) return;
+  try { await api('/api/machine', m); } catch (e) { msg(e.message, 'err'); return; }
+  switchingTo = m;
+  setTimeout(() => { switchingTo = null; }, 60000);   // (not back as it in a minute: give up waiting)
+  b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
+  $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[m]}…</span>`;
+};
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
-$('overlay').onclick = async () => show(await api('/api/overlay', status.overlay ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
-$('locks').onclick = async () => show(await api('/api/ambient', 'locks=' + (status.ambient.locks ? 0 : 1)));
 $('soundon').onclick = async () => show(await api('/api/sound', 'on=' + (status.sound.on ? 0 : 1)));
 // the volume as the slider moves, at most every 150 ms
 let volTimer;
@@ -445,7 +527,6 @@ $('bright').oninput = () => {
   brightTimer = setTimeout(async () => show(await api('/api/ambient', 'bright=' + $('bright').value)), 150);
 };
 $('boot').onclick = () => api('/api/boot');
-$('restore').onclick = () => { if (confirm('Forget everything saved to the built-in disc and boot it as it came?')) api('/api/disc/restore'); };
 
 // --- discs
 function msg(text, cls = '') { $('msg').textContent = text; $('msg').className = cls; }
@@ -537,13 +618,84 @@ async function fetchUrl(url) {
   } catch (e) { msg(`Couldn't fetch that (${e.message}). Download it and drop the file in.`, 'err'); }
 }
 
+// the Stairway to Hell archive, as jsbeeb loads it: a mirror that lets any page fetch its manifest
+// and its zipped discs; the browser fetches the disc and sends it on as a dropped file
+const STH = 'https://bbc.xania.org/archive/sth/diskimages/';
+const STH_TOP = [
+  ['Chuckie Egg', 'AnF/ChuckieEgg.zip'], ['Repton', 'Superior/Repton.zip'], ['Exile', 'Superior/Exile.zip'],
+  ['Citadel', 'Superior/Citadel.zip'], ['Revs', 'Acornsoft/Revs.zip'], ['Thrust', 'Superior/Thrust.zip'],
+  ['Frak!', 'Aardvark/Frak.zip'], ['Planetoid', 'Acornsoft/Planetoid.zip'],
+  ['Starship Command', 'Acornsoft/StarshipCommand.zip'], ['The Sentinel', 'Firebird/TheSentinel.zip'],
+];
+let sthFiles = null;
+// "Superior/Repton2-alt.zip" -> "Repton 2-alt · Superior"; "Cheats/CHT_Repton-..." -> "Repton-... · Cheats"
+function sthTitle(path) {
+  const spaced = t => t.replace(/([a-z])([A-Z0-9])/g, '$1 $2').replace(/([0-9])([A-Z])/g, '$1 $2');
+  const parts = path.replace(/\.zip$/i, '').replace(/\/CHT_/, '/').split('/');
+  const name = spaced(parts.pop());
+  return parts.length ? `${name} · ${spaced(parts.join(' / '))}` : name;
+}
+async function sthBoot(path, title) {
+  try {
+    msg('');
+    progress(0, 0, `Fetching ${title}…`);
+    const r = await fetch(STH + path.split('/').map(encodeURIComponent).join('/'));
+    if (!r.ok) throw new Error('the archive said ' + r.status);
+    await bootImage(path.split('/').pop(), await r.arrayBuffer());
+    msg(`Booting ${title}`);
+    $('sthfind').hidden = true;     // booted: the search folds away (Search games... opens it again)
+  } catch (e) { progress(); msg(`Couldn't load ${title} (${e.message})`, 'err'); }
+}
+function sthShow() {
+  const words = $('sthq').value.toLowerCase().split(/\s+/).filter(Boolean);
+  const sel = $('sthres');
+  sel.innerHTML = '';
+  if (!sthFiles) return;
+  const hits = sthFiles.filter(f => words.every(w => f.key.includes(w)));
+  for (const f of hits.slice(0, 300)) sel.add(new Option(f.title, f.path));
+  if (!hits.length) sel.add(new Option('Nothing matches', ''));
+  else if (hits.length > 300) sel.add(new Option(`…and ${hits.length - 300} more: narrow the search`, ''));
+}
+async function sthFind() {
+  $('sthfind').hidden = false;
+  $('sthq').focus();
+  if (sthFiles) return sthShow();
+  $('sthres').innerHTML = '';
+  $('sthres').add(new Option('Fetching the archive\'s list…', ''));
+  try {
+    const r = await fetch(STH + 'manifest.json');
+    if (!r.ok) throw new Error('the archive said ' + r.status);
+    sthFiles = (await r.json()).files.map(f => {
+      const title = sthTitle(f.path);
+      return {path: f.path, title, cheat: f.path.startsWith('Cheats/'), key: (f.path + ' ' + title).toLowerCase()};
+    }).sort((a, b) => a.cheat - b.cheat || a.title.localeCompare(b.title, undefined, {numeric: true, sensitivity: 'base'}));
+    sthShow();
+  } catch (e) { $('sthres').innerHTML = ''; $('sthres').add(new Option(`Couldn't fetch the list (${e.message})`, '')); }
+}
+{
+  const sel = $('sthsel');
+  for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
+  sel.add(new Option('Search games…', '?'));
+  sel.onchange = () => {
+    const v = sel.value;
+    sel.value = '';
+    if (v === '?') sthFind();
+    else if (v) sthBoot(v, STH_TOP.find(t => t[1] === v)[0]);
+  };
+  $('sthq').oninput = sthShow;
+  $('sthres').onchange = () => {
+    const f = sthFiles && sthFiles.find(f => f.path === $('sthres').value);
+    if (f) sthBoot(f.path, f.title);
+  };
+}
+
 async function listDiscs() {
   const sel = $('sdsel');
   const head = text => { sel.innerHTML = ''; sel.add(new Option(text, '')); };
   try {
     const j = await api('/api/discs', null, 'GET');
-    if (!j.card) { head('No SD card'); sel.disabled = true; return; }
-    sel.disabled = false;
+    sel.hidden = !j.card;
+    if (!j.card) return;
     head(j.discs.length ? 'SD card…' : 'No disc images on the SD card');
     j.discs.sort((a, b) => a.name.localeCompare(b.name));
     for (const d of j.discs) sel.add(new Option(`${d.name}  (${Math.round(d.size / 1024)} KB)`, d.name));
@@ -560,12 +712,94 @@ $('sdsel').onchange = async () => {
 poll();
 listDiscs();
 
-// --- a program run alongside the machine, if one's built in: its panel, every 2 s
+// --- the RP2350 application (status "app"): what it is, whether it runs and why not; folded as
+// the viewer left it
+const APP_MACHINES = {master: 'BBC Master 128', beeb: 'BBC Model B', any: 'any machine'};
+const APP_STATES = {running: 'Running', loaded: 'Starting', refused: 'Refused', off: 'Turned off', stopped: 'Stopped', none: 'None'};
+let appFold = null;
+try { appFold = localStorage.getItem('appFold'); } catch (e) {}
+function showApp(a) {
+  $('app').hidden = !a;
+  if (!a) return;
+  $('app').classList.toggle('folded', appFold === '1');
+  $('app').classList.toggle('empty', a.state === 'none' && a.from !== 'built in');
+  const ok = a.state === 'running' || a.state === 'loaded';
+  const bits = [`<span class="conn"><span class="dot ${ok ? 'ok' : a.state === 'none' ? '' : 'bad'}"></span>${APP_STATES[a.state] || esc(a.state)}</span>`];
+  if (a.name) bits.push(`<span><b>${esc(a.name)}</b> ${esc(a.version || '')}</span>`);
+  if (a.name) bits.push(`<span>for the <b>${APP_MACHINES[a.machine] || esc(a.machine)}</b></span>`);
+  if (a.name) bits.push(`<span>${a.from === 'slot' ? 'from the app slot' : 'built in'}</span>`);
+  $('appremove').hidden = a.from !== 'slot' || a.state === 'none' || a.state === 'installing';
+  $('appinstall').disabled = a.from === 'built in';
+  if (a.why) bits.push(`<span class="${ok || a.state === 'none' ? '' : 'why'}">${esc(a.why)}</span>`);
+  $('appinfo').innerHTML = bits.join('');
+}
+$('apphead').onclick = () => {
+  if ($('app').classList.contains('empty')) return;
+  const folded = !$('app').classList.contains('folded');
+  $('app').classList.toggle('folded', folded);
+  appFold = folded ? '1' : '0';
+  try { localStorage.setItem('appFold', appFold); } catch (e) {}
+  if (!folded) pollProgram();
+};
+
+// installing one: the .bin up to POST /api/app (written into the slot as it arrives, checked, then
+// the board restarts into it); one for the other machine: offered the switch
+function appMsg(text, cls = '') { $('appmsg').textContent = text; $('appmsg').className = cls; }
+function installApp(f) {
+  if (!f) return;
+  if (!confirm(`Install ${f.name} in the app slot? The app there now is replaced, and the board restarts.`)) return;
+  const x = new XMLHttpRequest();
+  x.open('POST', '/api/app');
+  const p = $('appprog');
+  p.hidden = false; p.value = 0;
+  x.upload.onprogress = e => { p.max = e.total; p.value = e.loaded; appMsg(`Writing ${f.name} into the flash… ${Math.round(e.loaded / 1024)} KB`); };
+  x.onload = async () => {
+    p.hidden = true;
+    const j = JSON.parse(x.responseText || '{}');
+    if (x.status !== 200) { appMsg(`Not installed: ${j.error || x.statusText}. The app slot is empty.`, 'err'); return; }
+    const a = j.app || {};
+    appMsg(`Installed ${a.name} ${a.version}: restarting…`, 'ok');
+    const want = a.machine, t0 = Date.now();
+    await new Promise(r => setTimeout(r, 3000));
+    while (Date.now() - t0 < 90000) {
+      try { const s = await api('/api/status', null, 'GET'); show(s);
+        if (want && want !== 'any' && want !== s.machine && s.system &&
+            confirm(`${a.name} is for the ${APP_MACHINES[want] || want}; this is the ${MACHINES[s.machine]}. Restart as the ${MACHINES[want]}?`)) {
+          await api('/api/machine', want);
+          appMsg(`Restarting as the ${MACHINES[want]}…`, 'ok');
+        } else appMsg(`Installed ${a.name} ${a.version}.`, 'ok');
+        return;
+      } catch (e) { await new Promise(r => setTimeout(r, 1000)); }
+    }
+    appMsg('Installed, but the board hasn\'t come back yet.', 'err');
+  };
+  x.onerror = () => { p.hidden = true; appMsg('The upload failed: the app slot is left empty.', 'err'); };
+  x.send(f);
+}
+$('appinstall').onclick = $('appadd').onclick = e => { e.stopPropagation(); $('appfile').click(); };
+$('appfile').onchange = () => { installApp($('appfile').files[0]); $('appfile').value = ''; };
+$('appremove').onclick = async () => {
+  if (!confirm('Remove the app from the app slot? It stops now.')) return;
+  try { await api('/api/app/remove'); appMsg('Removed.', 'ok'); poll(); } catch (e) { appMsg(e.message, 'err'); }
+};
+// a .bin dropped on the Application section is an app (anywhere else, a disc)
+for (const ev of ['dragover', 'dragenter']) $('app').addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); $('app').classList.add('over'); });
+$('app').addEventListener('dragleave', e => { if (!$('app').contains(e.relatedTarget)) $('app').classList.remove('over'); });
+$('app').addEventListener('drop', e => {
+  e.preventDefault(); e.stopPropagation();
+  $('app').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f && /\.bin$/i.test(f.name)) installApp(f); else appMsg('Drop an app\'s .bin here (discs go in the Disc section).', 'err');
+});
+
+// --- the app's own panel and log, every 2 s while unfolded
 let progTimer;
 async function pollProgram() {
   clearTimeout(progTimer);
+  if ($('app').classList.contains('folded')) { progTimer = setTimeout(pollProgram, 2000); return; }
+  try { const r = await fetch('/api/app'); if (r.ok) { const a = await r.json(); $('applog').textContent = (a.log || []).slice().reverse().join('\n'); } } catch (e) {}
   let pj = null;
-  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 15000); return; } } catch (e) {}
+  try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 5000); return; } } catch (e) {}
   if (pj) {
     $('program').hidden = false;
     $('ptitle').textContent = pj.title || 'Program';

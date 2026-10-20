@@ -33,6 +33,8 @@ bool machine_overlay_get(void);
 void machine_overlay_set(bool on);
 // each core's load and the emulation speed, in percent
 void machine_perf_get(unsigned *core0, unsigned *core1, unsigned *speed);
+// the bytes of PSRAM the machine has taken (in use or set aside), for /api/status's "mem"
+uint32_t machine_psram_used(void);
 // the "STATS ..." line (tools/presto.py stats)
 void machine_print_stats(void);
 // the keyboard's LEDs: bit 0 CAPS LOCK, 1 SHIFT LOCK, 2 the cassette motor (each set when lit)

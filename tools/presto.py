@@ -8,6 +8,8 @@ as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) o
 "presto.py api <name> [args]" (its JSON reply, as over HTTP).
 
   presto.py status                 the machine, board, speed, disc, LEDs, ... (as /api/status)
+  presto.py machine [master|beeb]  with both machines in the flash (docs/mini-os.md): which runs,
+                                   which is chosen; or choose one, restart into it and wait for it
   presto.py stats                  speed (100.0% = the real machine) and the two cores' load
   presto.py turbo                  toggle turbo: run as fast as it can (every frame still drawn)
   presto.py shot out.png [hold ms] screenshot of the panel (480x480, as shown); the hold (Model B
@@ -24,7 +26,13 @@ as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) o
   presto.py boot | break | eject   SHIFT+BREAK, BREAK, back to the built-in disc
   presto.py ambient [...]          (AMBIENT) the LEDs on the back; also "leds"
   presto.py audio | beep ...       (SOUND) the sound's state, test sounds
-  presto.py program | command <c>  a program built in alongside the machine: its panel, a command
+  presto.py app [status]          the app run alongside the machine (src/common/app_api.h): what
+                                   it is and whether it runs (or why not)
+  presto.py app install <app.bin>  install an app (its build's .bin) in the app slot: it's checked,
+                                   then the board restarts into it; waits for it to come back
+  presto.py app remove | on        erase the slot's app; run one the app guard turned off again
+     (app ... --host <name|address>: the same over WiFi, through /api/app, instead of USB)
+  presto.py program | command <c>  the app's panel (as /api/program), a command for it
   presto.py raw '<cmd>'            any other "!" command (one a built-in program takes, say)
 The Model B only:
   presto.py crtc | peek <hex> [n] | mem | lock | clk | lcd
@@ -75,10 +83,83 @@ def write_png(path, w, h, rgb565):
     png += chunk(b'IDAT', zlib.compress(b''.join(rows), 6)) + chunk(b'IEND', b'')
     open(path, 'wb').write(png)
 
+def app_http(host, a):
+    """presto.py app ... --host: through the HTTP API"""
+    import urllib.request, urllib.error
+    def call(method, path, body=None, timeout=10):
+        req = urllib.request.Request('http://%s%s' % (host, path), data=body, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.status, json.loads(r.read() or b'{}')
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b'{}')
+    if a[:1] == ['install']:
+        data = open(a[1], 'rb').read()
+        t0 = time.time()
+        code, j = call('POST', '/api/app', data, timeout=120)
+        print('APP install: %d %s (%.1f s)' % (code, json.dumps(j), time.time() - t0))
+        if code != 200:
+            sys.exit(1)
+        time.sleep(3)
+        while time.time() - t0 < 120:
+            try:
+                code, j = call('GET', '/api/app', timeout=3)
+                print('APP back after %.1f s: %s' % (time.time() - t0, json.dumps(j)))
+                return
+            except OSError:
+                time.sleep(1)
+        sys.exit('the board didn\'t come back')
+    elif a[:1] in (['remove'], ['on']):
+        code, j = call('POST', '/api/app/' + a[0])
+    else:
+        code, j = call('GET', '/api/app')
+    print('APP %d %s' % (code, json.dumps(j)))
+
+def app_usb(s, a):
+    """presto.py app ...: over USB"""
+    if a[:1] == ['install']:
+        data = open(a[1], 'rb').read()
+        t0 = time.time()
+        s.timeout = 10
+        command(s, 'app install %d' % len(data))
+        reply = readline_prefix(s, 'APP')
+        if reply.startswith('APP installing'):
+            reply = readline_prefix(s, 'APP')
+        if reply != 'APP ready':
+            sys.exit(reply)
+        for i in range(0, len(data), 4096):
+            s.write(data[i:i + 4096])
+        s.timeout = 60
+        while True:
+            reply = readline_prefix(s, 'APP')
+            if not reply.startswith('APP installing'):
+                break
+        print('%s (%.1f s)' % (reply, time.time() - t0))
+        if not reply.startswith('APP installed'):
+            sys.exit(1)
+        s.close()
+        while time.time() - t0 < 120:
+            time.sleep(1)
+            try:
+                s = open_port()
+                command(s, 'app')
+                print('%s, answering after %.1f s' % (readline_prefix(s, 'APP'), time.time() - t0))
+                return
+            except (OSError, serial.SerialException, TimeoutError):
+                continue
+        sys.exit('the board didn\'t come back')
+    command(s, 'app ' + a[0] if a[:1] in (['on'], ['remove']) else 'app')
+    print(readline_prefix(s, 'APP'))
+
 def main():
     a = sys.argv[1:]
     if not a:
         sys.exit(__doc__)
+    if a[0] == 'app' and '--host' in a:
+        i = a.index('--host')
+        host = a[i + 1]
+        app_http(host, a[1:i] + a[i + 2:])
+        return
     s = open_port()
     if a[0] == 'shot':
         # an optional hold (ms): the machine stays paused that long after, so a camera can
@@ -108,6 +189,27 @@ def main():
             sys.exit('no WIFI_SSID in ' + a[1])
         command(s, 'wifi "%s" %s' % (ssid, pw))
         print(readline_prefix(s, 'WIFI'))
+    elif a[0] == 'machine' and len(a) > 1:
+        # choose, then wait for the port to go and come back, and ask the machine that answers
+        t0 = time.time()
+        command(s, 'machine ' + a[1])
+        reply = readline_prefix(s, 'MACHINE')
+        print(reply)
+        if 'restarting' not in reply:
+            return
+        s.close()
+        while True:
+            time.sleep(0.5)
+            if time.time() - t0 > 60:
+                sys.exit('no machine came back within a minute')
+            try:
+                s = open_port()
+                command(s, 'machine')
+                reply = readline_prefix(s, 'MACHINE')
+                break
+            except (OSError, serial.SerialException, TimeoutError):
+                continue
+        print('%s, answering after %.1f s' % (reply, time.time() - t0))
     elif a[0] == 'net':
         command(s, 'net')
         print(readline_prefix(s, 'NET'))
@@ -171,6 +273,8 @@ def main():
         want = '%08x' % (zlib.crc32(data) & 0xffffffff)
         if not reply.startswith('PUT ok') or reply.split()[-1] != want:
             sys.exit('upload failed or corrupted (expected crc %s)' % want)
+    elif a[0] == 'app':
+        app_usb(s, a[1:])
     elif a[0] == 'key':
         sc, ms = int(a[1]), int(a[2]) if len(a) > 2 else 100
         s.write(bytes([0x1a, 0, sc])); time.sleep(ms / 1000); s.write(bytes([0x1a, 1, sc]))
@@ -179,7 +283,7 @@ def main():
         prefix = {'stats': 'STATS', 'status': 'STATUS', 'api': 'API', 'turbo': 'TURBO', 'crtc': 'CRTC', 'view': 'VIEW',
                   'bootsel': 'BOOTSEL', 'touch': 'TOUCH', 'program': 'PROGRAM', 'audio': 'AUDIO', 'leds': 'LEDS',
                   'ambient': 'LEDS', 'temp': 'TEMP', 'net': 'NET', 'peek': 'PEEK', 'boot': 'BOOT', 'break': 'BREAK',
-                  'keys': 'KEYS'}.get(a[0], '')
+                  'keys': 'KEYS', 'machine': 'MACHINE'}.get(a[0], '')
         command(s, cmd)
         print(readline_prefix(s, prefix) if prefix else s.readline().decode().strip())
 

@@ -1,0 +1,39 @@
+{
+    "version": [1, 0],
+    "unpartitioned": {
+        "families": ["absolute", "rp2350-arm-s"],
+        "permissions": {"secure": "rw", "nonsecure": "rw", "bootloader": "rw"}
+    },
+    "partitions": [
+        {
+            "name": "master",
+            "id": 0,
+            "start": "32K",
+            "size": "4096K",
+            "families": ["0x4d415354"],
+            "permissions": {"secure": "rw", "nonsecure": "rw", "bootloader": "rw"},
+            "ignored_during_arm_boot": true,
+            "ignored_during_riscv_boot": true
+        },
+        {
+            "name": "beeb",
+            "id": 1,
+            "start": "4128K",
+            "size": "4096K",
+            "families": ["0x42454542"],
+            "permissions": {"secure": "rw", "nonsecure": "rw", "bootloader": "rw"},
+            "ignored_during_arm_boot": true,
+            "ignored_during_riscv_boot": true
+        },
+        {
+            "name": "app",
+            "id": 2,
+            "start": "14336K",
+            "size": "1024K",
+            "families": [],
+            "permissions": {"secure": "rw", "nonsecure": "rw", "bootloader": "rw"},
+            "ignored_during_arm_boot": true,
+            "ignored_during_riscv_boot": true
+        }
+    ]
+}

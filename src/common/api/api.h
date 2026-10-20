@@ -22,6 +22,7 @@ extern "C" {
 typedef struct {
     const char *args;   // the arguments ("" if none)
     const char *query;  // HTTP's query string ("" if none)
+    const char *from;   // who asked: HTTP, the client's address (NULL: USB)
     bool json;          // reply in JSON (into out), else print the text reply
     char *out;          // the JSON reply
     size_t size;

@@ -36,7 +36,7 @@ static void panel_frame_done(void);
 #include "../../cores/kc-beeb/render.c"
 
 #include "panel.h"
-#include "../../common/machine_hook.h"
+#include "../../common/app.h"
 
 enum {
     k_rows = 256,
@@ -235,11 +235,11 @@ static void splash_bbc_text(int cx, int y, const char *s, int c)
     }
 }
 
-// A program's loading screen picture (machine_boot_image), drawn once; false if it has none
+// The app's loading screen picture (app_boot_image), drawn once; false if it has none
 static int s_bar_x = 8, s_bar_w = BOARD_DISPLAY_WIDTH - 16;
 bool panel_splash_picture(void)
 {
-    const struct machine_boot_image *im = machine_boot_image();
+    const struct machine_boot_image *im = app_boot_image();
     if (!im || im->w != BOARD_DISPLAY_WIDTH || im->h != k_rows) return false;
     for (int y = 0; y < k_rows; y++) {
         const uint8_t *s = &im->px[y * BOARD_DISPLAY_WIDTH / 2];
