@@ -55,7 +55,7 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 4. Open **[http://beeb.local/](http://beeb.local/)** in a browser on the same network (or the address
    `net` shows, if your network doesn't do `.local` names).
 
-## Web panel
+## Web panel - [http://beeb.local/](http://beeb.local/)
 
 | Model B | Master 128 |
 |---|---|
