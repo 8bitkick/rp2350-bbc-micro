@@ -34,6 +34,10 @@ section.machine > .machine { flex: 1; }
 .msel button:disabled { opacity: .6; cursor: progress; }
 h1 { font-size: 20px; margin: 0; letter-spacing: .02em; }
 h1 span { color: var(--accent); }
+h1 a { color: inherit; text-decoration: none; }
+h1 a:hover span { text-decoration: underline; }
+.stats .api { color: var(--muted); text-decoration: none; font-size: 16px; line-height: 1; }
+.stats .api:hover { color: var(--ink); }
 h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
 .stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .stats b { color: var(--ink); font-weight: 600; }
@@ -42,10 +46,6 @@ h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: v
 .machine .stats { gap: 4px 14px; }
 .stats .group { display: inline-flex; flex-wrap: wrap; gap: 6px 10px; }
 /* the memory: a small bar each for the flash, the PSRAM and the RAM, used of all */
-.stats .mem { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.stats .mem i { display: inline-block; width: 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.stats .mem i b { display: block; height: 100%; border-radius: 3px; background: var(--muted); }
-.stats .mem.full i b { background: var(--warn); }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 5px; vertical-align: 1px; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--accent); }
 section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 12px; }
@@ -152,7 +152,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <body>
 <main>
 <header>
-  <h1><span id="mname">BBC Micro</span> <span>RP2350</span></h1>
+  <h1><a href="https://github.com/8bitkick/rp2350-bbc-micro" target="_blank" rel="noopener" title="The project on GitHub"><span id="mname">BBC Micro</span> <span>RP2350</span></a></h1>
   <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
     <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
   </div>
@@ -478,25 +478,14 @@ function show(s) {
   const board = BOARDS[s.board] || s.board || 'the board';
   $('stats').innerHTML = `<span class="conn"><span class="dot ok"></span>Connected to ${esc(board)}</span>` +
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
-    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` + memBars(s.mem, s.free);
+    `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` +
+    `<a class="api" href="https://github.com/8bitkick/rp2350-bbc-micro/blob/main/docs/api.md" target="_blank" rel="noopener" title="The HTTP API: what this page does, for your own scripts">⚙</a>`;
   showApp(s.app);
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
   const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
   else if (watchingFetch && f.state === 'error') { watchingFetch = false; msg(f.error, 'err'); progress(); }
   else if (watchingFetch && f.state === 'idle') { watchingFetch = false; msg(''); progress(); }
-}
-// the flash, PSRAM and RAM: used of all, as a bar each (older firmware: only the free RAM)
-function memBars(m, free) {
-  if (!m) return `<span class="group"><span>free RAM <b>${Math.round(free / 1024)} KB</b></span></span>`;
-  const size = n => n >= 1 << 20 ? (n / (1 << 20)).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB';
-  const bar = (name, [used, total]) => {
-    if (!total) return '';
-    const pc = Math.min(100, Math.round(100 * used / total));
-    return `<span class="mem${pc >= 90 ? ' full' : ''}" title="${name}: ${size(used)} used of ${size(total)}">` +
-      `${name} <i><b style="width:${pc}%"></b></i> <b>${pc}%</b></span>`;
-  };
-  return `<span class="group">${bar('Flash', m.flash)}${bar('PSRAM', m.psram)}${bar('RAM', m.ram)}</span>`;
 }
 function esc(s) { return s.replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]); }
 let pollFails = 0, pollTimer;
@@ -705,8 +694,8 @@ async function listDiscs() {
   const head = text => { sel.innerHTML = ''; sel.add(new Option(text, '')); };
   try {
     const j = await api('/api/discs', null, 'GET');
-    if (!j.card) { head('No SD card'); sel.disabled = true; return; }
-    sel.disabled = false;
+    sel.hidden = !j.card;
+    if (!j.card) return;
     head(j.discs.length ? 'SD card…' : 'No disc images on the SD card');
     j.discs.sort((a, b) => a.name.localeCompare(b.name));
     for (const d of j.discs) sel.add(new Option(`${d.name}  (${Math.round(d.size / 1024)} KB)`, d.name));

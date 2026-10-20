@@ -71,7 +71,7 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 - **Sound:** with `-DSOUND=ON`, turn it on (it starts off) and set the volume.
 - **System:** **Turbo** runs flat out; **Sound** and its volume with `-DSOUND=ON`, **LEDs** (on the back) and
   their brightness with `-DAMBIENT=ON`.
-- **Status:** each core's load, the clock, the chip temperature and free RAM.
+- **Status:** each core's load, the clock and the chip temperature; ⚙ opens the [API](docs/api.md).
 - **RP2350 Application:** an app installed alongside the machine (such as the
   [Elite agent](https://github.com/8bitkick/elite-agent)): its state, its log and its own panel, or one
   line to install one.
@@ -130,6 +130,8 @@ header and rules, and how to get back from a bad flash.
   how it was made about 9× faster than real time with an AI coding agent in the loop, and the test harness.
 - **[docs/master/README.md](docs/master/README.md):** the Master 128. Kieran Connell's emulator on the
   Presto, the hardest Master games and demos measured, and why the Master isn't on beebjit.
+- **[docs/api.md](docs/api.md):** the HTTP API behind the web panel, for your own scripts (the panel's ⚙
+  opens it).
 - **[docs/cores.md](docs/cores.md):** which core does what on each machine, with the measured load.
 - **[docs/porting-a-board.md](docs/porting-a-board.md):** adding another RP2350 board.
 
