@@ -69,10 +69,12 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
   mirror). Or drop in a `.ssd`, `.dsd` or `.zip` (or a link to one), or pick one from the SD card.
   (`python3 tools/presto.py restore` forgets what games saved to the built-in disc.)
 - **Sound:** with `-DSOUND=ON`, turn it on (it starts off) and set the volume.
+- **System:** **Turbo** runs flat out; **Sound** and its volume with `-DSOUND=ON`, **Back LEDs** and
+  their brightness with `-DAMBIENT=ON`.
 - **Status:** each core's load, the clock, the chip temperature and free RAM.
-- **System:** **Turbo** runs flat out; with the build options below, the sound and the LEDs.
-- **Lights, program:** with `-DAMBIENT=ON`, the LEDs on the back; with a program built in alongside
-  the machine (such as the [Elite agent](https://github.com/8bitkick/elite-agent)), its own panel.
+- **RP2350 Application:** an app installed alongside the machine (such as the
+  [Elite agent](https://github.com/8bitkick/elite-agent)): its state, its log and its own panel, or one
+  line to install one.
 
 ## Architecture
 
