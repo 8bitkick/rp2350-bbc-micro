@@ -14,8 +14,9 @@ extern "C" {
 // The built-in disc (the golden image, in the firmware) stays as it is; a full copy of it, the
 // save disc, lives in flash (mem.h: MEM_FLASH_SAVE_*). At boot the save disc goes into the drive
 // if it's a copy of this golden disc, else the golden one. A game's writes go to the machine's
-// drive; a second after the drive goes quiet the sectors written are read back and only the
-// flash sectors that changed are rewritten (an Elite save: one or two). drive0_restore forgets
+// drive; the sectors written are read back and only the flash sectors that changed are rewritten
+// (an Elite save: one or two), a second after the drive goes quiet the first time after a boot, then
+// at most once an hour (drive.c: the flash's wear), and at once before a planned restart. drive0_restore forgets
 // the save disc. Discs from the card or the web keep their writes for the session only. A save
 // disc that's a copy of another disc (another build's, another machine's) is never written over:
 // that disc's saves stay, and this one's last the session, until drive0_restore.
@@ -45,7 +46,7 @@ void drive0_restore(void);
 // disc (its catalogue's title) with games saved on it, from another board or a backup; kept in the
 // flash and booted. False (and why) if it isn't one or this build keeps no save disc
 bool drive0_import(uint32_t size, const char **why);
-// the save disc's saves so far (0: none yet), or -1 with no built-in disc to save to
+// 1 with a save disc kept, 0 none yet, or -1 with no built-in disc to save to
 int drive0_saves(void);
 // what's in the drive: "ORIGINAL", "SAVE DISC (n)" or a disc's name (a loading screen)
 const char *drive0_source(void);

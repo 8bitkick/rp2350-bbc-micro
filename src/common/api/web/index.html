@@ -458,7 +458,7 @@ function show(s) {
   // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
   const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
   $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '') : builtin;
-  $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `${s.saves} saved` : '';
+  $('dnote').textContent = '';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
   // the sound: only in builds that have it

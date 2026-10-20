@@ -17,6 +17,8 @@ static char s_name[72];             // "" for the built-in disc
 static bool s_persist;              // the built-in disc is in: keep its writes
 static bool s_save_ok;              // there's a save disc for it (the region, and it fits)
 static uint32_t s_golden_hash, s_last_writes, s_quiet;
+static uint32_t s_since_commit;         // frames since the last commit (up to SAVE_EVERY)
+static bool s_pending, s_committed;     // the drive written and quiet, not yet kept; a commit this boot
 static uint32_t s_head_off, s_data_off, s_save_size;
 
 #define SAVE_MAGIC 0x53415645u      // "SAVE"
@@ -97,8 +99,7 @@ const char *drive0_builtin_title(void) {
 
 int drive0_saves(void) {
     if (!s_save_ok) return -1;
-    const save_head_t *h = save_head();
-    return h ? (int) h->saves : 0;
+    return save_head() ? 1 : 0;
 }
 
 const char *drive0_source(void) {
@@ -190,30 +191,43 @@ static void commit(void) {
         blocks++;
     }
     machine_drive_clean();
-    if (!h || blocks) {
-        // last: a save disc half copied isn't one
-        save_head_t nh = {SAVE_MAGIC, s_golden_hash, s_golden_size, h ? h->saves + 1 : 1};
+    if (!h) {
+        // last, and once: a save disc half copied isn't one. (Not rewritten at each save, for the flash's sake:
+        // its sectors take ~100,000 erases, and a Presto may play all day, every day)
+        save_head_t nh = {SAVE_MAGIC, s_golden_hash, s_golden_size, 1};
         mem_flash_write_sector(s_head_off, &nh, sizeof nh);
     }
+    s_since_commit = 0, s_committed = true;
     printf("DISC saved (%d blocks)\n", blocks);
 }
 
+// A game's saves reach the flash a second after the drive goes quiet the first time after a boot, then at most once
+// an hour (SAVE_EVERY frames): the sectors a save writes (the catalogue, the file) take an erase each time, and a
+// Presto playing all day saves every few minutes. At 24 a day the flash's ~100,000 erases last ~11 years of play
+// without a break; a power cut loses at most the last hour. Until then the drive keeps what was written (machine_drive_sector
+// reads it back at the commit); a planned restart keeps it at once (drive0_sync)
+#define SAVE_EVERY (60u * 60u * 50u)
 void drive0_frame(void) {
+    if (s_since_commit < SAVE_EVERY) s_since_commit++;
     if (!s_persist) return;
     uint32_t w = machine_drive_writes();
     if (w != s_last_writes) {
         s_last_writes = w;
         s_quiet = 0;
     } else if (s_quiet < 50 && ++s_quiet == 50) {
+        s_pending = true;
+    }
+    if (s_pending && (!s_committed || s_since_commit >= SAVE_EVERY)) {
+        s_pending = false;
         commit();
     }
 }
 
 void drive0_sync(void) {
     if (!s_persist) return;
-    if (machine_drive_writes() != s_last_writes || s_quiet < 50) {
+    if (machine_drive_writes() != s_last_writes || s_quiet < 50 || s_pending) {
         s_last_writes = machine_drive_writes();
-        s_quiet = 50;
+        s_quiet = 50, s_pending = false;
         commit();
     }
 }

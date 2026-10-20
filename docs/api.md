@@ -45,7 +45,7 @@ curl --data-binary @Repton.ssd "http://beeb.local/api/disc?name=Repton.ssd"
 | `speed`, `core0`, `core1` | the speed against the real machine, and each core's load, in % |
 | `disc` | the name of a disc loaded into the drive, or `null` for the built-in disc |
 | `builtin` | the built-in disc's title, from its catalogue |
-| `saves` | how many times games have saved to the built-in disc (-1: this build keeps no save disc) |
+| `saves` | 1 once games have saved to the built-in disc (kept in the flash, at most once an hour), 0 before, -1 in a build that keeps no save disc |
 | `free` | free SRAM, in bytes |
 | `mhz`, `temp` | the clock, and the chip's temperature in °C |
 | `leds` | the keyboard's lights: 1 CAPS LOCK, 2 SHIFT LOCK, 4 the cassette motor |
