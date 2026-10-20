@@ -71,6 +71,8 @@ h2.indrive .sep, #dnote { font-weight: 400; text-transform: none; letter-spacing
 #dnote:not(:empty)::before { content: "· "; }
 h2.indrive #boot { margin-left: auto; padding: 2px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; }
 #sthfind { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.credit { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.credit a { color: inherit; }
 #sthfind input { flex: 1 1 100%; }
 #sthres { flex: 1 1 100%; cursor: pointer; }
 #drop { flex: 1 1 140px; border: 2px dashed var(--line); border-radius: 8px; padding: 8px 12px; text-align: center; color: var(--muted); cursor: pointer; font-size: 14px; transition: border-color .15s, background .15s; }
@@ -209,6 +211,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
     <div id="drop" title="Drop a .ssd, .dsd or .zip (or a link to one) here, or click to choose a file">Drop or choose a file</div>
     <input type="file" id="file" accept=".ssd,.dsd,.zip" hidden>
   </div>
+  <p class="credit">Elite © Ian Bell and David Braben. Flicker-free builds by <a href="https://elite.bbcelite.com/" target="_blank" rel="noopener">Mark Moxon</a>.</p>
   <div id="sthfind" hidden>
     <input type="search" id="sthq" placeholder="Search the archive: a title or a publisher" autocomplete="off">
     <select id="sthres" size="8" title="Click one to boot it"></select>
@@ -458,7 +461,8 @@ function show(s) {
   // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
   const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
   $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '') : builtin;
-  $('sthbuiltin').textContent = `${builtin} · built in`;     // (the list's first: the disc the board boots, its saves kept)
+  // (the list's first: Mark Moxon's flicker-free Elite, the built-in disc where the firmware has it, its saves kept)
+  $('sthbuiltin').textContent = isElite(s.builtin) ? 'Elite, flicker-free (Mark Moxon) · built in' : 'Elite, flicker-free (Mark Moxon)';
   $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `built in · ${s.saves} saved` : 'built in';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
@@ -674,9 +678,9 @@ async function sthFind() {
 }
 {
   const sel = $('sthsel');
-  // first the built-in disc (flicker-free Elite on either machine): back to it, with its save disc,
-  // rather than an archive copy whose saves last the session
-  const bi = new Option('The built-in disc', '!');
+  // first Elite: Mark Moxon's flicker-free build. Built into the firmware it's the built-in disc, with its save
+  // disc (an archive copy's saves would last the session); otherwise his build for this machine, from his GitHub
+  const bi = new Option('Elite, flicker-free (Mark Moxon)', '!');
   bi.id = 'sthbuiltin';
   sel.add(bi);
   for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
@@ -685,7 +689,7 @@ async function sthFind() {
     const v = sel.value;
     sel.value = '';
     if (v === '?') sthFind();
-    else if (v === '!') api('/api/eject').then(() => msg(''), e => msg(`Couldn't go back to the built-in disc (${e.message})`, 'err'));
+    else if (v === '!') moxonElite();
     else if (v) sthBoot(v, STH_TOP.find(t => t[1] === v)[0]);
   };
   $('sthq').oninput = sthShow;
@@ -693,6 +697,28 @@ async function sthFind() {
     const f = sthFiles && sthFiles.find(f => f.path === $('sthres').value);
     if (f) sthBoot(f.path, f.title);
   };
+}
+
+// Mark Moxon's flicker-free Elite (elite.bbcelite.com): the built-in disc if the firmware has it, else his build
+// for this machine, fetched by this browser from his GitHub
+const MOXON = {
+  master: ['elite-master-flicker-free-sng47.ssd', 'https://raw.githubusercontent.com/markmoxon/elite-source-code-bbc-master/flicker-free/5-compiled-game-discs/elite-master-flicker-free-sng47.ssd'],
+  beeb: ['elite-disc-flicker-free-sth.ssd', 'https://raw.githubusercontent.com/markmoxon/elite-source-code-bbc-micro-disc/flicker-free/5-compiled-game-discs/elite-disc-flicker-free-sth.ssd'],
+};
+function isElite(title) { return (title || '').replace(/ /g, '').toUpperCase() === 'ELITE'; }
+async function moxonElite() {
+  if (status && isElite(status.builtin)) {
+    try { await api('/api/eject'); msg(''); } catch (e) { msg(`Couldn't go back to the built-in Elite (${e.message})`, 'err'); }
+    return;
+  }
+  const m = MOXON[(status && status.machine) || 'beeb'] || MOXON.beeb;
+  try {
+    msg('');
+    progress(0, 0, 'Fetching Elite (flicker-free, Mark Moxon)…');
+    const r = await fetch(m[1]);
+    if (!r.ok) throw new Error('GitHub said ' + r.status);
+    await bootImage(m[0], await r.arrayBuffer());
+  } catch (e) { progress(); msg(`Couldn't load Elite (${e.message})`, 'err'); }
 }
 
 async function listDiscs() {
