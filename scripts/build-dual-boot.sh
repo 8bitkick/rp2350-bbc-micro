@@ -3,6 +3,8 @@
 #
 #   scripts/build-dual-boot.sh [build root]      (default: build-dual-boot) -> <root>/presto_dual_boot.uf2
 #
+# SAVE=<disc.ssd> starts the Master's save disc from that copy of its built-in Elite, with games saved on it
+# (tools/dual_boot_uf2.py --save: it overwrites the Master's saves on the board).
 # APP=<app.bin> puts an app (src/common/app_api.h: elite-agent's presto/app/build.sh makes one) in
 # the app slot too.
 # builds <root>/launcher, <root>/master and <root>/beeb, each machine a plain build of its own
@@ -31,4 +33,5 @@ for m in master beeb; do
     ninja -C "$OUT/$m" $J
 done
 python3 "$ROOT/tools/dual_boot_uf2.py" "$ROOT/src/launcher/partitions.json" "$OUT/launcher/presto_launcher.uf2" \
-    "$OUT/master/presto_master.uf2" "$OUT/beeb/presto_beebjit.uf2" ${APP:+--app "$APP"} "$OUT/presto_dual_boot.uf2"
+    "$OUT/master/presto_master.uf2" "$OUT/beeb/presto_beebjit.uf2" ${APP:+--app "$APP"} \
+    ${SAVE:+--save "$ROOT/discs/elite-master-flicker-free-sng47.ssd" "$SAVE"} "$OUT/presto_dual_boot.uf2"

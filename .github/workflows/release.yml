@@ -1,6 +1,6 @@
 # A tag v* makes a GitHub release: the dual-boot firmware for the Presto (both machines, the launcher), with
-# Mark Moxon's flicker-free Elite built in and elite-agent in the plugin slot, at the versions and hashes in
-# .github/release/pins.txt. The notes are .github/release/notes.md. A tag moved to a new commit replaces its release.
+# Mark Moxon's flicker-free Elite built in, elite-agent in the plugin slot and a Deadly JAMESON on the Master's
+# save disc, at the versions and hashes in .github/release/pins.txt. The notes are .github/release/notes.md. A tag moved to a new commit replaces its release.
 name: release
 on:
   push:
@@ -32,7 +32,8 @@ jobs:
       - name: Build
         run: |
           . deps/env.sh
-          APP=$PWD/agent/elite-agent.bin scripts/build-dual-boot.sh
+          python3 tools/save_disc.py discs/elite-master-flicker-free-sng47.ssd E.JAMESON .github/release/JAMESON.cmdr save.ssd
+          APP=$PWD/agent/elite-agent.bin SAVE=$PWD/save.ssd scripts/build-dual-boot.sh
           cp build-dual-boot/presto_dual_boot.uf2 rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2
           sha256sum rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2 > rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2.sha256
       - name: Release

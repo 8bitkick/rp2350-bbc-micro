@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Join the launcher and the two machines into one .uf2 (docs/dual-boot.md):
 
-  dual_boot_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> [--app <app.bin>] <out.uf2>
+  dual_boot_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> [--app <app.bin>]
+                   [--save <built-in disc.ssd> <save disc.ssd>] <out.uf2>
 
 Each machine's .uf2 is a plain build, linked at 0x10000000; its blocks go to its slot's place in
 the flash (the partitions' order: master, beeb), where the boot ROM's address translation runs
 it as if it were at 0x10000000. The launcher stays at the bottom. --app puts an app's image (its
-.bin, as its build packs it: src/common/app_api.h) at the start of the app slot. All of it is written in the
+.bin, as its build packs it: src/common/app_api.h) at the start of the app slot. --save gives the Master
+a save disc to start from: <save disc.ssd>, a copy of its built-in disc (<built-in disc.ssd>, the one
+the Master build embeds) with games saved on it, written where src/common/drive.c keeps the save disc,
+with the header that ties it to that built-in disc (it overwrites the Master's saves on the board). All of it is written in the
 'absolute' family, so the boot ROM puts each block where it says, whatever partition table the
-flash has now. The flash above the slots (WiFi, the settings, the save discs) isn't touched.
+flash has now. The flash above the slots (WiFi, the settings, the save discs) isn't touched, but for --save.
 
   dual_boot_uf2.py --plain <machine.uf2> <out.uf2>
 
@@ -37,6 +41,26 @@ def blocks(path):
         out.append((addr, data[i + 32:i + 32 + 256]))
     return out
 
+# the Master's save disc (src/boards/presto/board_config.h, src/common/drive.c): the data, 80 tracks x 10
+# sectors x 256, below the system sector and the WiFi sector at the top of the 16 MB, its header a sector below
+SECTOR, SAVE_SIZE = 4096, 80 * 10 * 256
+SAVE_DATA = 0x1000000 - 2 * SECTOR - SAVE_SIZE
+SAVE_HEAD = SAVE_DATA - SECTOR
+SAVE_MAGIC = 0x53415645                      # "SAVE"
+def fnv(b):
+    h = 2166136261
+    for c in b: h = ((h ^ c) * 16777619) & 0xFFFFFFFF
+    return h
+def save_blocks(golden_path, save_path):
+    golden, save = open(golden_path, 'rb').read(), open(save_path, 'rb').read()
+    if len(save) > SAVE_SIZE: sys.exit('%s: more than a save disc holds' % save_path)
+    if save[:8] != golden[:8] or save[256:260] != golden[256:260]:
+        sys.exit('%s: not a copy of %s (another title)' % (save_path, golden_path))
+    data = save + bytes(SAVE_SIZE - len(save))
+    head = struct.pack('<4I', SAVE_MAGIC, fnv(golden), len(golden), 1) + b'\xff' * (SECTOR - 16)
+    return [(FLASH + SAVE_HEAD + i, head[i:i + 256]) for i in range(0, SECTOR, 256)] + \
+           [(FLASH + SAVE_DATA + i, data[i:i + 256]) for i in range(0, SAVE_SIZE, 256)]
+
 def size_k(v):
     return int(v[:-1]) * 1024 if isinstance(v, str) else v * 4096
 
@@ -55,6 +79,11 @@ def main():
         i = a.index('--app')
         app = a[i + 1]
         del a[i:i + 2]
+    save = None
+    if '--save' in a:
+        i = a.index('--save')
+        save = a[i + 1:i + 3]
+        del a[i:i + 3]
     if len(a) == 3 and a[0] == '--plain':
         write(a[2], blocks(a[1]))
         print('wrote', a[2])
@@ -85,6 +114,9 @@ def main():
         data += b'\xff' * (-len(data) % 256)
         placed += [(FLASH + start + i, data[i:i + 256]) for i in range(0, len(data), 256)]
         print('%-6s %4d KB at %06x, of %d KB' % (p['name'], len(data) // 1024, start, size // 1024))
+    if save:
+        placed += save_blocks(*save)
+        print('save   %4d KB at %06x (the Master\'s save disc: %s)' % (SAVE_SIZE // 1024, SAVE_DATA, save[1]))
     write(a[4], placed)
     print('wrote', a[4])
 
