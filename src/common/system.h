@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 // The system: both machines in one flash, each in a slot of its own, and the launcher at the
-// bottom of the flash that boots the one chosen (docs/mini-os.md). The choice lives in the
+// bottom of the flash that boots the one chosen (docs/dual-boot.md). The choice lives in the
 // board's settings sector (mem.h: MEM_FLASH_SYSTEM), outside every image, read by the launcher
 // (src/launcher) and written by either machine. A machine built on its own runs just the same:
 // it isn't launched, so it has no other machine to offer.

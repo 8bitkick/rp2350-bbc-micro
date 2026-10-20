@@ -1,4 +1,4 @@
-// The launcher (docs/mini-os.md): what the boot ROM runs first when both machines are in the
+// The launcher (docs/dual-boot.md): what the boot ROM runs first when both machines are in the
 // flash. It reads which machine was chosen (the settings sector, system.h) and has the boot ROM
 // chain into that machine's slot, mapped to 0x10000000 as if it were the only firmware there.
 // No choice, or a choice of nothing there is: the Master. A slot with nothing bootable in it:

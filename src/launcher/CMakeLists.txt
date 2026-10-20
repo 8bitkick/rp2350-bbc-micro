@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.13)
 
-# The launcher (docs/mini-os.md): the small firmware at the bottom of the flash that boots the
-# machine chosen, with the partition table in it. Built on its own, by scripts/build-os.sh:
+# The launcher (docs/dual-boot.md): the small firmware at the bottom of the flash that boots the
+# machine chosen, with the partition table in it. Built on its own, by scripts/build-dual-boot.sh:
 #   cmake -S src/launcher -B build-launcher -G Ninja && ninja -C build-launcher
-# -> presto_launcher.uf2, joined with the two machines by tools/os_uf2.py.
+# -> presto_launcher.uf2, joined with the two machines by tools/dual_boot_uf2.py.
 
 set(TOP_DIR ${CMAKE_CURRENT_LIST_DIR}/../..)
 set(BOARD presto CACHE STRING "The board to build for: presto (Pimoroni Presto)")
