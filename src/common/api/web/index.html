@@ -53,7 +53,7 @@ section { background: var(--panel); border: 1px solid var(--line); border-radius
 #av > .row { gap: 10px 28px; }
 #turbo { margin-left: auto; }
 /* System: no card, straight on the page */
-#av { background: none; border: 0; padding: 4px 14px; }
+#av { background: none; border: 0; padding: 0; }     /* the buttons out to the cards' edges */
 #av button { padding: 4px 12px; font-size: 14px; }      /* as the machine switch's */
 #av .row[hidden], [hidden] { display: none !important; }
 button, .btn { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
@@ -159,14 +159,13 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 </header>
 
 <section id="av">
-  <h2>System</h2>
   <div class="row">
     <span class="row" id="sound" hidden>
       <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
       <label class="check" for="vol">Volume <input type="range" id="vol" min="0" max="200" step="5"></label>
     </span>
     <span class="row" id="lights" hidden>
-      <button id="ambient" title="The LEDs on the back glow with what's on screen">Back LEDs</button>
+      <button id="ambient" title="The LEDs on the back glow with what's on screen">LEDs</button>
       <label class="check" for="bright">Brightness <input type="range" id="bright" min="5" max="100" step="5"></label>
     </span>
     <button id="turbo" title="Run the machine as fast as it can, not at the real speed">Turbo</button>
