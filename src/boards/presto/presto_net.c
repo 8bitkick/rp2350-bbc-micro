@@ -521,7 +521,7 @@ static conn_t *conns;           // all of them
 static int conn_count;
 static bool upload_busy;        // one disc upload at a time (into the PSRAM's staging area)
 static struct {
-    bool pending, save, boot;
+    bool pending, save, boot, import;   // (import: as the built-in disc's save disc, drive0_import)
     uint32_t size;
     char name[64];
     const char *from;           // what the page shows: "upload" or "link"
@@ -649,8 +649,9 @@ static void act(conn_t *c) {
             break;
         }
         case R_DISC: {
-            char v[8] = "", b[8] = "1", name[64];
+            char v[8] = "", b[8] = "1", im[8] = "", name[64];
             query_value(c->query, "save", v, sizeof(v));
+            query_value(c->query, "import", im, sizeof(im));
             query_value(c->query, "boot", b, sizeof(b));
             char raw[96] = "";
             query_value(c->query, "name", raw, sizeof(raw));
@@ -659,6 +660,7 @@ static void act(conn_t *c) {
             disc_in.size = c->got;
             disc_in.save = v[0] == '1';
             disc_in.boot = b[0] != '0';
+            disc_in.import = im[0] == '1';
             disc_in.pending = true;
             disc_in.from = "upload";
             upload_busy = false;
@@ -921,13 +923,22 @@ void net_frame(void) {
         disc_in.size = fetch.got;
         disc_in.save = fetch.save;
         disc_in.boot = true;
+        disc_in.import = false;
         disc_in.pending = true;
         disc_in.from = "link";
     }
     if (disc_in.pending) {
         disc_in.pending = false;
         uint8_t *ram = drive0_staging();
-        if (!disc_in.boot) {
+        if (disc_in.import) {
+            const char *why = "";
+            memmove(ram, ram + STAGE_OFFSET, disc_in.size);
+            if (!drive0_import(disc_in.size, &why)) {
+                snprintf(fetch.error, sizeof(fetch.error), "not imported: %s", why);
+                fetch.state = F_ERROR;
+                printf("DISC not imported: %s\n", why);
+            }
+        } else if (!disc_in.boot) {
             // just onto the card
             if (board_sd_save(disc_in.name, ram + STAGE_OFFSET, disc_in.size)) {
                 printf("DISC saved %s to the card (%u bytes)\n", disc_in.name, (uint) disc_in.size);

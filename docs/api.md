@@ -85,6 +85,7 @@ curl -X POST -d "d62 u62" http://beeb.local/api/keys
 | Request | Body | |
 |---|---|---|
 | `POST /api/disc?name=<name>&boot=1&save=0` | the disc image (`.ssd`, or `.dsd` double sided; at most 400 KB) | into the drive and booted (`boot=0`: only into the drive); `save=1` also keeps it on the SD card |
+| `POST /api/disc?import=1` | a copy of the built-in disc with games saved on it (a backup, another board's) | kept in the flash as the built-in disc's save disc, and booted (refused if its title isn't the built-in disc's) |
 | `POST /api/fetch` | a URL, and `\nsave` to keep it on the card | the board downloads it itself (plain `http://` only) and boots it; watch `fetch` in `/api/status` |
 | `POST /api/sd` | a name from `/api/discs` | that disc from the SD card, booted |
 | `POST /api/eject` | | back to the built-in disc, booted |

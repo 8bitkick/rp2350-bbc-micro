@@ -456,8 +456,9 @@ function show(s) {
   $('turbo').classList.toggle('on', s.turbo);
   // the panel's figures: only in builds that have them
   // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
-  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '')
-    : (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
+  const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
+  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '') : builtin;
+  $('sthbuiltin').textContent = `${builtin} · built in`;     // (the list's first: the disc the board boots, its saves kept)
   $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `built in · ${s.saves} saved` : 'built in';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
@@ -673,12 +674,18 @@ async function sthFind() {
 }
 {
   const sel = $('sthsel');
+  // first the built-in disc (flicker-free Elite on either machine): back to it, with its save disc,
+  // rather than an archive copy whose saves last the session
+  const bi = new Option('The built-in disc', '!');
+  bi.id = 'sthbuiltin';
+  sel.add(bi);
   for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
   sel.add(new Option('Search games…', '?'));
   sel.onchange = () => {
     const v = sel.value;
     sel.value = '';
     if (v === '?') sthFind();
+    else if (v === '!') api('/api/eject').then(() => msg(''), e => msg(`Couldn't go back to the built-in disc (${e.message})`, 'err'));
     else if (v) sthBoot(v, STH_TOP.find(t => t[1] === v)[0]);
   };
   $('sthq').oninput = sthShow;
@@ -799,6 +806,8 @@ async function pollProgram() {
   try { const r = await fetch('/api/app'); if (r.ok) { const a = await r.json(); $('applog').textContent = (a.log || []).slice().reverse().join('\n'); } } catch (e) {}
   let pj = null;
   try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 5000); return; } } catch (e) {}
+  // (the plugin's own panel, if it has one, says what's going on: its raw USB log only without one)
+  $('applog').hidden = !!pj;
   if (pj) {
     $('program').hidden = false;
     $('ptitle').textContent = pj.title || 'Program';
