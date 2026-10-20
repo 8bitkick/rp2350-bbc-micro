@@ -21,8 +21,8 @@
 //
 // The app guard: every call into the app is marked (boot_guard.h), and for its first minute the
 // watchdog is armed (unless the machine runs its own). If the board resets while the app is
-// running (it hung, or faulted and the watchdog came), the next boot turns it off, in the
-// settings sector (system.h), until another app is flashed or "!app on".
+// running (it hung, or faulted and the watchdog came), twice in a row, the next boot turns it off,
+// in the settings sector (system.h), until another app is installed or "!app on".
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdio.h>

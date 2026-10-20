@@ -67,7 +67,7 @@ static void report_forever(boot_record_t r) {
     }
 }
 
-static volatile struct { uint32_t state, id; } app_record __attribute__((section(".uninitialized_data")));
+static volatile struct { uint32_t state, id, last, times; } app_record __attribute__((section(".uninitialized_data")));
 #define APP_IN 0xa99c0de5u
 
 void boot_guard_begin(void) {
@@ -143,10 +143,10 @@ void __attribute__((naked)) isr_hardfault(void) {
 #endif
 
 // ---- The app guard (boot_guard.h): in every build
-#include "hardware/watchdog.h"
+#include "boot_guard.h"
 
 #if !BOOT_GUARD
-static volatile struct { uint32_t state, id; } app_record __attribute__((section(".uninitialized_data")));
+static volatile struct { uint32_t state, id, last, times; } app_record __attribute__((section(".uninitialized_data")));
 #define APP_IN 0xa99c0de5u
 #endif
 
@@ -160,7 +160,16 @@ void boot_guard_app_leave(void) {
 }
 
 uint32_t boot_guard_app_died(void) {
-    uint32_t id = app_record.state == APP_IN && watchdog_caused_reboot() ? app_record.id : 0;
+    // Whatever reset the board (the watchdog; a fault, then the watchdog; RESET), it came while
+    // the app was running. (Not the watchdog's reason register: through the launcher it doesn't
+    // say.) A RESET the moment the app was called would look the same, so it takes two boots in
+    // a row ended in the same app.
+    if (app_record.state != APP_IN) app_record.times = 0;
+    else if (app_record.last == (app_record.id ^ APP_IN)) app_record.times++;
+    else {
+        app_record.last = app_record.id ^ APP_IN;
+        app_record.times = 1;
+    }
     app_record.state = 0;
-    return id;
+    return app_record.times >= 2 ? app_record.id : 0;
 }

@@ -3,6 +3,7 @@
 
 #include "pico/stdlib.h"
 #include "pico/flash.h"
+#include "pico/multicore.h"
 #include "hardware/flash.h"
 #include "hardware/structs/qmi.h"
 
@@ -66,5 +67,14 @@ bool mem_flash_write_sector(uint32_t offset, const void *data, uint32_t len) {
     s_w.len = data ? len : 0;
     // (core 1 is parked and core 0's interrupts are off while the flash is busy: the machine
     // pauses for a moment; the panel's rows are fed by DMA alone, so its picture stays)
+    if (!multicore_lockout_victim_is_initialized(get_core_num() ^ 1)) {
+        // the other core not launched yet (at boot: the app guard turning an app off, the boot
+        // guard's "!machine"): it's waiting in the boot ROM, nothing to park, but the SDK refuses
+        // (both machines' core 1 sets up its lockout first thing, so this is the only time)
+        uint32_t irq = save_and_disable_interrupts();
+        write_sector(NULL);
+        restore_interrupts(irq);
+        return true;
+    }
     return flash_safe_execute(write_sector, NULL, 1000) == PICO_OK;
 }
