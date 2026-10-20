@@ -142,6 +142,27 @@ void drive0_restore(void) {
     printf("DISC golden disc restored\n");
 }
 
+bool drive0_import(uint32_t size, const char **why) {
+    static uint8_t blk[FLASH_SECTOR_SIZE];
+    const uint8_t *img = s_staging;
+    if (!s_save_ok) { *why = "this build keeps no save disc"; return false; }
+    if (!img || size < 512 || size > s_save_size) { *why = "not a single sided disc the save disc can hold"; return false; }
+    // the same disc: its title (sector 0's first 8 bytes, sector 1's first 4) as the built-in one's
+    if (memcmp(img, s_golden, 8) || memcmp(img + 256, s_golden + 256, 4)) { *why = "not a copy of the built-in disc (another title)"; return false; }
+    const save_head_t *h = save_head();
+    uint32_t saves = h ? h->saves : 0;
+    for (uint32_t off = 0; off < s_save_size; off += FLASH_SECTOR_SIZE) {
+        for (uint32_t i = 0; i < FLASH_SECTOR_SIZE; i++) blk[i] = off + i < size ? img[off + i] : 0;
+        if (!mem_flash_write_sector(s_data_off + off, blk, FLASH_SECTOR_SIZE)) { *why = "the flash write failed"; return false; }
+    }
+    // last: a save disc half written isn't one
+    save_head_t nh = {SAVE_MAGIC, s_golden_hash, s_golden_size, saves + 1};
+    mem_flash_write_sector(s_head_off, &nh, sizeof nh);
+    load_builtin(true);
+    printf("DISC imported as the save disc (%lu bytes)\n", (unsigned long) size);
+    return true;
+}
+
 // the sectors written since the last time, into the save disc: only the flash sectors that changed
 static void commit(void) {
     static uint8_t blk[FLASH_SECTOR_SIZE];

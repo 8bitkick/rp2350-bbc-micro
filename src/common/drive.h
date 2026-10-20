@@ -41,6 +41,10 @@ const char *drive0_builtin_title(void);
 void drive0_eject(void);
 // the built-in disc as it came (what games saved to it forgotten), booted
 void drive0_restore(void);
+// the image at the start of the staging area as the built-in disc's save disc: a copy of the built-in
+// disc (its catalogue's title) with games saved on it, from another board or a backup; kept in the
+// flash and booted. False (and why) if it isn't one or this build keeps no save disc
+bool drive0_import(uint32_t size, const char **why);
 // the save disc's saves so far (0: none yet), or -1 with no built-in disc to save to
 int drive0_saves(void);
 // what's in the drive: "ORIGINAL", "SAVE DISC (n)" or a disc's name (a loading screen)
