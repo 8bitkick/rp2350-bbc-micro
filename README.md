@@ -70,6 +70,54 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 - **Lights, program:** with `-DAMBIENT=ON`, the LEDs on the back; with a program built in alongside
   the machine (such as the [Elite agent](https://github.com/8bitkick/elite-agent)), its own panel.
 
+## Architecture
+
+The combined firmware (`scripts/build-os.sh`) holds both machines and an optional app in one
+flash. At power on a small launcher boots the machine you chose last, and that machine runs the
+app alongside it:
+
+```
+ Boot ROM
+    │
+    ▼
+┌─ QSPI flash · 16 MB ─────────────────────────────────────────────────────────┐
+│ 0x000000  launcher            reads the chosen machine, chains into its slot │
+│ 0x008000  slot 0 · 4 MB       BBC Master 128: Kieran Connell's emulator      │
+│ 0x408000  slot 1 · 4 MB       BBC Model B: beebjit with its Thumb-2 JIT      │
+│ 0xE00000  slot 2 · 1 MB       the app, e.g. elite-agent (optional)           │
+│ 0xF00000  shared              save discs, settings, WiFi network             │
+└───────────────┬─────────────────────────────────────────┬────────────────────┘
+                │ the chosen slot,                        │ the app, checked
+                │ mapped to 0x10000000                    │ and run in place
+                ▼                                         ▼
+┌─ RP2350 · 2 × Cortex-M33 · 250 MHz ──────────────────────────────────────────┐
+│ ┌─ Core 0 ────────────────────────────┐        ┌─ Core 1 ─────────────────┐  │
+│ │ the BBC: CPU, VIAs, CRTC, disc      │ video  │ renderer: video into the │  │
+│ │ paced to real time                  │ ─────► │ panel's rows             │  │
+│ │ USB, web server, WiFi, SD card      │        │ sound, LEDs              │  │
+│ │ the app's frame, between frames     │        │                          │  │
+│ └─────────────────────────────────────┘        └──────────────────────────┘  │
+│ SRAM 520 KB   the machine, the framebuffer; the app's 72 KB (Master)         │
+│ PSRAM 8 MB    ROMs, sideways RAM, discs; the Model B's JIT code              │
+└───────┬─────────────────────┬─────────────────┬─────────────────┬────────────┘
+        ▼                     ▼                 ▼                 ▼
+  480×480 panel         WiFi: web panel     USB serial         SD card
+  (PIO + DMA)           (keys, discs, app)  (presto.py)        (discs)
+```
+
+- **The launcher** reads the chosen machine from the settings sector and has the boot ROM chain
+  into that machine's slot. Each machine is a plain single-machine build, mapped to `0x10000000`
+  as if it were alone in the flash. The panel's Machine switch saves a new choice and restarts.
+- **The app** is an RP2350 program built on its own against `src/common/app_api.h`, and installed
+  into slot 2 over WiFi or USB. Core 0 calls it between frames. It reads the BBC's RAM and presses
+  its keys, and it gets the top 72 KB of SRAM on the Master. An app that hangs or faults twice in
+  a row is turned off at the next boot.
+- **The shared area** sits outside every image, so the save discs, the WiFi network and the
+  settings survive flashing any `.uf2`.
+
+[docs/mini-os.md](docs/mini-os.md) has the details: the partition table, how it boots, the app's
+header and rules, and how to get back from a bad flash.
+
 ## How it works
 
 - **[docs/beebjit.md](docs/beebjit.md):** the Model B. Porting beebjit to the RP2350, its Thumb-2 JIT,
