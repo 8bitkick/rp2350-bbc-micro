@@ -22,7 +22,22 @@ other discs and type on the machine's own keyboard over WiFi.
 | ![Elite on the Model B](docs/presto/shot-beeb-elite.png) | ![Prince of Persia on the Master](docs/master/shot-pop.png) | ![Stunt Car Racer on the Master](docs/master/shot-scr.png) |
 | Model B: Elite (flicker-free) | Master 128: Prince of Persia | Master 128: Stunt Car Racer |
 
-## Quick start
+## Install on a Presto
+
+No tools needed: one file onto the Presto.
+
+1. Download `rp2350-bbc-micro-presto-v0.2.uf2` from the [latest release](https://github.com/8bitkick/rp2350-bbc-micro/releases/latest).
+2. Plug the Presto into your computer with a USB-C cable. Hold **BOOT** on the back, tap **RESET**, then let go:
+   a drive called **RP2350** appears.
+3. Drag the `.uf2` onto that drive. The Presto restarts by itself.
+
+It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite.bbcelite.com/), and after a few
+seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it. The BBC Model B, with its own
+flicker-free Elite, is one click away on the [web panel](#web-panel---httpbeeblocal) once the Presto is on your
+WiFi. Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
+repository doesn't contain them (`setup.sh` downloads them when you build).
+
+## Quick start (building it yourself)
 
 You need a [Pimoroni Presto](https://shop.pimoroni.com/products/presto), a USB-C cable and a computer
 with Git (Linux, macOS, or Windows with Git Bash).
@@ -159,7 +174,7 @@ synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers i
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads the ROMs and
 flicker-free Elite (which aren't part of this repository), and builds
 `build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
-`build-master/presto_master.uf2`). Flash it as in the [quick start](#quick-start), or run
+`build-master/presto_master.uf2`). Flash it as in the [install steps](#install-on-a-presto), or run
 `scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
 `. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
 `ninja -C build-master`).
