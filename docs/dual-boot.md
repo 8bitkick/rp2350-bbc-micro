@@ -1,10 +1,10 @@
-# The mini OS: two machines and an app
+# The dual-boot launcher: two machines and a plugin slot
 
 One firmware with both machines in it, the BBC Master 128 (kc-beeb) and the BBC Model B
 (beebjit), and the choice between them on the web panel. A small launcher at the bottom of the
 flash picks one at power-on; the machine you chose last is the one that comes up. A third slot
 holds an RP2350 application (elite-agent, say), built on its own and run alongside the machine
-(below: the app).
+(below: the plugin).
 
 What stays as it was: `-DMACHINE=beeb|master` still builds one machine on its own, its `.uf2`
 flashed the usual way. The combined firmware is made from those same two builds: an image doesn't
@@ -18,7 +18,7 @@ know or care which slot it's in.
 0x008000   4 MB  0 "master"      the BBC Master 128 image (a plain -DMACHINE=master build)
 0x408000   4 MB  1 "beeb"        the BBC Model B image (a plain -DMACHINE=beeb build)
 0x808000         (free)          room for either to grow
-0xE00000   1 MB  2 "app"         the app (src/common/app_api.h), installed by the running firmware
+0xE00000   1 MB  2 "app"         the plugin (src/common/app_api.h), installed by the running firmware
 0xF00000   1 MB  (shared)        unpartitioned, outside every image: the board's flash regions
                                  (BOARD_FLASH_LAYOUT), at the same physical offsets as ever
 ```
@@ -37,15 +37,15 @@ flash (0x10ffff00, where a UF2's "ignore" block points) in unpartitioned space t
 The slots are 4 MB because both images are well under 2 MB (Master 0.8 MB, 1.1 MB with
 elite-agent built in; Model B 0.9 MB) and the boot ROM's address translation maps a slot to 0x10000000 in 4 MB
 windows. The partition table is `src/launcher/partitions.json`; the launcher and
-`tools/os_uf2.py` both take the slots from it.
+`tools/dual_boot_uf2.py` both take the slots from it.
 
 The machine partitions accept made-up UF2 families (none of them `rp2350-arm-s`), so a plain
-machine `.uf2` dropped on the drive never lands in a slot by accident; the app partition accepts
-none: an app isn't a `.uf2` at all, it's installed by the running firmware (below). The unpartitioned space accepts
+machine `.uf2` dropped on the drive never lands in a slot by accident; the plugin partition accepts
+none: a plugin isn't a `.uf2` at all, it's installed by the running firmware (below). The unpartitioned space accepts
 `absolute` (the combined `.uf2`) and `rp2350-arm-s`, but on the Presto the boot ROM still
 ignores a plain `rp2350-arm-s` `.uf2` once the table is there (it stays in BOOTSEL, nothing
 written): to go back to one machine, flash the plain build made `absolute` with
-`tools/os_uf2.py --plain`.
+`tools/dual_boot_uf2.py --plain`.
 
 ## How it boots
 
@@ -134,17 +134,17 @@ Before restarting into the other machine the firmware commits any save still pen
 
 The panel is heading for three boxes: **System** at the top (WiFi, sound and lights, the save
 disc, the firmware version, the flash/PSRAM/RAM bars), **Emulator** (the machine, its keyboard and
-disc), and **RP2350 Application**. So far there's the Machine switch in the header and the
+disc), and **Plugin**. So far there's the Machine switch in the header and the
 Application section (below).
 
-## The app
+## The plugin
 
-An app is an RP2350 program run alongside the machine: it reads the BBC's RAM and presses its
+A plugin is an RP2350 program run alongside the machine: it reads the BBC's RAM and presses its
 keys, like the programs built in before (`machine_hook.h`), but it's built on its own, against
-`src/common/app_api.h` alone, and installed into the app slot by the running firmware. The first
+`src/common/app_api.h` alone, and installed into the plugin slot by the running firmware. The first
 is elite-agent (its `presto/app/build.sh`).
 
-### What an app is
+### What a plugin is
 
 A raw image for the slot (`elite-agent.bin`, 404 KB): a header, the code and constants, the
 first values of its `.data`, and, if it carries one, a disc. The header (`struct app_header`, 148
@@ -163,7 +163,7 @@ bytes, `APP_API_VERSION` 1):
 
 The firmware hands `init` a `struct app_api`: `version` and `size` (it only ever grows at the
 end), `io` (the `machine_hook_io`: the machine's model, its RAM, keys and analogue inputs), `log`
-(a line to USB and the panel), `time_us`, `turbo_get` / `turbo_set`, and the app RAM area's
+(a line to USB and the panel), `time_us`, `turbo_get` / `turbo_set`, and the plugin RAM area's
 `ram` and `ram_size`.
 
 The rules:
@@ -171,11 +171,11 @@ The rules:
 - it is linked at the slot's address, `0x10E00000`, and runs there, from the flash through the
   XIP cache. The machine runs in its own slot through the boot ROM's address translation, which
   maps a slot to `0x10000000` in 4 MB windows; the loader puts the top window (`ATRANS3`) back
-  onto the flash's own top 4 MB, its reset value, so the app is where it was linked, cached. (The
+  onto the flash's own top 4 MB, its reset value, so the plugin is where it was linked, cached. (The
   untranslated alias at `0x1C000000` is uncached: too slow to run code from.)
-- its `.data` and `.bss` are linked at `APP_RAM_BASE`, the fixed app RAM area at the top of the
+- its `.data` and `.bss` are linked at `APP_RAM_BASE`, the fixed plugin RAM area at the top of the
   SRAM's main 512 KB (72 KB, `0x2006E000`-`0x2007FFFF`). The Master's linker script ends its RAM
-  below it, so its heap never reaches it. The Model B has none: its JIT wants the SRAM. An app
+  below it, so its heap never reaches it. The Model B has none: its JIT wants the SRAM. A plugin
   that needs RAM is refused there.
 - it touches no hardware and calls nothing of the firmware's but `app_api`. It brings its own C
   library: newlib's string functions and libm (static), and its own printf and the few other
@@ -188,10 +188,10 @@ The rules:
   before `init` (constant data only); `init` at the first frame (false: it won't run, having
   logged why); `frame` each frame; `command` for a command the firmware doesn't know (`!<cmd>`
   over USB, `POST /api/command`); `program_json` for its panel (`GET /api/program`).
-- the versions are checked both ways: the loader refuses an app built for another API version,
-  another machine, or a disc it hasn't got; the app refuses an `app_api` older than it needs.
+- the versions are checked both ways: the loader refuses a plugin built for another API version,
+  another machine, or a disc it hasn't got; the plugin refuses an `app_api` older than it needs.
 
-A program built into the firmware (`-DAPP_SOURCES=...`) is an app too: one whose header is
+A program built into the firmware (`-DAPP_SOURCES=...`) is a plugin too: one whose header is
 compiled in (the same `APP_HEADER(...)` macro: elite-agent's `presto/build.sh` still builds it
 that way). The loader takes it before the slot's, with the same calls. A program with
 `machine_hook.h`'s functions (`machine_frame_hook` and the rest) still works: the loader makes it
@@ -200,9 +200,9 @@ a header of those.
 ### Loading it
 
 `app_load` (`src/common/app.c`), at power on, before the boot image and the disc: maps the slot,
-finds the app (built in, or the slot's) and checks it: the magic, the API version, the header and
-image sizes, the CRC over the whole image, the machine, that the app guard hasn't turned it off,
-the RAM and stack it needs, and its disc. Then it copies `.data` in and zeroes `.bss`, and an app
+finds the plugin (built in, or the slot's) and checks it: the magic, the API version, the header and
+image sizes, the CRC over the whole image, the machine, that the plugin guard hasn't turned it off,
+the RAM and stack it needs, and its disc. Then it copies `.data` in and zeroes `.bss`, and a plugin
 that carries a disc has it booted as the built-in disc (its saved games in the save disc, as
 any built-in disc's: the same disc, the same save disc, whichever firmware it came in). Anything
 wrong: the machine runs without it, and `/api/app`, `!app` and the panel say why:
@@ -215,31 +215,31 @@ APP refused: the app slot holds no app (no header: aeb2a0bd)
 APP off: it stopped the machine at the last boot ("!app on" to try again)
 ```
 
-The app guard (`boot_guard.c`, in every build): each call into the app is marked in RAM that
-survives a reset, and for the app's first minute the watchdog is armed (on the Master, which has
-no watchdog of its own; the Model B's is always on). A reset that comes while the app is running
+The plugin guard (`boot_guard.c`, in every build): each call into the plugin is marked in RAM that
+survives a reset, and for the plugin's first minute the watchdog is armed (on the Master, which has
+no watchdog of its own; the Model B's is always on). A reset that comes while the plugin is running
 (it hung; or it faulted, and the fault handler's lockup lasted till the watchdog), at two boots
-in a row (a RESET pressed the moment the app was called looks the same once), turns it off, by
+in a row (a RESET pressed the moment the plugin was called looks the same once), turns it off, by
 its CRC in the settings sector (`app_off`): the machine runs without it
-until another app is installed, or `!app on` (`POST /api/app/on`). On the Model B the boot guard's
+until another plugin is installed, or `!app on` (`POST /api/app/on`). On the Model B the boot guard's
 own report gives way to it.
 
 ### Installing it
 
-The running firmware installs an app, three ways, one code path (`app_install_*`):
+The running firmware installs a plugin, three ways, one code path (`app_install_*`):
 
 - `POST /api/app` with the image as the body (`curl --data-binary @elite-agent.bin
   http://beeb.local/api/app`);
-- the panel's Application section: **Install app…**, or a `.bin` dropped on it, with the
-  upload's progress, then the result; an app for the other machine offers the switch;
+- the panel's Plugin section: **Install plugin…**, or a `.bin` dropped on it, with the
+  upload's progress, then the result; a plugin for the other machine offers the switch;
 - `tools/presto.py app install elite-agent.bin`: over USB (`!app install <size>` then the
   bytes), or over WiFi with `--host <address>`.
 
 It goes into the slot as it arrives, a sector at a time (the machine pauses a moment for each;
 the panel's picture stays, its rows fed by DMA). The header's sector goes first, erased, and is
 written last, once the whole image has been checked against it: its size, its CRC, the API
-version and a machine there is. An upload that's damaged, stops halfway or isn't an app leaves no
-app (`"the last install failed: ..."`), never a broken one. Then the board restarts into it (400
+version and a machine there is. An upload that's damaged, stops halfway or isn't a plugin leaves no
+plugin (`"the last install failed: ..."`), never a broken one. Then the board restarts into it (400
 KB: about 7 s over USB, 6 s over WiFi; it answers again 11-13 s after it began). `DELETE /api/app` (`POST /api/app/remove`, `!app
 remove`, the panel's **Remove**) erases the header. `GET /api/app` (`!app`, `presto.py app`):
 
@@ -251,20 +251,20 @@ remove`, the panel's **Remove**) erases the header. `GET /api/app` (`!app`, `pre
 
 (`state`: none, loaded, running, refused, off, stopped, installing, installed); `/api/status`
 has the first six as `"app"`. A machine `.uf2` never touches the slot, and the slot can't be
-written by dropping a `.uf2`; `tools/os_uf2.py --app` puts an app in a combined (factory)
+written by dropping a `.uf2`; `tools/dual_boot_uf2.py --app` puts a plugin in a combined (factory)
 `.uf2`.
 
 ### The panel
 
-The **RP2350 Application** section: the app's state (a dot: running, refused, none), name,
+The **Plugin** section: the plugin's state (a dot: running, refused, none), name,
 version, the machine it's for and where it came from, and why it isn't running if it isn't; the
 Install and Remove buttons; the lines it has logged lately; and its own panel (`program_json`)
 under that. It folds away (the page remembers).
 
 ### The RAM and the time
 
-The SRAM: the Master keeps the top 72 KB for the app (its RAM region ends at `0x2006E000`, the
-heap with it), in every Master build but one with an app compiled in (`APP_SOURCES`: that app's
+The SRAM: the Master keeps the top 72 KB for the plugin (its RAM region ends at `0x2006E000`, the
+heap with it), in every Master build but one with a plugin compiled in (`APP_SOURCES`: that plugin's
 RAM is the firmware's own). That leaves the Master about 18 KB free at run time (`"free"` in
 `/api/status`), against 23 KB in the build with elite-agent compiled in and some 90 KB in a
 Master without either. Nothing had to move to the PSRAM. elite-agent takes 72,344 bytes of the
@@ -291,37 +291,37 @@ newlib's double maths instead of the SDK's it was 760-1,100 us.
 | the chosen slot is empty or its image is bad | the launcher boots the other machine; its status shows `"choice"` differing from `"machine"` |
 | both slots bad | the launcher enters BOOTSEL: drop the combined `.uf2` |
 | the chosen machine crashes at boot | the Model B's boot guard (the Master has none yet) reports over USB on the next boot and takes `!bootsel` or `!machine <name>` there; otherwise BOOT and RESET, below |
-| a plain machine `.uf2` dropped on the drive | ignored: the board stays in BOOTSEL. Its `os_uf2.py --plain` version (family `absolute`) goes to the start of the flash, over the launcher and its partition table: the flash is a single-machine one again (WiFi, settings and save discs kept). The combined `.uf2` puts the launcher back |
-| the app is for the other machine, another API version, or damaged | refused, the reason on the panel and in `/api/app`; the machine runs without it |
-| the app hangs or faults in its first minute | the watchdog resets the board; the second time, the app guard turns the app off: the machine runs without it (`!app on` to try it again) |
-| an app upload stops halfway or arrives damaged | refused: the slot is left empty (the header goes last, after the check) |
+| a plain machine `.uf2` dropped on the drive | ignored: the board stays in BOOTSEL. Its `dual_boot_uf2.py --plain` version (family `absolute`) goes to the start of the flash, over the launcher and its partition table: the flash is a single-machine one again (WiFi, settings and save discs kept). The combined `.uf2` puts the launcher back |
+| the plugin is for the other machine, another API version, or damaged | refused, the reason on the panel and in `/api/app`; the machine runs without it |
+| the plugin hangs or faults in its first minute | the watchdog resets the board; the second time, the plugin guard turns the plugin off: the machine runs without it (`!app on` to try it again) |
+| a plugin upload stops halfway or arrives damaged | refused: the slot is left empty (the header goes last, after the check) |
 | no USB, no panel | hold BOOT and tap RESET: BOOTSEL, whatever the flash holds |
 
 The settings and the save discs live outside every image, so flashing any `.uf2` never touches
-them (nor the app slot, unless the `.uf2` has an app in it); `!restore` still forgets the running machine's save disc.
+them (nor the plugin slot, unless the `.uf2` has a plugin in it); `!restore` still forgets the running machine's save disc.
 
 ## Building it
 
 ```sh
-scripts/build-os.sh [build root]     # -> <root>/presto_os.uf2
+scripts/build-dual-boot.sh [build root]     # -> <root>/presto_dual_boot.uf2
 ```
 
 builds the launcher, a Master and a Model B (each `-DSOUND=ON -DAMBIENT=ON`, override with
-`OS_CMAKE_ARGS`) and joins them with `tools/os_uf2.py`, which places each image's blocks at its
+`OS_CMAKE_ARGS`) and joins them with `tools/dual_boot_uf2.py`, which places each image's blocks at its
 slot (from `partitions.json`) and writes one UF2 of the `absolute` family. `APP=<app.bin>` puts an
-app in its slot too (`os_uf2.py --app`): a factory image with everything in it.
+plugin in its slot too (`dual_boot_uf2.py --app`): a factory image with everything in it.
 
 What each `.uf2` does dropped on the drive (BOOTSEL):
 
 | `.uf2` | what it writes |
 |---|---|
-| the combined one (`presto_os.uf2`) | the launcher and its partition table, both machines' slots and, made with `APP=`, the app's: the rest of the flash (the shared area) is left as it is |
-| a machine's own, made `absolute` (`os_uf2.py --plain`) | that machine at the bottom of the flash, over the launcher: a single-machine flash again |
+| the combined one (`presto_dual_boot.uf2`) | the launcher and its partition table, both machines' slots and, made with `APP=`, the plugin's: the rest of the flash (the shared area) is left as it is |
+| a machine's own, made `absolute` (`dual_boot_uf2.py --plain`) | that machine at the bottom of the flash, over the launcher: a single-machine flash again |
 | a machine's own, as built (`rp2350-arm-s`) | nothing, with the partition table there: ignored |
 
-An app is never a `.uf2` of its own: it's installed by the running firmware (above).
+A plugin is never a `.uf2` of its own: it's installed by the running firmware (above).
 
-The app is built in its own project: elite-agent's
+The plugin is built in its own project: elite-agent's
 
 ```sh
 EMU=<rp2350-bbc-micro> PICO_SDK_PATH=<sdk> presto/app/build.sh --disc=<deadly.ssd>   # -> presto/app/build/elite-agent.bin

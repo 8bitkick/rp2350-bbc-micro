@@ -8,7 +8,7 @@ as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) o
 "presto.py api <name> [args]" (its JSON reply, as over HTTP).
 
   presto.py status                 the machine, board, speed, disc, LEDs, ... (as /api/status)
-  presto.py machine [master|beeb]  with both machines in the flash (docs/mini-os.md): which runs,
+  presto.py machine [master|beeb]  with both machines in the flash (docs/dual-boot.md): which runs,
                                    which is chosen; or choose one, restart into it and wait for it
   presto.py stats                  speed (100.0% = the real machine) and the two cores' load
   presto.py turbo                  toggle turbo: run as fast as it can (every frame still drawn)

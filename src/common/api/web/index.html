@@ -180,18 +180,18 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 
 
 <section id="app" hidden>
-  <h2 class="fold" id="apphead" title="Show or hide the application"><span class="arrow">&#9660;</span>RP2350 Application<span class="none"> · none</span><button id="appadd" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button></h2>
+  <h2 class="fold" id="apphead" title="Show or hide the plugin"><span class="arrow">&#9660;</span>Plugin<span class="none"> · none</span><button id="appadd" title="Install a plugin (its .bin) in the plugin slot: the board restarts into it">Install plugin…</button></h2>
   <div class="stats appinfo" id="appinfo"></div>
   <div id="appbody">
     <div class="row appdo">
-      <button id="appinstall" title="Install an app (its .bin) in the app slot: the board restarts into it">Install app…</button>
-      <button id="appremove" title="Erase the app in the app slot">Remove</button>
+      <button id="appinstall" title="Install a plugin (its .bin) in the plugin slot: the board restarts into it">Install plugin…</button>
+      <button id="appremove" title="Erase the plugin in the plugin slot">Remove</button>
       <span class="hint">or drop an app's .bin here</span>
       <input type="file" id="appfile" accept=".bin" hidden>
     </div>
     <progress id="appprog" value="0" max="1" hidden></progress>
     <div id="appmsg"></div>
-    <div class="applog" id="applog" title="What the application has logged lately"></div>
+    <div class="applog" id="applog" title="What the plugin has logged lately"></div>
     <div id="program" hidden>
       <h3 id="ptitle">Program</h3>
       <div class="fields" id="pfields"></div>
@@ -727,7 +727,7 @@ function showApp(a) {
   const bits = [`<span class="conn"><span class="dot ${ok ? 'ok' : a.state === 'none' ? '' : 'bad'}"></span>${APP_STATES[a.state] || esc(a.state)}</span>`];
   if (a.name) bits.push(`<span><b>${esc(a.name)}</b> ${esc(a.version || '')}</span>`);
   if (a.name) bits.push(`<span>for the <b>${APP_MACHINES[a.machine] || esc(a.machine)}</b></span>`);
-  if (a.name) bits.push(`<span>${a.from === 'slot' ? 'from the app slot' : 'built in'}</span>`);
+  if (a.name) bits.push(`<span>${a.from === 'slot' ? 'from the plugin slot' : 'built in'}</span>`);
   $('appremove').hidden = a.from !== 'slot' || a.state === 'none' || a.state === 'installing';
   $('appinstall').disabled = a.from === 'built in';
   if (a.why) bits.push(`<span class="${ok || a.state === 'none' ? '' : 'why'}">${esc(a.why)}</span>`);
@@ -747,7 +747,7 @@ $('apphead').onclick = () => {
 function appMsg(text, cls = '') { $('appmsg').textContent = text; $('appmsg').className = cls; }
 function installApp(f) {
   if (!f) return;
-  if (!confirm(`Install ${f.name} in the app slot? The app there now is replaced, and the board restarts.`)) return;
+  if (!confirm(`Install ${f.name} in the plugin slot? The plugin there now is replaced, and the board restarts.`)) return;
   const x = new XMLHttpRequest();
   x.open('POST', '/api/app');
   const p = $('appprog');
@@ -756,7 +756,7 @@ function installApp(f) {
   x.onload = async () => {
     p.hidden = true;
     const j = JSON.parse(x.responseText || '{}');
-    if (x.status !== 200) { appMsg(`Not installed: ${j.error || x.statusText}. The app slot is empty.`, 'err'); return; }
+    if (x.status !== 200) { appMsg(`Not installed: ${j.error || x.statusText}. The plugin slot is empty.`, 'err'); return; }
     const a = j.app || {};
     appMsg(`Installed ${a.name} ${a.version}: restarting…`, 'ok');
     const want = a.machine, t0 = Date.now();
@@ -773,13 +773,13 @@ function installApp(f) {
     }
     appMsg('Installed, but the board hasn\'t come back yet.', 'err');
   };
-  x.onerror = () => { p.hidden = true; appMsg('The upload failed: the app slot is left empty.', 'err'); };
+  x.onerror = () => { p.hidden = true; appMsg('The upload failed: the plugin slot is left empty.', 'err'); };
   x.send(f);
 }
 $('appinstall').onclick = $('appadd').onclick = e => { e.stopPropagation(); $('appfile').click(); };
 $('appfile').onchange = () => { installApp($('appfile').files[0]); $('appfile').value = ''; };
 $('appremove').onclick = async () => {
-  if (!confirm('Remove the app from the app slot? It stops now.')) return;
+  if (!confirm('Remove the plugin from the plugin slot? It stops now.')) return;
   try { await api('/api/app/remove'); appMsg('Removed.', 'ok'); poll(); } catch (e) { appMsg(e.message, 'err'); }
 };
 // a .bin dropped on the Application section is an app (anywhere else, a disc)
@@ -789,7 +789,7 @@ $('app').addEventListener('drop', e => {
   e.preventDefault(); e.stopPropagation();
   $('app').classList.remove('over');
   const f = e.dataTransfer.files[0];
-  if (f && /\.bin$/i.test(f.name)) installApp(f); else appMsg('Drop an app\'s .bin here (discs go in the Disc section).', 'err');
+  if (f && /\.bin$/i.test(f.name)) installApp(f); else appMsg('Drop a plugin\'s .bin here (discs go in the Disc section).', 'err');
 });
 
 // --- the app's own panel and log, every 2 s while unfolded

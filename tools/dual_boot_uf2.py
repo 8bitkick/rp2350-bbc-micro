@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Join the launcher and the two machines into one .uf2 (docs/mini-os.md):
+"""Join the launcher and the two machines into one .uf2 (docs/dual-boot.md):
 
-  os_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> [--app <app.bin>] <out.uf2>
+  dual_boot_uf2.py <partitions.json> <launcher.uf2> <master.uf2> <beeb.uf2> [--app <app.bin>] <out.uf2>
 
 Each machine's .uf2 is a plain build, linked at 0x10000000; its blocks go to its slot's place in
 the flash (the partitions' order: master, beeb), where the boot ROM's address translation runs
@@ -10,7 +10,7 @@ it as if it were at 0x10000000. The launcher stays at the bottom. --app puts an 
 'absolute' family, so the boot ROM puts each block where it says, whatever partition table the
 flash has now. The flash above the slots (WiFi, the settings, the save discs) isn't touched.
 
-  os_uf2.py --plain <machine.uf2> <out.uf2>
+  dual_boot_uf2.py --plain <machine.uf2> <out.uf2>
 
 makes a plain machine .uf2 'absolute' too: flashed over the combined firmware, it replaces the
 launcher (and so the partition table) and leaves one machine, as before.
