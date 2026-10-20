@@ -146,13 +146,15 @@ static void status_json(char *j, size_t size) {
     const char *dn = drive0_name();
     if (dn) api_json_str(disc, sizeof disc, dn);
     else strcpy(disc, "null");
+    char builtin[40];
+    api_json_str(builtin, sizeof builtin, drive0_builtin_title());
     char overlay[8];
     snprintf(overlay, sizeof overlay, "%s", !machine_overlay_has() ? "null" : machine_overlay_get() ? "true" : "false");
     int n = snprintf(j, size, "{\"machine\":\"%s\",\"board\":\"%s\",\"turbo\":%s,\"overlay\":%s,\"speed\":%u,"
-                              "\"core0\":%u,\"core1\":%u,\"disc\":%s,\"saves\":%d,\"free\":%u,\"mhz\":%u,"
+                              "\"core0\":%u,\"core1\":%u,\"disc\":%s,\"builtin\":%s,\"saves\":%d,\"free\":%u,\"mhz\":%u,"
                               "\"temp\":%d,\"leds\":%u,\"program\":%s",
                      machine_name(), BOARD_NAME, machine_turbo_get() ? "true" : "false", overlay, speed, c0, c1,
-                     disc, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
+                     disc, builtin, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
                      (frontend_temp_centi() + 50) / 100, machine_leds(),
                      app_program_json() ? "true" : "false");
 #if BOARD_HAS_NET
