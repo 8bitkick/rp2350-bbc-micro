@@ -26,7 +26,7 @@ other discs and type on the machine's own keyboard over WiFi.
 
 No tools needed: one file onto the Presto.
 
-1. Download `rp2350-bbc-micro-presto-v0.2.uf2` from the [latest release](https://github.com/8bitkick/rp2350-bbc-micro/releases/latest).
+1. Download `rp2350-bbc-micro-presto-<version>.uf2` from the [latest release](https://github.com/8bitkick/rp2350-bbc-micro/releases/latest).
 2. Plug the Presto into your computer with a USB-C cable. Hold **BOOT** on the back, tap **RESET**, then let go:
    a drive called **RP2350** appears.
 3. Drag the `.uf2` onto that drive. The Presto restarts by itself.

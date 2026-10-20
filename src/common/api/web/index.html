@@ -458,9 +458,7 @@ function show(s) {
   // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
   const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
   $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '') : builtin;
-  // (the list's first: Mark Moxon's flicker-free Elite, the built-in disc where the firmware has it, its saves kept)
-  $('sthbuiltin').textContent = isElite(s.builtin) ? 'Elite, flicker-free (Mark Moxon) · built in' : 'Elite, flicker-free (Mark Moxon)';
-  $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `built in · ${s.saves} saved` : 'built in';
+  $('dnote').textContent = s.disc ? '' : s.saves > 0 ? `${s.saves} saved` : '';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
   // the sound: only in builds that have it
@@ -677,7 +675,7 @@ async function sthFind() {
   const sel = $('sthsel');
   // first Elite: Mark Moxon's flicker-free build. Built into the firmware it's the built-in disc, with its save
   // disc (an archive copy's saves would last the session); otherwise his build for this machine, from his GitHub
-  const bi = new Option('Elite, flicker-free (Mark Moxon)', '!');
+  const bi = new Option('Elite', '!');
   bi.id = 'sthbuiltin';
   sel.add(bi);
   for (const [title, path] of STH_TOP) sel.add(new Option(title, path));
@@ -711,7 +709,7 @@ async function moxonElite() {
   const m = MOXON[(status && status.machine) || 'beeb'] || MOXON.beeb;
   try {
     msg('');
-    progress(0, 0, 'Fetching Elite (flicker-free, Mark Moxon)…');
+    progress(0, 0, 'Fetching Elite…');
     const r = await fetch(m[1]);
     if (!r.ok) throw new Error('GitHub said ' + r.status);
     await bootImage(m[0], await r.arrayBuffer());
