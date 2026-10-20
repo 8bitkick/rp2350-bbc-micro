@@ -21,9 +21,9 @@ static inline void boot_guard_ok(void) {}
 #endif
 
 // The app guard (app.c), in every build: the app's calls marked in the same RAM that survives a
-// reset, so a watchdog reset that came while the app was running (a hang, or a fault left to
-// the watchdog) is the app's. app_enter before each call into the app (its id), app_leave after;
-// app_died, at boot, says whose it was (the id; 0: none, or not the app's).
+// reset, so a reset that came while the app was running (a hang or a fault, and the watchdog) is
+// the app's. app_enter before each call into the app (its id), app_leave after; app_died, at
+// boot: the app that stopped the last two boots (its id; 0: none).
 void boot_guard_app_enter(uint32_t id);
 void boot_guard_app_leave(void);
 uint32_t boot_guard_app_died(void);
