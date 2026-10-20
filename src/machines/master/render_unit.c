@@ -253,11 +253,11 @@ bool panel_splash_picture(void)
 // what's loading and how far (of 1000): the status line and the bar, across the screen
 void panel_splash_status(const char *what, int permille)
 {
-    enum { RED = 4, YELLOW = 6, WHITE = 7 };       // panel nibbles (b0 blue, b1 green, b2 red)
+    enum { BLUE = 1, CYAN = 3, WHITE = 7 };        // panel nibbles (b0 blue, b1 green, b2 red)
     for (int y = 208; y < 240; y++) memset(s_fb[y], 0, (k_row_words - 1) * 4);
     char line[72];
     snprintf(line, sizeof line, "%.34s %3d%%", what, permille / 10);
     splash_bbc_text(BOARD_DISPLAY_WIDTH / 2, 212, line, WHITE);
-    splash_rect(s_bar_x, 228, s_bar_w, 7, RED);
-    splash_rect(s_bar_x + 2, 230, (s_bar_w - 4) * (permille > 1000 ? 1000 : permille) / 1000, 3, YELLOW);
+    splash_rect(s_bar_x, 228, s_bar_w, 7, BLUE);
+    splash_rect(s_bar_x + 2, 230, (s_bar_w - 4) * (permille > 1000 ? 1000 : permille) / 1000, 3, CYAN);
 }

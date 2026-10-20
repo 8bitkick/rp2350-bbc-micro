@@ -269,7 +269,6 @@ static void run(void)
     struct machine *m = &s_machine;
     // a program's loading screen, if it has one, until core 1 starts drawing the machine: what's
     // loading and how far (the ROMs into PSRAM the first 30%, the disc's tracks going in the rest)
-    uint64_t boot_t0 = time_us_64();
     // the app (app.c): checked, its RAM set up, its disc (if it carries one) the built-in disc
     const uint8_t *disc = disc_image;
     uint32_t disc_size = disc_image_size;
@@ -311,7 +310,7 @@ static void run(void)
     presto_disc_progress(NULL);
     if (splash) {
         panel_splash_status("READY", 1000);
-        while (time_us_64() - boot_t0 < 3000000) sleep_ms(20);     // (it's quick: held a moment so it's seen)
+        sleep_ms(300);      // (a moment at 100%, not the rest of a fixed 3 s)
     }
     multicore_launch_core1(core1_main);
     machine_autoboot(m);

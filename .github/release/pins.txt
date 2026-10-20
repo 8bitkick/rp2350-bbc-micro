@@ -1,0 +1,5 @@
+# What a release builds in, pinned: elite-agent's release and the plugin's SHA-256, and Mark Moxon's
+# flicker-free Elite discs (setup.sh fetches them) by SHA-256. A release fails if any of them doesn't match.
+elite-agent v0.2 1fb88516c31e9ee6c3605ba83238fbe6078b165ea880c5fd4a9c498212199c37
+disc discs/elite-master-flicker-free-sng47.ssd 3c7b7e557d5bce5e7b28f9aed728a79c4b6745b987fdd3d0625cdb64092e9cc9
+disc discs/elite-disc-flicker-free-sth.ssd 2c2657aaddc0b9c853555c15881631105dd2d8fc26d11ea647e886aed5fd5ea6

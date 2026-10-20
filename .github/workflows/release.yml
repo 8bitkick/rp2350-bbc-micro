@@ -1,0 +1,45 @@
+# A tag v* makes a GitHub release: the dual-boot firmware for the Presto (both machines, the launcher), with
+# Mark Moxon's flicker-free Elite built in and elite-agent in the plugin slot, at the versions and hashes in
+# .github/release/pins.txt. The notes are .github/release/notes.md. A tag moved to a new commit replaces its release.
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Toolchain and Pico SDK (cached)
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
+      - name: The toolchain, the SDK, both machines' ROMs and Elite
+        run: scripts/setup.sh --no-build
+      - name: The pinned discs and elite-agent
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          grep '^disc ' .github/release/pins.txt | awk '{print $3"  "$2}' | sha256sum -c
+          read -r _ tag sum < <(grep '^elite-agent ' .github/release/pins.txt)
+          gh release download "$tag" -R 8bitkick/elite-agent -p elite-agent.bin -D agent
+          echo "$sum  agent/elite-agent.bin" | sha256sum -c
+      - name: Build
+        run: |
+          . deps/env.sh
+          APP=$PWD/agent/elite-agent.bin scripts/build-dual-boot.sh
+          cp build-dual-boot/presto_dual_boot.uf2 rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2
+          sha256sum rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2 > rp2350-bbc-micro-presto-${{ github.ref_name }}.uf2.sha256
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          t=${{ github.ref_name }}
+          gh release delete "$t" --yes 2>/dev/null || true
+          gh release create "$t" rp2350-bbc-micro-presto-$t.uf2 rp2350-bbc-micro-presto-$t.uf2.sha256 \
+            --title "$t: BBC Master + Model B for the Presto, with elite-agent" --notes-file .github/release/notes.md
