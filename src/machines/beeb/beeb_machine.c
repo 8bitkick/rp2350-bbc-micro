@@ -507,7 +507,7 @@ presto_state_apply_pending(void) {
 
 /* ---- The reset hook ---- */
 
-/* ---- A program built in alongside the machine (src/common/machine_hook.h) ---- */
+/* ---- The app run alongside the machine (src/common/app_api.h) ---- */
 
 static struct machine_hook_io s_app_io;
 
@@ -640,9 +640,11 @@ presto_machine_init(struct bbc_struct* p_bbc, const char* p_builtin_disc) {
   {
     const struct romfs_file* p_builtin =
         (p_builtin_disc != NULL) ? romfs_find_builtin(p_builtin_disc) : NULL;
-    drive0_init((p_builtin != NULL) ? p_builtin->p_data : NULL,
-                (p_builtin != NULL) ? p_builtin->size : 0,
-                presto_beebjit_disc_ram());
+    const uint8_t* p_disc = (p_builtin != NULL) ? p_builtin->p_data : NULL;
+    uint32_t disc_size = (p_builtin != NULL) ? p_builtin->size : 0;
+    /* The app (app.c): checked; its disc, if it carries one, the built-in disc. */
+    app_load(MACHINE_MODEL_BBC_B, &p_disc, &disc_size);
+    drive0_init(p_disc, disc_size, presto_beebjit_disc_ram());
   }
   frontend_init();
 }

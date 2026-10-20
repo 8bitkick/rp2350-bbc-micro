@@ -11,13 +11,17 @@
  *
  *   GET  /                      the page (src/common/api/web/index.html, gzipped into flash)
  *   GET|POST /api/<name>        a command (api.c's table: status, keys, turbo, overlay, boot,
- *                               eject, discs, sd, disc/restore, wifi, ambient, program, command, ...),
- *                               its JSON reply; the body is its arguments
- * and two that move a disc image in, so are the transport's own:
+ *                               eject, discs, sd, disc/restore, wifi, ambient, program, command,
+ *                               machine, ...), its JSON reply; the body is its arguments
+ * and three that move an image in, so are the transport's own:
  *   POST /api/disc?name=&save=&boot=  body: a disc image to boot (save=1 also writes it to the card;
  *                               boot=0 only writes it to the card)
  *   POST /api/fetch             body: a URL for the Presto to download a disc image from and boot
+ *   POST /api/app               body: an app's image (its .bin, src/common/app_api.h), written into
+ *                               the app slot as it arrives (app.c: app_install_*); checked, then the
+ *                               board restarts into it. (DELETE /api/app is POST /api/app/remove.)
  */
+#include "app.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -79,12 +83,12 @@ bool net_wifi_save(const char *ssid, const char *pass) {
     cred_t c = {.magic = CRED_MAGIC};
     strcpy(c.ssid, ssid);
     strcpy(c.pass, pass);
-    // core 1 is parked (the panel freezes for a moment) while the flash is busy
+    // core 1 is parked (the machine pauses for a moment; the panel's picture stays) while the flash is busy
     return mem_flash_write_sector(off, &c, sizeof(c));
 }
 
 static void restart_soon(void) {
-    printf("NET restarting to join the network\n");
+    printf("NET restarting\n");
     fflush(stdout);
     sleep_ms(100);
     watchdog_reboot(0, 0, 10);
@@ -489,7 +493,7 @@ static const char *fetch_start(const char *url, bool save) {
 // The web server
 
 enum { C_HEAD, C_BODY, C_WAIT, C_SEND };
-enum { R_404, R_PAGE, R_API, R_DISC, R_FETCH, R_TOOBIG };
+enum { R_404, R_PAGE, R_API, R_DISC, R_FETCH, R_APP, R_TOOBIG };
 
 typedef struct conn {
     struct tcp_pcb *pcb;
@@ -531,6 +535,7 @@ static void conn_free(conn_t *c) {
         }
     }
     if (c->route == R_DISC && c->state != C_SEND && upload_busy) upload_busy = false;
+    if (c->route == R_APP && c->state <= C_BODY) app_install_abort("the upload stopped");
     free(c->out);
     free(c);
     conn_count--;
@@ -636,7 +641,9 @@ static void act(conn_t *c) {
         case R_API: {
             size_t size;
             char *j = api_buffer(&size);
-            api_req_t r = {.args = c->body, .query = c->query, .json = true, .out = j, .size = size};
+            char from[20];
+            snprintf(from, sizeof from, "%s", c->pcb ? ipaddr_ntoa(&c->pcb->remote_ip) : "?");
+            api_req_t r = {.args = c->body, .query = c->query, .from = from, .json = true, .out = j, .size = size};
             api_run(c->cmd, &r);
             respond_json(c, r.code, j);
             break;
@@ -656,6 +663,20 @@ static void act(conn_t *c) {
             disc_in.from = "upload";
             upload_busy = false;
             respond_json(c, 200, "{}");
+            break;
+        }
+        case R_APP: {
+            char why[96], j[400];
+            if (!app_install_end(why, sizeof why)) {
+                respond_error(c, 400, why);
+                break;
+            }
+            int n = snprintf(j, sizeof j, "{\"installed\":true,\"restart\":true,\"app\":");
+            app_json(j + n, sizeof j - (uint32_t) n - 1, false);
+            strcat(j, "}");
+            respond_json(c, 200, j);
+            drive0_sync();              // (a game saved a moment ago: kept)
+            net_restart(true);
             break;
         }
         case R_FETCH: {
@@ -680,6 +701,7 @@ static void route(conn_t *c) {
     char method[8] = "", target[192] = "";
     sscanf(c->head, "%7s %191s", method, target);
     c->post = !strcmp(method, "POST");
+    bool del = !strcmp(method, "DELETE");
     char *q = strchr(target, '?');
     if (q) {
         *q++ = 0;
@@ -696,6 +718,9 @@ static void route(conn_t *c) {
         if (c->post) c->route = R_DISC;
     } else if (!strcmp(target, "/api/fetch")) {
         if (c->post) c->route = R_FETCH;
+    } else if (!strcmp(target, "/api/app") && (c->post || del)) {
+        if (c->post) c->route = R_APP;
+        else if ((c->cmd = api_find_http("/api/app/remove", true)) != NULL) c->route = R_API;
     } else if ((c->cmd = api_find_http(target, c->post)) != NULL) {
         c->route = R_API;
     }
@@ -711,6 +736,13 @@ static void route(conn_t *c) {
             return;
         }
         upload_busy = true;
+    } else if (c->route == R_APP) {
+        char why[96];
+        if (!app_install_begin(c->length, why, sizeof why)) {
+            c->route = R_TOOBIG;
+            respond_error(c, 409, why);
+            return;
+        }
     } else if (c->length >= sizeof(c->body)) {
         c->route = R_TOOBIG;
         respond_error(c, 413, "too long");
@@ -759,6 +791,14 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
                 uint n = MIN(len, c->length - c->got);
                 if (c->route == R_DISC) {
                     memcpy(drive0_staging() + STAGE_OFFSET + c->got, d, n);
+                } else if (c->route == R_APP) {
+                    // (into the flash a sector at a time: the machine pauses for each)
+                    if (!app_install_data((const uint8_t *) d, n)) {
+                        app_install_abort("the flash couldn't be written");
+                        c->route = R_TOOBIG;
+                        respond_error(c, 500, "the flash couldn't be written");
+                        break;
+                    }
                 } else {
                     memcpy(c->body + c->body_len, d, n);
                     c->body_len = (uint16_t) (c->body_len + n);

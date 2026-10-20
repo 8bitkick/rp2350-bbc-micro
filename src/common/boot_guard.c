@@ -8,15 +8,18 @@
  * way the next boot finds the record still "starting", and instead of running the emulator it
  * brings up just USB and reports, over and over: the last step reached (boot_guard_step) and any
  * fault's PC, LR and fault status. "!bootsel" then drops it into the USB bootloader for the next
- * flash, so a broken build never needs the buttons.
+ * flash, so a broken build never needs the buttons; with both machines in the flash, "!machine
+ * <name>" boots the other one instead (system.h).
  */
 #include <stdio.h>
+#include <string.h>
 #include "pico/stdlib.h"
 #include "pico/bootrom.h"
 #include "hardware/watchdog.h"
 #include "hardware/structs/watchdog.h"
 #include "hardware/structs/scb.h"
 #include "boot_guard.h"
+#include "system.h"
 
 #define BOOT_STARTING 0xb00757a7u
 #define BOOT_FAULTED  0xb007fa17u
@@ -39,20 +42,37 @@ static void report_forever(boot_record_t r) {
                r.state == BOOT_FAULTED ? "fault" : r.state == BOOT_PANICKED ? "panic" : "hang",
                (uint) r.step, (uint) r.pc, (uint) r.lr,
                (uint) r.cfsr, (uint) r.bfar, (uint) r.core, (uint) r.xpsr);
-        // wait a second for "!bootsel"
+        // wait a second for "!bootsel", or "!machine <name>" (the launcher boots that one next)
         absolute_time_t until = make_timeout_time_ms(1000);
-        static int matched;
+        static char line[24];
+        static int len = -1;
         while (!time_reached(until)) {
             int c = getchar_timeout_us(10000);
             if (c == PICO_ERROR_TIMEOUT) continue;
-            static const char want[] = "!bootsel";
-            matched = c == want[matched] ? matched + 1 : c == '!';
-            if (!want[matched]) reset_usb_boot(0, 0);
+            if (c == '!') {
+                len = 0;
+            } else if (len >= 0 && (c == '\n' || c == '\r')) {
+                line[len] = 0;
+                len = -1;
+                if (!strcmp(line, "bootsel")) reset_usb_boot(0, 0);
+                if (!strncmp(line, "machine ", 8) && system_choose(line + 8)) {
+                    printf("MACHINE %s: restarting\n", line + 8);
+                    sleep_ms(100);
+                    watchdog_reboot(0, 0, 10);
+                }
+            } else if (len >= 0 && len < (int) sizeof line - 1) {
+                line[len++] = (char) c;
+            }
         }
     }
 }
 
+static volatile struct { uint32_t state, id, last, times; } app_record __attribute__((section(".uninitialized_data")));
+#define APP_IN 0xa99c0de5u
+
 void boot_guard_begin(void) {
+    // the app died, not the boot: the app guard takes it (app.c runs the machine without it)
+    if (app_record.state == APP_IN && record.state != 0) record.state = 0;
     if (record.state == BOOT_STARTING || record.state == BOOT_FAULTED || record.state == BOOT_PANICKED) {
         boot_record_t r = record;
         record.state = 0;           // next boot runs normally
@@ -121,3 +141,35 @@ void __attribute__((naked)) isr_hardfault(void) {
         "b boot_guard_fault\n");
 }
 #endif
+
+// ---- The app guard (boot_guard.h): in every build
+#include "boot_guard.h"
+
+#if !BOOT_GUARD
+static volatile struct { uint32_t state, id, last, times; } app_record __attribute__((section(".uninitialized_data")));
+#define APP_IN 0xa99c0de5u
+#endif
+
+void boot_guard_app_enter(uint32_t id) {
+    app_record.id = id;
+    app_record.state = APP_IN;
+}
+
+void boot_guard_app_leave(void) {
+    app_record.state = 0;
+}
+
+uint32_t boot_guard_app_died(void) {
+    // Whatever reset the board (the watchdog; a fault, then the watchdog; RESET), it came while
+    // the app was running. (Not the watchdog's reason register: through the launcher it doesn't
+    // say.) A RESET the moment the app was called would look the same, so it takes two boots in
+    // a row ended in the same app.
+    if (app_record.state != APP_IN) app_record.times = 0;
+    else if (app_record.last == (app_record.id ^ APP_IN)) app_record.times++;
+    else {
+        app_record.last = app_record.id ^ APP_IN;
+        app_record.times = 1;
+    }
+    app_record.state = 0;
+    return app_record.times >= 2 ? app_record.id : 0;
+}

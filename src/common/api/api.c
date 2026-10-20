@@ -8,12 +8,15 @@
 
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
+#include "hardware/watchdog.h"
 
 #include "api.h"
 #include "frontend.h"
 #include "machine_if.h"
-#include "machine_hook.h"
+#include "app.h"
 #include "drive.h"
+#include "mem.h"
+#include "system.h"
 #include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
@@ -143,15 +146,17 @@ static void status_json(char *j, size_t size) {
     const char *dn = drive0_name();
     if (dn) api_json_str(disc, sizeof disc, dn);
     else strcpy(disc, "null");
+    char builtin[40];
+    api_json_str(builtin, sizeof builtin, drive0_builtin_title());
     char overlay[8];
     snprintf(overlay, sizeof overlay, "%s", !machine_overlay_has() ? "null" : machine_overlay_get() ? "true" : "false");
     int n = snprintf(j, size, "{\"machine\":\"%s\",\"board\":\"%s\",\"turbo\":%s,\"overlay\":%s,\"speed\":%u,"
-                              "\"core0\":%u,\"core1\":%u,\"disc\":%s,\"saves\":%d,\"free\":%u,\"mhz\":%u,"
+                              "\"core0\":%u,\"core1\":%u,\"disc\":%s,\"builtin\":%s,\"saves\":%d,\"free\":%u,\"mhz\":%u,"
                               "\"temp\":%d,\"leds\":%u,\"program\":%s",
                      machine_name(), BOARD_NAME, machine_turbo_get() ? "true" : "false", overlay, speed, c0, c1,
-                     disc, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
+                     disc, builtin, drive0_saves(), free_ram, (unsigned) (clock_get_hz(clk_sys) / 1000000),
                      (frontend_temp_centi() + 50) / 100, machine_leds(),
-                     machine_program_json() ? "true" : "false");
+                     app_program_json() ? "true" : "false");
 #if BOARD_HAS_NET
     if (n > 0 && (size_t) n < size) {
         net_status_json(j + n, size - (size_t) n);
@@ -175,6 +180,30 @@ static void status_json(char *j, size_t size) {
                       on ? "true" : "false", bright, locks ? "true" : "false");
     }
 #endif
+    if (n > 0 && (size_t) n < size) {
+        // the firmware and the regions the board keeps in the flash; the PSRAM the machine has
+        // taken; the SRAM not free (the heap's free blocks and the gap below the stack are)
+        extern char __flash_binary_end;
+        uint32_t flash_used = (uint32_t) ((uintptr_t) &__flash_binary_end - XIP_BASE), off, sz;
+        for (int i = 0; i < MEM_FLASH_REGIONS; i++)
+            if (mem_flash_region(i, &off, &sz)) flash_used += sz;
+        flash_used += app_flash_used();     // (the app slot's app; the other machine's slot not counted)
+        const uint32_t ram_total = SRAM_END - SRAM_BASE;
+        n += snprintf(j + n, size - (size_t) n,
+                      ",\"mem\":{\"flash\":[%lu,%lu],\"psram\":[%lu,%lu],\"ram\":[%lu,%lu]}",
+                      (unsigned long) flash_used, (unsigned long) PICO_FLASH_SIZE_BYTES,
+                      (unsigned long) machine_psram_used(), (unsigned long) board_psram_size(),
+                      (unsigned long) (ram_total - free_ram), (unsigned long) ram_total);
+    }
+    if (n > 0 && (size_t) n < size) {
+        system_status_json(j + n, size - (size_t) n);
+        n += (int) strlen(j + n);
+    }
+    if (n > 0 && (size_t) n + 8 < size) {
+        n += snprintf(j + n, size - (size_t) n, ",\"app\":");
+        app_json(j + n, (uint32_t) (size - (size_t) n), false);
+        n += (int) strlen(j + n);
+    }
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
 }
 
@@ -229,6 +258,57 @@ static void cmd_break(api_req_t *r) {
     machine_break();
     api_reply(r, 200, "{}");
     if (!r->json) printf("BREAK\n");
+}
+
+// ---- The machine: with both in the flash (system.h), the one to boot
+
+// "" (which there are, and which is chosen) or "master" / "beeb": choose it and restart into it
+static void cmd_machine(api_req_t *r) {
+    char want[16];
+    snprintf(want, sizeof want, "%s", r->args);
+    want[strcspn(want, " \r\n")] = 0;
+    if (!system_launched()) {
+        if (want[0]) api_error(r, 404, "one machine in this build (no launcher)");
+        else if (r->json) api_reply(r, 200, "{\"machine\":\"%s\"}", machine_name());
+        else printf("MACHINE %s (no launcher)\n", machine_name());
+        return;
+    }
+    if (!want[0]) {
+        if (r->json) {
+            char sys[96];
+            system_status_json(sys, sizeof sys);
+            api_reply(r, 200, "{\"machine\":\"%s\"%s}", machine_name(), sys);
+        } else {
+            printf("MACHINE %s (choice %s; %s)\n", machine_name(), system_choice(), system_machines());
+        }
+        return;
+    }
+    if (system_slot(want) < 0) {
+        api_error(r, 400, "no such machine (master or beeb)");
+        return;
+    }
+    if (!system_choose(want)) {
+        api_error(r, 500, "couldn't save the choice");
+        return;
+    }
+    if (!strcmp(want, machine_name())) {
+        api_reply(r, 200, "{\"restart\":false}");
+        if (!r->json) printf("MACHINE %s (running)\n", want);
+        return;
+    }
+    drive0_sync();              // a game saved a moment ago: keep it
+    api_reply(r, 200, "{\"restart\":true}");
+    printf("MACHINE %s: restarting (asked by %s)\n", want, r->from ? r->from : "USB");
+#if BOARD_HAS_NET
+    if (r->json) {
+        net_restart(true);      // once the reply has gone
+        return;
+    }
+#endif
+    fflush(stdout);
+    sleep_ms(100);
+    watchdog_reboot(0, 0, 10);
+    while (true) tight_loop_contents();
 }
 
 // ---- Discs
@@ -405,10 +485,51 @@ static void cmd_sound(api_req_t *r) {
 }
 #endif
 
-// ---- A program run alongside the machine
+// ---- The app run alongside the machine (app.c)
+
+// what it is (GET /api/app, "!app"); "on" (POST /api/app/on, "!app on"): let one the app guard
+// turned off run again, from the next boot; "remove" (POST /api/app/remove, DELETE /api/app,
+// "!app remove"): erase the slot's. (Installing: POST /api/app with the image, presto_net.c, or
+// "!app install <size>" over USB, frontend.c: both app.c's app_install_*.)
+static void cmd_app(api_req_t *r) {
+    if (!strcmp(r->args, "on")) {
+        if (!app_turn_on()) {
+            api_error(r, 500, "the setting couldn't be written");
+            return;
+        }
+        if (!r->json) printf("APP on: it runs from the next boot\n");
+    } else if (!strcmp(r->args, "remove")) {
+        if (!app_remove()) {
+            api_error(r, 409, "no app to remove (or one built in, or installing)");
+            return;
+        }
+    } else if (r->args[0]) {
+        api_error(r, 400, "app [on|remove|install <size>]");
+        return;
+    }
+    if (r->json) {
+        app_json(r->out, (uint32_t) r->size, true);
+        r->code = 200;
+    } else {
+        size_t size;
+        char *j = api_buffer(&size);
+        app_text(j, (uint32_t) size);
+        printf("%s\n", j);
+    }
+}
+
+static void cmd_app_on(api_req_t *r) {
+    r->args = "on";
+    cmd_app(r);
+}
+
+static void cmd_app_remove(api_req_t *r) {
+    r->args = "remove";
+    cmd_app(r);
+}
 
 static void cmd_program(api_req_t *r) {
-    const char *pj = machine_program_json();
+    const char *pj = app_program_json();
     if (!pj) {
         api_error(r, 404, "no program built in");
         return;
@@ -422,7 +543,7 @@ static void cmd_command(api_req_t *r) {
     char cmd[256], reply[256] = "";
     snprintf(cmd, sizeof cmd, "%s", r->args);
     for (char *e = cmd + strlen(cmd); e > cmd && (e[-1] == '\n' || e[-1] == '\r' || e[-1] == ' ');) *--e = 0;
-    if (!machine_command_hook(cmd, reply, sizeof reply)) {
+    if (!app_command(cmd, reply, sizeof reply)) {
         api_error(r, 404, "command not taken");
         return;
     }
@@ -439,6 +560,7 @@ static void cmd_command(api_req_t *r) {
 
 static const api_cmd_t s_cmds[] = {
     {"status", NULL, false, cmd_status},
+    {"machine", NULL, true, cmd_machine},
     {"stats", NULL, false, cmd_stats},
     {"keys", NULL, true, cmd_keys},
     {"turbo", NULL, true, cmd_turbo},
@@ -459,6 +581,9 @@ static const api_cmd_t s_cmds[] = {
 #if WITH_SOUND
     {"sound", NULL, true, cmd_sound},
 #endif
+    {"app", NULL, false, cmd_app},
+    {"app on", "/api/app/on", true, cmd_app_on},
+    {"app remove", "/api/app/remove", true, cmd_app_remove},
     {"program", NULL, false, cmd_program},
     {"command", NULL, true, cmd_command},
 };

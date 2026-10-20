@@ -36,7 +36,7 @@ The values the common code and the machines build with:
   in each machine.
 - `BOARD_AUDIO_PWM_PIN`: the pin `src/common/sound.c` drives as a PWM DAC (with `-DSOUND=ON`).
 - The flash layout, `BOARD_FLASH_LAYOUT`: the one table of where things live in the flash, by
-  `mem.h`'s regions (the save disc's header and data, a spare sector, the WiFi network). Nothing
+  `mem.h`'s regions (the save disc's header and data, the system's settings, the WiFi network). Nothing
   else in the code has a flash address in it.
 
 ## 3. The functions in `src/common/board.h`

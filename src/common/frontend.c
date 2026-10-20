@@ -4,18 +4,21 @@
 //   0x1a 0x00 <SDL scancode>   key down
 //   0x1a 0x01 <SDL scancode>   key up
 //   !<command> [args]          a command of the command layer (api.c), its text reply:
-//                              status, stats, keys, turbo, overlay, boot, break, eject, discs,
-//                              sd, restore, net, wifi, ambient, program, command
+//                              status, machine, stats, keys, turbo, overlay, boot, break, eject,
+//                              discs, sd, restore, net, wifi, ambient, app, program, command
 //   !api <command> [args]      the same, its JSON reply (as the HTTP API's): "API <code> <json>"
 //   !shot [ms]                 SHOT <w> <h>, then the panel's rows as RGB565 (then hold the
 //                              machine still ms, for a camera to take the same frame)
 //   !put <name> <size>         receive a disc image and write it to the SD card
+//   !app install <size>        receive an app's image and install it in the app slot (app.c)
 //   !temp, !bootsel            the chip's temperature; reboot to the USB bootloader
+//   !flashtest [n]             (a test aid) rewrite a flash sector n times: STATS shows what it
+//                              did to the display (lcd_rolls, lcd_missed) and flash_writes
 //   !audio, !beep              (SOUND) the sound's state, test sounds
 // and the first spellings, still taken: !disc (eject), !disc restore (restore), !disc <name> (sd),
 // !perf (overlay), !leds (ambient), !wifi <ssid> <password>. Anything else goes to the machine
 // (machine_usb_command: the Model B's crtc, state, peek, ...), then to a program built in
-// alongside (machine_command_hook).
+// alongside (app.c: app_command).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,8 +32,9 @@
 #include "drive.h"
 #include "api.h"
 #include "machine_if.h"
-#include "machine_hook.h"
+#include "app.h"
 #include "boot_guard.h"
+#include "mem.h"
 #include "board.h"
 #if BOARD_HAS_NET
 #include "net_if.h"
@@ -52,6 +56,32 @@ int frontend_temp_centi(void) {
     for (int i = 0; i < 64; i++) sum += adc_read();
     int32_t uv = (int32_t) (((uint64_t) sum * 3300000u) / (64 * 4096));
     return 2700 - (int) (((int64_t) (uv - 706000) * 100) / 1721);
+}
+
+const char *frontend_stats_tail(void) {
+    static char s[112];
+    uint32_t late_max, rolled, missed, late;
+    board_display_counters(&late_max, &rolled, &missed, &late);
+    snprintf(s, sizeof s, " lcd_late_max_us=%lu lcd_rolls=%lu lcd_missed=%lu lcd_late=%lu flash_writes=%lu",
+             (unsigned long) late_max, (unsigned long) rolled, (unsigned long) missed, (unsigned long) late,
+             (unsigned long) mem_flash_writes());
+    return s;
+}
+
+// "!flashtest [n]" (a test aid): rewrite the settings sector as it is, n times, a third of a
+// second apart (the machine waits meanwhile), to see what flash writes do to the display (STATS)
+static void flash_test(const char *args) {
+    static uint8_t keep[64];
+    uint32_t off, size;
+    int n = atoi(args);
+    if (n <= 0) n = 1;
+    if (!mem_flash_region(MEM_FLASH_SYSTEM, &off, &size)) return;
+    memcpy(keep, mem_flash_ptr(off), sizeof keep);
+    for (int i = 0; i < n; i++) {
+        mem_flash_write_sector(off, keep, sizeof keep);
+        sleep_ms(330);
+    }
+    printf("FLASHTEST %d writes\n", n);
 }
 
 // ---- The USB channel
@@ -123,8 +153,12 @@ static void usb_command(char *cmd) {
         fflush(stdout);
         sleep_ms(100);
         reset_usb_boot(0, 0);
+    } else if (is(cmd, "app install")) {
+        app_usb_install(after(cmd, "app install"));
     } else if (is(cmd, "put")) {
         board_sd_put(after(cmd, "put"));
+    } else if (is(cmd, "flashtest")) {
+        flash_test(after(cmd, "flashtest"));
     } else if (is(cmd, "temp")) {
         int centi = frontend_temp_centi();
         printf("TEMP %d.%02dC\n", centi / 100, centi % 100);
@@ -157,7 +191,7 @@ static void usb_command(char *cmd) {
         }
         if (machine_usb_command(cmd)) return;
         char reply[256] = "";
-        if (machine_command_hook(cmd, reply, sizeof reply)) {
+        if (app_command(cmd, reply, sizeof reply)) {
             if (reply[0]) printf("%s\n", reply);
             return;
         }

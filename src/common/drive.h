@@ -16,7 +16,9 @@ extern "C" {
 // if it's a copy of this golden disc, else the golden one. A game's writes go to the machine's
 // drive; a second after the drive goes quiet the sectors written are read back and only the
 // flash sectors that changed are rewritten (an Elite save: one or two). drive0_restore forgets
-// the save disc. Discs from the card or the web keep their writes for the session only.
+// the save disc. Discs from the card or the web keep their writes for the session only. A save
+// disc that's a copy of another disc (another build's, another machine's) is never written over:
+// that disc's saves stay, and this one's last the session, until drive0_restore.
 //
 // The machine does the drive itself (machine_if.h: machine_drive_load, _writes, _sector,
 // _clean); this decides what goes in it. All on core 0, between frames.
@@ -33,6 +35,8 @@ uint8_t *drive0_staging(void);
 bool drive0_insert(const char *name, uint32_t size);
 // the name of the disc in drive 0, or NULL for the built-in one
 const char *drive0_name(void);
+// the built-in disc's title, from its catalogue ("" if it has none, or there's no built-in disc)
+const char *drive0_builtin_title(void);
 // back to the built-in disc (its save disc, if any), booted
 void drive0_eject(void);
 // the built-in disc as it came (what games saved to it forgotten), booted
@@ -43,6 +47,8 @@ int drive0_saves(void);
 const char *drive0_source(void);
 // each frame: a second after the drive's last write to the built-in disc, keep what changed
 void drive0_frame(void);
+// keep what's been written to the built-in disc now, without waiting (before a restart)
+void drive0_sync(void);
 
 #ifdef __cplusplus
 }
