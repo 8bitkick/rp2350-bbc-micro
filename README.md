@@ -29,16 +29,25 @@ with Git (Linux, macOS, or Windows with Git Bash).
 
 ```sh
 git clone https://github.com/8bitkick/rp2350-bbc-micro.git && cd rp2350-bbc-micro
-scripts/setup.sh              # BBC Model B  -> build/presto_beebjit.uf2
+scripts/setup.sh              # both machines -> build-dual-boot/presto_dual_boot.uf2
+```
+
+`setup.sh` fetches everything it needs (the Arm toolchain, the Pico SDK, both machines' ROMs and
+Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
+in one `.uf2`, with the choice between them on the [web panel](#web-panel---httpbeeblocal). Add
+`--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages first. Sound and the LEDs
+are on in it, and switched on the panel.
+
+One machine on its own:
+
+```sh
+scripts/setup.sh --beeb       # BBC Model B  -> build/presto_beebjit.uf2
 scripts/setup.sh --master     # BBC Master   -> build-master/presto_master.uf2
 ```
 
 The Master boots Elite by default; `--master --disc=pop-beeb.ssd` builds in Prince of Persia instead
 (also `bs-scr-beeb.ssd` Stunt Car Racer, `arcadians.ssd`, `bs-twisted.ssd`, `EvilIn11.ssd`, or your own).
-
-`setup.sh` fetches everything it needs (the Arm toolchain, the Pico SDK, the machine's ROMs and Elite)
-and builds the firmware. Add `--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages
-first. Sound and the LEDs are [build options](#build-options), off by default.
+On one machine's build, sound and the LEDs are [build options](#build-options), off by default.
 
 To flash it: hold **BOOT** on the Presto, tap **RESET**, and copy the `.uf2` onto the **RP2350** drive
 that appears (or add `--flash` to `setup.sh`). It reboots into Elite.
@@ -147,10 +156,13 @@ On Windows, run it from Git Bash, with CMake and Ninja installed; it also fetche
 `pioasm` and `picotool`. To keep the toolchain and SDK (1.6 GB) somewhere else, such as outside a
 synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers it.
 
-`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
-(which isn't part of this repository), and builds `build/presto_beebjit.uf2`.
-Flash it as in the [quick start](#quick-start), or run `scripts/setup.sh --flash` with the Presto in
-BOOTSEL mode. To rebuild after a change: `. deps/env.sh && ninja -C build presto_beebjit`.
+`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads the ROMs and
+flicker-free Elite (which aren't part of this repository), and builds
+`build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
+`build-master/presto_master.uf2`). Flash it as in the [quick start](#quick-start), or run
+`scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
+`. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
+`ninja -C build-master`).
 
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.

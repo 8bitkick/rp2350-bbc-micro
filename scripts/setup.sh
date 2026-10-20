@@ -1,15 +1,16 @@
 #!/bin/sh
-# From a fresh clone to presto_beebjit.uf2 (or, with --master, presto_master.uf2): fetches the
-# pinned toolchain and Pico SDK into deps/, downloads flicker-free Elite, and builds the Presto
-# firmware.
+# From a fresh clone to the Presto firmware: fetches the pinned toolchain and Pico SDK into deps/,
+# the machines' ROMs and flicker-free Elite, and builds the dual-boot firmware, both machines and
+# the launcher in one .uf2 (build-dual-boot/presto_dual_boot.uf2, docs/dual-boot.md), the machine
+# chosen on the web panel.
 #
-#   scripts/setup.sh [--apt] [--gxr] [--demos] [--master [--disc=NAME]] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--gxr] [--demos] [--beeb | --master [--disc=NAME]] [--no-build] [--flash]
 #
 #   --apt        install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
 #   --gxr        also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
 #   --demos      also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
-#   --master     the BBC Master 128 instead (Kieran Connell's emulator): fetches the MOS 3.20 ROMs
-#                into roms/mos3.20 and the Master test discs, builds build-master/presto_master.uf2
+#   --beeb       the BBC Model B alone (beebjit): builds build/presto_beebjit.uf2
+#   --master     the BBC Master 128 alone (Kieran Connell's emulator): builds build-master/presto_master.uf2
 #   --disc=NAME  (--master) the disc to build in, from discs/ (default
 #                elite-master-flicker-free-sng47.ssd): pop-beeb.ssd, bs-scr-beeb.ssd, bs-twisted.ssd,
 #                EvilIn11.ssd, arcadians.ssd, or your own .ssd
@@ -17,7 +18,8 @@
 #   --flash      after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
 #
 # Re-running is safe: anything already fetched is kept. Afterwards, ". deps/env.sh" sets up a shell
-# for rebuilding with "ninja -C build presto_beebjit" (the Master: "ninja -C build-master").
+# for rebuilding with "scripts/build-dual-boot.sh" (--beeb: "ninja -C build presto_beebjit", --master:
+# "ninja -C build-master").
 set -e
 
 SDK_TAG=2.2.0
@@ -35,20 +37,23 @@ ROOT=$(cd "$ROOT" && pwd $PWD_OPT)
 DEPS=${DEPS:-$ROOT/deps}
 mkdir -p "$DEPS" "$ROOT/deps"
 DEPS=$(cd "$DEPS" && pwd $PWD_OPT)
-DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MASTER=0; DISC=elite-master-flicker-free-sng47.ssd
+DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MACH=both; DISC=; DISC_DEFAULT=elite-master-flicker-free-sng47.ssd
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
     --gxr) DO_GXR=1 ;;
     --demos) DO_DEMOS=1 ;;
-    --master) MASTER=1 ;;
+    --beeb) MACH=beeb ;;
+    --master) MACH=master ;;
     --disc=*) DISC=${a#--disc=} ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
+[ -z "$DISC" ] || [ $MACH = master ] || { echo "--disc needs --master (the dual-boot Master boots Elite)"; exit 1; }
+DISC=${DISC:-$DISC_DEFAULT}
 
 say() { printf '\n== %s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -147,7 +152,7 @@ if [ $DO_DEMOS = 1 ]; then
 fi
 
 # ---- The Master 128: its MOS 3.20 ROMs and test discs
-if [ $MASTER = 1 ]; then
+if [ $MACH != beeb ]; then
   mkdir -p "$ROOT/roms/mos3.20" "$ROOT/discs"
   for r in mos dfs viewsht edit basic4 adfs view terminal; do
     [ -f "$ROOT/roms/mos3.20/$r.rom" ] && continue
@@ -177,7 +182,13 @@ fi
 [ $DO_BUILD = 1 ] || { say "Fetched everything; build with: . deps/env.sh && cmake ... (see README)"; exit 0; }
 
 # ---- Build
-if [ $MASTER = 1 ]; then
+if [ $MACH = both ]; then
+  have ninja || { echo "the dual-boot build needs Ninja (or build one machine: --beeb, --master)"; exit 1; }
+  say "Building the dual-boot firmware (both machines and the launcher)"
+  SDK_CMAKE_ARGS="$SDK_TOOLS" "$ROOT/scripts/build-dual-boot.sh"
+  UF2=$ROOT/build-dual-boot/presto_dual_boot.uf2
+  BOOTS="Elite on the BBC Master 128 or the Model B (the choice is on the web panel)"
+elif [ $MACH = master ]; then
   say "Building presto_master with $DISC"
   cmake -S "$ROOT" -B "$ROOT/build-master" $GEN -DMACHINE=master \
     -DPICO_SDK_PATH="$PICO_SDK_PATH" -DCMAKE_BUILD_TYPE=Release -DBEEB_DISC="$ROOT/discs/$DISC" $SDK_TOOLS >/dev/null
