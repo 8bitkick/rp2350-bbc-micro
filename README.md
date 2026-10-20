@@ -63,7 +63,7 @@ Then put it on your WiFi, once, with the Presto plugged in over USB:
 
 - **Keyboard:** the machine's own, a Model B's or a Master 128's with its numeric keypad, with live
   CAPS LOCK and SHIFT LOCK lights; or type on your own keyboard, or send a line of text.
-- **Discs:** the disc in the drive, and **Boot**. **Download game** offers ten classics from the
+- **Discs:** the disc in the drive on one line, with **Boot**. **Download game** offers ten classics from the
   [Stairway to Hell](https://www.stairwaytohell.com/) archive, or searches all 1,600 of its discs, as
   [jsbeeb](https://github.com/mattgodbolt/jsbeeb) does (your browser fetches them from the archive's
   mirror). Or drop in a `.ssd`, `.dsd` or `.zip` (or a link to one), or pick one from the SD card.
