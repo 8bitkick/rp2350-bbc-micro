@@ -30,7 +30,7 @@
 // ---- Replies
 
 char *api_buffer(size_t *size) {
-    static char s_buf[2048];
+    static char s_buf[8192];
     *size = sizeof s_buf;
     return s_buf;
 }
