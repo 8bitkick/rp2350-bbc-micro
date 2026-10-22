@@ -147,8 +147,8 @@ is elite-agent (its `presto/app/build.sh`).
 ### What a plugin is
 
 A raw image for the slot (`elite-agent.bin`, 404 KB): a header, the code and constants, the
-first values of its `.data`, and, if it carries one, a disc. The header (`struct app_header`, 148
-bytes, `APP_API_VERSION` 1):
+first values of its `.data`, and, if it carries one, a disc. The header (`struct app_header`, 152
+bytes, `APP_API_VERSION` 2):
 
 | | |
 |---|---|
@@ -156,14 +156,15 @@ bytes, `APP_API_VERSION` 1):
 | `machine` | the `enum machine_model` it runs on (0: either) |
 | `name`, `version` | shown as they are: "elite-agent", "076af7c" |
 | `image_size`, `crc` | the image's bytes from the header on, and their CRC-32 (zlib's, the field taken as 0): what an install and every boot check |
-| `data_load`, `data_size`, `bss_size` | its RAM: `.data` copied from `data_load`, `.bss` zeroed, at `APP_RAM_BASE` |
+| `data_load`, `data_size`, `bss_size` | its RAM: `.data` copied from `data_load`, `.bss` zeroed, at `ram_base` |
 | `stack_size` | the stack it needs (it gets `APP_STACK_SIZE`, 3 KB, of core 0's) |
 | `disc`, `disc_hash`, `disc_load`, `disc_size` | the disc it needs in drive 0: a name, a hash (FNV-1a, as `drive.c`'s), and the disc itself if it carries it |
 | `boot_image`, `init`, `frame`, `command`, `program_json` | the entry points, any of them NULL |
+| `ram_base` | where its RAM starts: `.data` then `.bss`, up to `APP_RAM_TOP` |
 
 The firmware hands `init` a `struct app_api`: `version` and `size` (it only ever grows at the
 end), `io` (the `machine_hook_io`: the machine's model, its RAM, keys and analogue inputs), `log`
-(a line to USB and the panel), `time_us`, `turbo_get` / `turbo_set`, and the plugin RAM area's
+(a line to USB and the panel), `time_us`, `turbo_get` / `turbo_set`, and the plugin's RAM,
 `ram` and `ram_size`.
 
 The rules:
@@ -173,10 +174,12 @@ The rules:
   maps a slot to `0x10000000` in 4 MB windows; the loader puts the top window (`ATRANS3`) back
   onto the flash's own top 4 MB, its reset value, so the plugin is where it was linked, cached. (The
   untranslated alias at `0x1C000000` is uncached: too slow to run code from.)
-- its `.data` and `.bss` are linked at `APP_RAM_BASE`, the fixed plugin RAM area at the top of the
-  SRAM's main 512 KB (72 KB, `0x2006E000`-`0x2007FFFF`). The Master's linker script ends its RAM
-  below it, so its heap never reaches it. The Model B has none: its JIT wants the SRAM. A plugin
-  that needs RAM is refused there.
+- its `.data` and `.bss` are linked at the top of the SRAM's main 512 KB, ending at `APP_RAM_TOP`
+  (`0x20080000`), and take only what they need, at most `APP_RAM_MAX` (72 KB): its build links it
+  twice, the second time at `APP_RAM_TOP` less its size, and puts that in `ram_base`. The Master's
+  heap stops below it (`app.c`'s `_sbrk`: the first allocation reads the slot's header); with no
+  plugin, or one refused, the heap has it all. The Model B has none: its JIT wants the SRAM. A
+  plugin that needs RAM is refused there.
 - it touches no hardware and calls nothing of the firmware's but `app_api`. It brings its own C
   library: newlib's string functions and libm (static), and its own printf and the few other
   things newlib would need its reentrancy structure and malloc for (elite-agent's
@@ -263,14 +266,15 @@ under that. It folds away (the page remembers).
 
 ### The RAM and the time
 
-The SRAM: the Master keeps the top 72 KB for the plugin (its RAM region ends at `0x2006E000`, the
-heap with it), in every Master build but one with a plugin compiled in (`APP_SOURCES`: that plugin's
-RAM is the firmware's own). That leaves the Master about 18 KB free at run time (`"free"` in
-`/api/status`), against 23 KB in the build with elite-agent compiled in and some 90 KB in a
-Master without either. Nothing had to move to the PSRAM. elite-agent takes 72,344 bytes of the
-73,728: its `.bss` (66 KB: the planner's tables, the galaxy, fair mode's tracks) and `.data`
-(6 KB, of which 5 KB is libgcc, libm and the string functions, run from RAM as the firmware runs
-its own: `app.ld`).
+The SRAM: the Master gives the plugin the top of the SRAM, as much as its header says it needs, up
+to 72 KB; the heap stops below it (`app.c`'s `_sbrk`), and has it all with no plugin or one
+refused. Not in a build with a plugin compiled in (`APP_SOURCES`: that plugin's RAM is the
+firmware's own). elite-agent built for the slot (without fair mode, which stays in the simulator
+and the lab: `presto/app/build.sh --fair` puts it back) takes 55,872 bytes: its `.bss` (49 KB: the
+planner's tables, the galaxy) and `.data` (5.5 KB, of which 5 KB is libgcc, libm and the string
+functions, run from RAM as the firmware runs its own: `app.ld`). That leaves the Master about 27 KB
+free at run time with it (`"free"` in `/api/status`), 83 KB with no plugin. Nothing had to move to
+the PSRAM.
 
 The flash: elite-agent's image is 404 KB of the slot's 1 MB: 203 KB of code and constants (61 KB
 of them its loading screen) and its 200 KB disc. The Master's own image is 787 KB without it,

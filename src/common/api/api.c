@@ -140,8 +140,7 @@ static void status_json(char *j, size_t size) {
     unsigned c0, c1, speed;
     machine_perf_get(&c0, &c1, &speed);
     struct mallinfo m = mallinfo();
-    extern char __StackLimit;
-    unsigned free_ram = (unsigned) (m.fordblks + (unsigned) (&__StackLimit - (char *) sbrk(0)));
+    unsigned free_ram = (unsigned) (m.fordblks + (unsigned) (app_heap_limit() - (char *) sbrk(0)));
     char disc[80];
     const char *dn = drive0_name();
     if (dn) api_json_str(disc, sizeof disc, dn);

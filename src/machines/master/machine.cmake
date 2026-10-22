@@ -62,18 +62,10 @@ string(REPLACE "EXCLUDE_FILE(*libgcc.a: *libc.a:*lib_a-mem*.o *libm.a:) .text*"
 if (MEMMAP_NEW STREQUAL MEMMAP)
     message(FATAL_ERROR "SDK linker script not as expected")
 endif()
-# The app RAM area (src/common/app_api.h): the top APP_RAM_SIZE of the SRAM's main 512 KB, out
-# of the heap's reach (the RAM region ends below it), for the app run alongside. Not in a build
-# with an app built in (APP_SOURCES): that one's RAM is the firmware's own.
+# The app's RAM (src/common/app_api.h): the top of the SRAM's main 512 KB, as much as the app in the
+# slot needs, kept from the heap at run time (app.c's _sbrk). Not in a build with an app built in
+# (APP_SOURCES): that one's RAM is the firmware's own.
 if (NOT APP_SOURCES)
-    file(STRINGS ${COMMON_DIR}/app_api.h APP_RAM_LINE REGEX "^#define APP_RAM_SIZE \\(([0-9]+) \\* 1024\\)")
-    string(REGEX REPLACE ".*\\(([0-9]+) \\* 1024\\).*" "\\1" APP_RAM_KB "${APP_RAM_LINE}")
-    math(EXPR RAM_KB "512 - ${APP_RAM_KB}")
-    string(REPLACE "RAM(rwx) : ORIGIN =  0x20000000, LENGTH = 512k" "RAM(rwx) : ORIGIN =  0x20000000, LENGTH = ${RAM_KB}k" MEMMAP_APP "${MEMMAP_NEW}")
-    if (MEMMAP_APP STREQUAL MEMMAP_NEW)
-        message(FATAL_ERROR "SDK linker script or app_api.h not as expected")
-    endif()
-    set(MEMMAP_NEW "${MEMMAP_APP}")
     target_compile_definitions(presto_master PRIVATE APP_RAM=1)
 endif()
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/memmap_presto_master.ld "${MEMMAP_NEW}")
