@@ -27,6 +27,8 @@ const struct machine_boot_image *app_boot_image(void);
 void app_json(char *out, uint32_t size, bool full);
 void app_text(char *out, uint32_t size);
 uint32_t app_flash_used(void);
+// the heap's limit: the top of the SRAM, less the slot's app's RAM (the first allocation sets it)
+char *app_heap_limit(void);
 // Installing an app into the slot, as it arrives (POST /api/app; "!app install <size>" over USB:
 // app_usb_install): begin with its size (false: refused, why), its bytes in order (false: more
 // than it said, or the flash failed), then end (false: it isn't a good app, why; the slot is left

@@ -128,7 +128,7 @@ plugin alongside it:
 │ │ USB, web server, WiFi, SD card      │        │ sound, LEDs              │  │
 │ │ the plugin's frame, between frames  │        │                          │  │
 │ └─────────────────────────────────────┘        └──────────────────────────┘  │
-│ SRAM 520 KB   the machine, the framebuffer; the plugin's 72 KB (Master)      │
+│ SRAM 520 KB   the machine, the framebuffer; the plugin's RAM (Master)        │
 │ PSRAM 8 MB    ROMs, sideways RAM, discs; the Model B's JIT code              │
 └───────┬─────────────────────┬─────────────────┬─────────────────┬────────────┘
         ▼                     ▼                 ▼                 ▼
@@ -141,7 +141,7 @@ plugin alongside it:
   as if it were alone in the flash. The panel's Machine switch saves a new choice and restarts.
 - **The plugin** is an RP2350 program built on its own against `src/common/app_api.h`, and installed
   into slot 2 over WiFi or USB. Core 0 calls it between frames. It reads the BBC's RAM and presses
-  its keys, and it gets the top 72 KB of SRAM on the Master. A plugin that hangs or faults twice in
+  its keys, and on the Master it gets as much SRAM as it needs, up to 72 KB (the rest goes to the heap). A plugin that hangs or faults twice in
   a row is turned off at the next boot.
 - **The shared area** sits outside every image, so the save discs, the WiFi network and the
   settings survive flashing any `.uf2`.

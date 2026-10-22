@@ -244,14 +244,13 @@ bool machine_usb_command(const char *cmd)
     if (!strncmp(cmd, "squeeze ", 8)) {
         static void *held[512];
         static int n;
-        extern char __StackLimit;
         if (!strcmp(cmd + 8, "off")) {
             while (n) free(held[--n]);
         } else {
             unsigned want = (unsigned) atoi(cmd + 8);
             for (;;) {
                 struct mallinfo mi = mallinfo();
-                unsigned left = (unsigned) (mi.fordblks + (unsigned) (&__StackLimit - (char *) sbrk(0)));
+                unsigned left = (unsigned) (mi.fordblks + (unsigned) (app_heap_limit() - (char *) sbrk(0)));
                 if (left <= want + 256 || n == 512) break;
                 void *p = malloc(256);
                 if (!p) break;

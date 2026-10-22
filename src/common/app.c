@@ -130,6 +130,60 @@ static bool in_slot(uint32_t at, uint32_t size, uint32_t image_size) {
     return at >= APP_SLOT_XIP && at - APP_SLOT_XIP <= image_size && size <= image_size - (at - APP_SLOT_XIP);
 }
 
+// ---- The app's RAM: the top of the SRAM, kept from the heap. The heap's limit is set at the first
+// allocation (before the loader runs) from the slot's header, if it looks like an app with RAM; the
+// loader gives it back to the heap if it refuses the app (app_ram_release)
+
+#if APP_RAM
+static char *s_heap_end, *s_heap_limit;
+
+// where the slot's app wants its RAM (APP_RAM_TOP: nowhere); only its header looked at
+static uint32_t slot_ram_base(void) {
+    qmi_hw->atrans[3] = (0x400u << QMI_ATRANS3_SIZE_LSB) | (0xc00u << QMI_ATRANS3_BASE_LSB);    // (app_load's)
+    const struct app_header *h = (const struct app_header *) APP_SLOT_XIP;
+    uint32_t need = h->data_size + h->bss_size;
+    if (h->magic != APP_MAGIC || h->api_version != APP_API_VERSION || !need || need > APP_RAM_MAX ||
+        h->ram_base < APP_RAM_TOP - APP_RAM_MAX || h->ram_base + need > APP_RAM_TOP || (h->ram_base & 7))
+        return APP_RAM_TOP;
+    return h->ram_base;
+}
+
+// the heap, up to the app's RAM (the SDK's own _sbrk goes up to the stacks, __StackLimit)
+void *_sbrk(int incr) {
+    extern char end;
+    if (!s_heap_end) {
+        s_heap_end = &end;
+        s_heap_limit = (char *) slot_ram_base();
+    }
+    char *prev = s_heap_end;
+    if (s_heap_end + incr > s_heap_limit) return (char *) -1;
+    s_heap_end += incr;
+    return prev;
+}
+
+char *app_heap_limit(void) {
+    if (!s_heap_end) free(malloc(1));       // (the limit is set by the first allocation)
+    return s_heap_limit;
+}
+
+static void app_ram_release(void) {
+    s_heap_limit = (char *) APP_RAM_TOP;
+}
+
+static bool ram_fits(const struct app_header *h) {
+    return h->ram_base >= APP_RAM_TOP - APP_RAM_MAX && h->ram_base + h->data_size + h->bss_size <= APP_RAM_TOP &&
+           !(h->ram_base & 7) && (char *) h->ram_base >= s_heap_end && (char *) h->ram_base >= app_heap_limit();
+}
+#else
+char *app_heap_limit(void) {
+    extern char __StackLimit;
+    return &__StackLimit;
+}
+
+static void app_ram_release(void) {}
+static bool ram_fits(const struct app_header *h) { (void) h; return false; }
+#endif
+
 // the slot's app checked (why not in s_why): true to take it
 static bool check_slot(const struct app_header *h, uint32_t model, const uint8_t *disc, uint32_t disc_size) {
     if (h->magic == 0xffffffffu) {
@@ -167,13 +221,19 @@ static bool check_slot(const struct app_header *h, uint32_t model, const uint8_t
         return false;
     }
 #if APP_RAM
-    const uint32_t ram = APP_RAM_SIZE;
+    const uint32_t ram = APP_RAM_MAX;
 #else
     const uint32_t ram = 0;
 #endif
-    if (h->data_size + h->bss_size > ram || (h->data_size && !in_slot(h->data_load, h->data_size, h->image_size))) {
+    uint32_t need = h->data_size + h->bss_size;
+    if (need > ram || (h->data_size && !in_slot(h->data_load, h->data_size, h->image_size))) {
         refuse("refused", "it needs %lu KB of app RAM, this machine has %lu KB",
-               (unsigned long) (h->data_size + h->bss_size + 1023) / 1024, (unsigned long) ram / 1024);
+               (unsigned long) (need + 1023) / 1024, (unsigned long) ram / 1024);
+        return false;
+    }
+    if (need && !ram_fits(h)) {
+        refuse("refused", "its RAM isn't where it can be (%08lx, %lu bytes: the firmware's heap there already?)",
+               (unsigned long) h->ram_base, (unsigned long) need);
         return false;
     }
     if (h->stack_size > APP_STACK_SIZE) {
@@ -189,7 +249,7 @@ static bool check_slot(const struct app_header *h, uint32_t model, const uint8_t
     return true;
 }
 
-void app_load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
+static void load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
     // the slot at its own address: a machine booted into its slot by the launcher sees the flash
     // through the boot ROM's address translation, its slot at 0x10000000; the top 4 MB window
     // goes back to the flash's own top 4 MB (its reset value), so the app runs where it was
@@ -219,8 +279,8 @@ void app_load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
         s_app = h;
         s_id = h->crc;
         // its RAM
-        memcpy((void *) APP_RAM_BASE, (const void *) h->data_load, h->data_size);
-        memset((uint8_t *) APP_RAM_BASE + h->data_size, 0, h->bss_size);
+        memcpy((void *) h->ram_base, (const void *) h->data_load, h->data_size);
+        memset((uint8_t *) h->ram_base + h->data_size, 0, h->bss_size);
         if (h->disc_size && disc && disc_size) {
             *disc = (const uint8_t *) h->disc_load;
             *disc_size = h->disc_size;
@@ -230,6 +290,11 @@ void app_load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
     s_why[0] = 0;
     printf("APP %.24s %.24s (%s)%s%.32s\n", s_app->name, s_app->version, s_builtin ? "built in" : "from the app slot",
            s_app->disc[0] ? ", disc " : "", s_app->disc);
+}
+
+void app_load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
+    load(model, disc, disc_size);
+    if (!s_app || s_builtin) app_ram_release();     // (no app from the slot: the heap has its RAM)
 }
 
 // ---- Calling it
@@ -243,7 +308,7 @@ static void start(const struct machine_hook_io *io) {
         .version = APP_API_VERSION, .size = sizeof s_api, .io = io, .log = api_log, .time_us = api_time_us,
         .turbo_get = machine_turbo_get, .turbo_set = machine_turbo_set,
 #if APP_RAM
-        .ram = (void *) APP_RAM_BASE, .ram_size = APP_RAM_SIZE,
+        .ram = s_builtin ? NULL : (void *) s_app->ram_base, .ram_size = s_builtin ? 0 : APP_RAM_TOP - s_app->ram_base,
 #endif
     };
     // the watchdog for its first minute, unless the machine runs one of its own (the boot guard's
@@ -532,7 +597,7 @@ void app_json(char *o, uint32_t size, bool full) {
     if (full && n > 0 && (uint32_t) n < size) {
         uint32_t ram = s_app && !s_builtin ? s_app->data_size + s_app->bss_size : 0;
 #if APP_RAM
-        const uint32_t ram_size = APP_RAM_SIZE;
+        const uint32_t ram_size = APP_RAM_MAX;
 #else
         const uint32_t ram_size = 0;
 #endif
