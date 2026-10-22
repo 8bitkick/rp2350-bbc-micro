@@ -293,6 +293,26 @@ static void __not_in_flash_func(panel_pio_row)(void* p,
 
 static uint64_t s_slept_us;
 static bool s_turbo = PRESTO_BEEBJIT_TURBO;
+/* A program being installed (machine_install_screen): the machine waits in
+ * its pacing sleep, the front end going on (the upload); the panel keeps its
+ * last picture, the progress goes to the USB channel.
+ */
+static volatile bool s_hold;
+
+void
+machine_install_screen(const char* p_what, int permille) {
+  static int s_tenth = -1;
+  if (permille < 0) {
+    s_hold = false;
+    s_tenth = -1;
+    return;
+  }
+  s_hold = true;
+  if ((permille / 100) != s_tenth) {
+    s_tenth = (permille / 100);
+    (void) printf("APP %s %d%%\n", p_what, (permille / 10));
+  }
+}
 /* Turbo: beebjit's clock runs on by the time it would have slept, so it
  * paces itself as if it had (and has nothing to catch up when turbo ends).
  */
@@ -438,6 +458,20 @@ void
 beebjit_host_sleep_us(uint64_t us) {
   uint64_t t0;
   uint64_t end;
+  while (s_hold) {
+    /* (the front end's frame too, at the frames' pace: the network acts on
+     * a request between frames, the install's end and the restart among them)
+     */
+    static uint64_t s_front_at;
+    uint64_t now = time_us_64();
+    presto_machine_poll();
+    if (now >= s_front_at) {
+      s_front_at = (now + 20000);
+      frontend_frame();
+    }
+    sleep_us(1000);
+    watchdog_update();
+  }
   if (s_turbo) {
     /* Every frame still emulated and drawn, just no waiting. */
     s_turbo_time_us += us;

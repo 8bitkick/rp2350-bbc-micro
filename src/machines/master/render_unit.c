@@ -250,6 +250,11 @@ bool panel_splash_picture(void)
     return true;
 }
 
+void panel_splash_blank(void)
+{
+    for (int y = 0; y < k_rows; y++) memset(s_fb[y], 0, (k_row_words - 1) * 4);
+}
+
 // what's loading and how far (of 1000): the status line and the bar, across the screen
 void panel_splash_status(const char *what, int permille)
 {

@@ -68,6 +68,12 @@ void board_sd_list_discs(void);
 bool board_sd_load_disc(const char *name);
 // call fn for each .ssd / .dsd on the card; the count, or -1 with no card
 int board_sd_each_disc(void (*fn)(const char *name, uint32_t size, void *ctx), void *ctx);
+// the same a disc at a time, across calls (a reply made as it goes out): begin (NULL: no card), then next
+// until it says there are no more, then end. Each listing its own; one ends early if the card is mounted
+// again meanwhile (another card operation)
+void *board_sd_discs_begin(void);
+bool board_sd_discs_next(void *it, char *name, uint32_t name_size, uint32_t *size);
+void board_sd_discs_end(void *it);
 // write an image to the card's root (a plain .ssd/.dsd name)
 bool board_sd_save(const char *name, const uint8_t *data, uint32_t size);
 // "!put <name> <size>": receive a disc image over USB and write it to the card

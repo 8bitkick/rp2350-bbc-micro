@@ -11,6 +11,8 @@
 // it the machine (machine_if.h): keys, turbo, the figures.
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
+#include <unistd.h>
 #include <string.h>
 
 #include "pico/stdlib.h"
@@ -37,6 +39,9 @@
 #include "app.h"
 #include "disc.h"
 #include "panel.h"
+#if HANG_TRAP
+#include "hang_trap.h"
+#endif
 
 // Built in (embedded.c, generated): the Master's ROMs and the disc.
 extern const uint8_t rom_mos[16384], rom_dfs[16384], rom_viewsht[16384], rom_edit[16384];
@@ -83,7 +88,13 @@ static void __not_in_flash_func(core1_main)(void)
 #if WITH_SOUND
     audio_init();    // its DMA interrupt runs on this core
 #endif
+#if HANG_TRAP
+    ht_init_core1();
+#endif
     for (;;) {
+#if HANG_TRAP
+        ht_beat1++;
+#endif
         if (vs_available(&s_stream) == 0) {
 #if WITH_AMBIENT
             if (board_leds_due()) {
@@ -160,6 +171,7 @@ static uint32_t s_core0_pct, s_core1_pct, s_speed_permille;
 static uint32_t s_frames;
 static bool s_turbo;
 static bool s_turbo_ended;
+static bool s_hold;             // a program being installed: the machine paused (machine_install_screen)
 static bool s_was_reset;
 static struct machine_hook_io s_hook_io;     // what the app run alongside sees (frame_hook)
 
@@ -177,6 +189,23 @@ uint32_t machine_psram_used(void)
 bool machine_turbo_get(void)
 {
     return s_turbo;
+}
+
+void machine_install_screen(const char *what, int permille)
+{
+    if (permille < 0) {
+        // over: on from where it was, paced from now (its picture back with the next frame)
+        if (s_hold) s_turbo_ended = true;
+        s_hold = false;
+        return;
+    }
+    if (!s_hold) {
+        // core 1 draws what's in the stream and goes idle: then the framebuffer is ours
+        s_hold = true;
+        while (vs_available(&s_stream)) __sev();
+        panel_splash_blank();
+    }
+    panel_splash_status(what, permille);
 }
 
 void machine_turbo_set(bool on)
@@ -204,6 +233,35 @@ void machine_overlay_set(bool on)
 
 bool machine_usb_command(const char *cmd)
 {
+#if HANG_TRAP
+    // "!hangtest": core 0 stuck on purpose (interrupts on), for the trap to catch and report at the next boot
+    if (!strcmp(cmd, "hangtest")) {
+        printf("HANGTRAP test: core 0 spinning\n");
+        for (volatile uint32_t spin = 0;; spin++) ;
+    }
+    // "!squeeze <bytes>": the heap taken until about that much is left, "!squeeze off" given back (tools/api_stress.py
+    // --squeeze: the web server and an install with the heap run out must refuse, not stop the board)
+    if (!strncmp(cmd, "squeeze ", 8)) {
+        static void *held[512];
+        static int n;
+        extern char __StackLimit;
+        if (!strcmp(cmd + 8, "off")) {
+            while (n) free(held[--n]);
+        } else {
+            unsigned want = (unsigned) atoi(cmd + 8);
+            for (;;) {
+                struct mallinfo mi = mallinfo();
+                unsigned left = (unsigned) (mi.fordblks + (unsigned) (&__StackLimit - (char *) sbrk(0)));
+                if (left <= want + 256 || n == 512) break;
+                void *p = malloc(256);
+                if (!p) break;
+                held[n++] = p;
+            }
+        }
+        printf("SQUEEZE holding %d x 256 bytes\n", n);
+        return true;
+    }
+#endif
     (void)cmd;
     return false;   // none of its own
 }
@@ -251,6 +309,10 @@ static void frame_hook(struct machine *m)
             .key = hook_key, .analogue = hook_analogue, .resets = io->resets,
         };
     }
+#if HANG_TRAP
+    ht_beat0++;
+    { static uint32_t n; if (++n % 250 == 0) ht_report(); }
+#endif
     app_frame(io);
 }
 
@@ -313,6 +375,9 @@ static void run(void)
         sleep_ms(300);      // (a moment at 100%, not the rest of a fixed 3 s)
     }
     multicore_launch_core1(core1_main);
+#if HANG_TRAP
+    ht_init_core0();
+#endif
     machine_autoboot(m);
     s_was_reset = false;
     printf("# BBC Master on Presto: %lu MHz, machine %u bytes, free heap from %p, PSRAM to %p\n",
@@ -338,6 +403,18 @@ static void run(void)
             // Real time from here: no catching up the time turbo ran ahead.
             s_turbo_ended = false;
             t0 = now - m->cpu.cycles / 2;
+        }
+        if (s_hold) {
+            // a program being installed: the machine waits, the front end goes on (the upload), its frame's work
+            // too at the frames' pace (the network acts on a request between frames: the install's end, the restart)
+            static uint64_t front_at;
+#if HANG_TRAP
+            ht_beat0++;         // (no frames, but going round: not a hang)
+#endif
+            presto_machine_poll();
+            if (now >= front_at) front_at = now + 20000, frontend_frame();
+            sleep_us(100);
+            continue;
         }
         uint64_t due = s_turbo ? (m->cpu.cycles + 40000) : (now - t0) * 2;   // 2 MHz
         if (m->cpu.cycles >= due) {

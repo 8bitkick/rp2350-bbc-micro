@@ -207,6 +207,33 @@ int board_sd_each_disc(void (*fn)(const char *name, uint32_t size, void *ctx), v
     return n;
 }
 
+void *board_sd_discs_begin(void) {
+    if (!mount()) return NULL;
+    DIR *dir = malloc(sizeof *dir);
+    if (dir && f_opendir(dir, "") != FR_OK) {
+        free(dir);
+        dir = NULL;
+    }
+    return dir;
+}
+
+bool board_sd_discs_next(void *it, char *name, uint32_t name_size, uint32_t *size) {
+    FILINFO info;
+    while (it && f_readdir(it, &info) == FR_OK && info.fname[0]) {
+        if (info.fattrib & AM_DIR || !is_disc_name(info.fname)) continue;
+        snprintf(name, name_size, "%s", info.fname);
+        *size = (uint32_t) info.fsize;
+        return true;
+    }
+    return false;
+}
+
+void board_sd_discs_end(void *it) {
+    if (!it) return;
+    f_closedir(it);
+    free(it);
+}
+
 static void print_disc(const char *name, uint32_t size, void *ctx) {
     printf("DISC %s %u\n", name, (uint) size);
 }

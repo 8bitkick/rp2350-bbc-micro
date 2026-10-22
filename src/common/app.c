@@ -313,12 +313,16 @@ static struct {
     uint8_t *sector, *first;    // the sector filling up; the header's, written last
 } s_in;
 
-// the app stopped, before its slot is written over: nothing more is called there
+// the app stopped, before its slot is written over: nothing more is called there, and the keys it
+// held let go (they stayed down: the game flew on, a roll held, through the upload)
 static void stop_app(const char *state) {
     if (s_probation) {
         watchdog_disable();
         s_probation = 0;
     }
+    if (s_app)
+        for (int row = 0; row < 8; row++)           // (the BBC's matrix: 8 rows of 10)
+            for (int col = 0; col < 10; col++) machine_key(row << 4 | col, false);
     s_app = NULL;
     snprintf(s_state, sizeof s_state, "%s", state);
 }
@@ -337,6 +341,7 @@ bool app_install_begin(uint32_t size, char *why, uint32_t why_size) {
         s_in.sector = malloc(FLASH_SECTOR_SIZE);
         s_in.first = malloc(FLASH_SECTOR_SIZE);
         if (!s_in.sector || !s_in.first) no = "no RAM for it";
+        else memset(s_in.first, 0, FLASH_SECTOR_SIZE);      // (no header yet: the install screen asks)
     }
     if (no) {
         if (!s_in.busy) install_free();
@@ -348,6 +353,7 @@ bool app_install_begin(uint32_t size, char *why, uint32_t why_size) {
     s_in.got = 0;
     stop_app("installing");
     s_why[0] = 0;
+    machine_install_screen("INSTALLING A PROGRAM", 0);     // (the machine paused till the restart)
     // no app from here until it's all there and checked: the header's sector goes first
     mem_flash_write_sector(APP_SLOT_OFFSET, NULL, 0);
     printf("APP installing %lu bytes\n", (unsigned long) size);
@@ -375,7 +381,17 @@ bool app_install_data(const uint8_t *p, uint32_t n) {
         s_in.got += k;
         p += k;
         n -= k;
-        if ((s_in.got % FLASH_SECTOR_SIZE == 0 || s_in.got == s_in.size) && !install_sector()) return false;
+        if ((s_in.got % FLASH_SECTOR_SIZE == 0 || s_in.got == s_in.size)) {
+            if (!install_sector()) return false;
+            if (s_in.got % (64 * 1024) < FLASH_SECTOR_SIZE) printf("APP installing: %lu of %lu bytes\n", (unsigned long) s_in.got, (unsigned long) s_in.size);
+            // on the screen: its name and version once its header's here, and how far
+            const struct app_header *h = (const struct app_header *) s_in.first;
+            char what[40];
+            if (h->magic == APP_MAGIC) snprintf(what, sizeof what, "INSTALLING %.12s %.8s", h->name, h->version);
+            else snprintf(what, sizeof what, "INSTALLING A PROGRAM");
+            for (char *c = what; *c; c++) if (*c >= 'a' && *c <= 'z') *c -= 32;
+            machine_install_screen(what, (int) ((uint64_t) s_in.got * 1000 / s_in.size));
+        }
     }
     return true;
 }
@@ -383,6 +399,7 @@ bool app_install_data(const uint8_t *p, uint32_t n) {
 void app_install_abort(const char *why) {
     if (!s_in.busy) return;
     install_free();
+    machine_install_screen(NULL, -1);       // (the machine carries on, with no app until the next boot)
     snprintf(s_state, sizeof s_state, "none");
     snprintf(s_why, sizeof s_why, "the last install failed: %s", why);
     printf("APP install failed: %s\n", why);
@@ -417,6 +434,7 @@ bool app_install_end(char *why, uint32_t why_size) {
         return false;
     }
     printf("APP installed %.24s %.24s (for the %s): restarting\n", h->name, h->version, model_name(h->machine));
+    machine_install_screen("RESTARTING", 1000);
     install_free();
     // (an app the guard turned off: this one's another, or the same again, wanted on)
     if (system_app_off()) system_set_app_off(0);

@@ -39,6 +39,12 @@ forgets the save disc for good.
 Both machines in one firmware, chosen from the web panel: `scripts/build-dual-boot.sh` ->
 `build-dual-boot/presto_dual_boot.uf2` (a launcher and the two plain builds; docs/dual-boot.md).
 
+`-DHANG_TRAP=ON` (the Master) reports where a freeze was at the next boot (`src/common/hang_trap.c`;
+`!hangtest` makes one, `!squeeze <bytes>` runs the heap down). `tools/api_stress.py <address> --usb <port>`
+loads the web API: the disc list against the card's (and its speed), one at a time, several at once,
+abuse, the heap after each; `--install <app.bin>` install-and-restart cycles; `--squeeze <bytes>` all of
+it with the heap run down (a trap build), where requests may fail but the board must go on answering.
+
 Flash by copying the `.uf2` to the RP2350 drive. To get the drive: hold BOOT and tap RESET, send
 `!bootsel` over USB, or open the USB serial port at 1200 baud. `BOOT_GUARD` (on by default)
 catches a build that hangs or faults at boot, and reports where it died over USB, still accepting
