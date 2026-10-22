@@ -512,6 +512,12 @@ typedef struct conn {
     uint32_t out_len, out_sent;
     const uint8_t *flash_body;
     uint32_t flash_len, flash_sent;
+    // GET /api/discs: the card's discs made as they go out, a chunk at a time into out[] (any number of
+    // them: a 2 KB reply held ~50, and dropped the rest without a word), from one walk of the card's
+    // directory (list_dir, open across the chunks: walking it again for each, the machine stalled)
+    bool listing;
+    uint32_t list_n;
+    void *list_dir;
     uint32_t idle_polls;
     uint32_t accepted_us;   // when it connected: the oldest unused one is evicted first
 } conn_t;
@@ -536,6 +542,7 @@ static void conn_free(conn_t *c) {
     }
     if (c->route == R_DISC && c->state != C_SEND && upload_busy) upload_busy = false;
     if (c->route == R_APP && c->state <= C_BODY) app_install_abort("the upload stopped");
+    board_sd_discs_end(c->list_dir);        // (a disc list dropped halfway)
     free(c->out);
     free(c);
     conn_count--;
@@ -554,14 +561,39 @@ static void conn_close(conn_t *c) {
     conn_free(c);
 }
 
+// the disc list's next chunk into out[]: the next discs, while one more surely fits (an entry is at most ~120 bytes:
+// the name quoted in 80), then the end once there are no more
+#define LIST_CHUNK 1024
+static void list_refill(conn_t *c) {
+    uint32_t used = 0;
+    char name[256], q[80];
+    uint32_t size;
+    bool more = c->list_dir != NULL;
+    while (more && used + 160 < LIST_CHUNK && (more = board_sd_discs_next(c->list_dir, name, sizeof name, &size))) {
+        api_json_str(q, sizeof q, name);
+        used += (uint32_t) snprintf(c->out + used, LIST_CHUNK - used, "%s{\"name\":%s,\"size\":%u}", c->list_n++ ? "," : "", q, (unsigned) size);
+    }
+    if (!more) {
+        used += (uint32_t) snprintf(c->out + used, LIST_CHUNK - used, "],\"card\":%s}", c->list_dir ? "true" : "false");
+        board_sd_discs_end(c->list_dir);
+        c->list_dir = NULL;
+        c->listing = false;
+    }
+    c->out_len = used, c->out_sent = 0;
+}
+
 // queue as much of the response as lwIP will take; close once it's all queued (lwIP sends what's
 // left before the FIN)
 static void send_more(conn_t *c) {
     struct tcp_pcb *pcb = c->pcb;
-    while (c->out_sent < c->out_len) {
-        uint32_t n = MIN(c->out_len - c->out_sent, tcp_sndbuf(pcb));
-        if (!n || tcp_write(pcb, c->out + c->out_sent, (u16_t) MIN(n, 0xffff), TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE) != ERR_OK) break;
-        c->out_sent += MIN(n, 0xffff);
+    for (;;) {
+        while (c->out_sent < c->out_len) {
+            uint32_t n = MIN(c->out_len - c->out_sent, tcp_sndbuf(pcb));
+            if (!n || tcp_write(pcb, c->out + c->out_sent, (u16_t) MIN(n, 0xffff), TCP_WRITE_FLAG_COPY | TCP_WRITE_FLAG_MORE) != ERR_OK) break;
+            c->out_sent += MIN(n, 0xffff);
+        }
+        if (c->out_sent < c->out_len || !c->listing) break;
+        list_refill(c);         // (all of that queued: the next chunk, while lwIP has room)
     }
     if (c->out_sent == c->out_len) {
         while (c->flash_sent < c->flash_len) {
@@ -573,7 +605,24 @@ static void send_more(conn_t *c) {
         }
     }
     tcp_output(pcb);
-    if (c->out_sent == c->out_len && c->flash_sent == c->flash_len) conn_close(c);
+    if (c->out_sent == c->out_len && c->flash_sent == c->flash_len && !c->listing) conn_close(c);
+}
+
+// GET /api/discs: the header and the list's start; send_more makes the rest as it goes
+static void respond_disc_list(conn_t *c) {
+    free(c->out);
+    c->out = malloc(LIST_CHUNK);
+    if (!c->out) {
+        conn_close(c);
+        return;
+    }
+    c->out_len = (uint32_t) snprintf(c->out, LIST_CHUNK, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                     "Cache-Control: no-store\r\nConnection: close\r\n\r\n{\"discs\":[");
+    c->out_sent = c->flash_sent = c->flash_len = 0;
+    c->listing = true, c->list_n = 0;
+    c->list_dir = board_sd_discs_begin();
+    c->state = C_SEND;
+    send_more(c);
 }
 
 static void respond(conn_t *c, int code, const char *type, const char *body, uint32_t body_len, bool gzip) {
@@ -639,6 +688,10 @@ void net_status_json(char *j, size_t size) {
 static void act(conn_t *c) {
     switch (c->route) {
         case R_API: {
+            if (!strcmp(c->cmd->name, "discs")) {       // (the card's discs, however many: made as they go out)
+                respond_disc_list(c);
+                break;
+            }
             size_t size;
             char *j = api_buffer(&size);
             char from[20];

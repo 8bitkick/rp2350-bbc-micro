@@ -40,6 +40,14 @@ set(VS_RING 8192 CACHE STRING "video stream ring, halfwords (a power of 2): 16 K
 target_compile_definitions(presto_master PRIVATE NDEBUG=1 VS_RING=${VS_RING}
         PRESTO_DISC_STAGE_OFFSET=0) # a disc is expanded into track data as it goes in (master_machine.c)
 target_link_libraries(presto_master PRIVATE pico_stdlib pico_multicore hardware_flash pico_flash)
+# -DHANG_TRAP=ON: a freeze diagnosed (src/common/hang_trap.c): each core sampled 1000 times a second, the
+# watchdog fed only while both make progress; a hang or a fault resets the board and the next boot
+# prints where the cores were (HANGTRAP lines, every 5 s)
+option(HANG_TRAP "Report where the firmware froze, at the next boot" OFF)
+if (HANG_TRAP)
+    target_sources(presto_master PRIVATE ${TOP_DIR}/src/common/hang_trap.c)
+    target_compile_definitions(presto_master PRIVATE HANG_TRAP=1)
+endif()
 
 # The machine and the renderer run from SRAM: the SDK's linker script keeps in flash what
 # it doesn't exclude; exclude these objects (and newlib's mem* functions, which this

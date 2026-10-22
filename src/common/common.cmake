@@ -14,6 +14,10 @@ function(common_setup TARGET)
             ${COMMON_DIR}/app.c             # a program built in alongside (machine_hook.h)
             )
     target_include_directories(${TARGET} PRIVATE ${COMMON_DIR} ${COMMON_DIR}/api)
+    # An allocation that fails comes back NULL, for the caller to deal with (a web reply dropped, an install
+    # refused), not the SDK's panic: that stopped the board for good, USB still there but silent (the freezes:
+    # the heap run out by the web server's replies and a plugin install's buffers)
+    target_compile_definitions(${TARGET} PRIVATE PICO_MALLOC_PANIC=0)
     target_link_libraries(${TARGET} PRIVATE pico_stdlib pico_multicore hardware_adc hardware_flash pico_flash)
     # -DSOUND=ON: the BBC's SN76489, made on core 1 (sound.c), from the bytes the machine
     # hands it (each machine wires its core's sound writes to audio_sn_write)
