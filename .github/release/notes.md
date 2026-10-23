@@ -1,10 +1,11 @@
-The BBC Master 128 and the BBC Model B in one firmware for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto). It boots the Master into Mark Moxon's flicker-free Elite, and [elite-agent v0.3](https://github.com/8bitkick/elite-agent/releases/tag/v0.3) starts playing it a few seconds later.
+The BBC Master 128 and the BBC Model B in one firmware for the [Pimoroni Presto](https://shop.pimoroni.com/products/presto). It boots the Master into Mark Moxon's flicker-free Elite, and [elite-agent v0.4](https://github.com/8bitkick/elite-agent/releases/tag/v0.4) starts playing it a few seconds later.
 
-**Install:** plug the Presto in over USB-C, hold **BOOT**, tap **RESET**, and drag `rp2350-bbc-micro-presto-v0.3.uf2` onto the **RP2350** drive that appears. It restarts by itself.
+**Install:** plug the Presto in over USB-C, hold **BOOT**, tap **RESET**, and drag `rp2350-bbc-micro-presto-v0.4.uf2` onto the **RP2350** drive that appears. It restarts by itself.
 
 - **BBC Master 128** (Kieran Connell's emulator) with Mark Moxon's flicker-free Elite (SNG47), the default.
 - **BBC Model B** (beebjit, with a JIT for the RP2350) with Mark Moxon's flicker-free Elite (disc version). Switch machines on the web panel.
-- **elite-agent v0.3** in the plugin slot: curious mode, playing on the Master as Commander JAMESON, already Deadly, and carrying on from its last save after a power-off. Remove or replace it from the web panel's Plugin section. This firmware takes plugins for app API 2 only: elite-agent v0.2 and older are refused.
+- **elite-agent v0.4** in the plugin slot: smoother, faster docking (efficient mode reaches Elite in about 24 game hours, a new record) and half the RAM of v0.3; curious mode, playing on the Master as Commander JAMESON, already Deadly, and carrying on from its last save after a power-off. Remove or replace it from the web panel's Plugin section. This firmware takes plugins for app API 2 only: elite-agent v0.2 and older are refused.
+- **Stack guard:** a plugin that overflows core 0's stack can no longer freeze the board. It faults, the Presto restarts by itself, and the plugin is turned off with the reason on the web panel.
 - **Web panel** at http://beeb.local/ once the Presto is on your WiFi (`tools/presto.py wifi secrets.py`, see the README): the machine's keyboard, discs from the SD card or the Stairway to Hell archive, the plugin's panel.
 - Games keep their saves in flash through a power-off (written at most once an hour, for the flash's sake: a power cut loses at most the last hour). Flashing this release replaces the Master's saves with the Deadly JAMESON; the Model B's saves are kept.
 

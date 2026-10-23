@@ -2,6 +2,6 @@
 # flicker-free Elite discs (setup.sh fetches them) by SHA-256. A release fails if any of them doesn't match.
 # The Master's save disc starts as its Elite disc with JAMESON.cmdr (a Deadly commander, saved as JAMESON)
 # added in Elite's E. directory (tools/save_disc.py): elite-agent loads it at the first dock.
-elite-agent v0.3 5bd045242cbda01e38dc44ea40c277af3000d0d70bd5213cb7523eb1d55297c5
+elite-agent v0.4 8ec9514a11a188c2010c222222397e8da5501b80981f24d09335d1d115a29da0
 disc discs/elite-master-flicker-free-sng47.ssd 3c7b7e557d5bce5e7b28f9aed728a79c4b6745b987fdd3d0625cdb64092e9cc9
 disc discs/elite-disc-flicker-free-sth.ssd 2c2657aaddc0b9c853555c15881631105dd2d8fc26d11ea647e886aed5fd5ea6

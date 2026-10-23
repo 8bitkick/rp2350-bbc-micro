@@ -142,7 +142,8 @@ plugin alongside it:
 - **The plugin** is an RP2350 program built on its own against `src/common/app_api.h`, and installed
   into slot 2 over WiFi or USB. Core 0 calls it between frames. It reads the BBC's RAM and presses
   its keys, and on the Master it gets as much SRAM as it needs, up to 72 KB (the rest goes to the heap). A plugin that hangs or faults twice in
-  a row is turned off at the next boot.
+  a row is turned off at the next boot. Core 0's stack is guarded by the M33's stack limit: a plugin
+  that overflows it faults at once, the board restarts by itself and the plugin is turned off, saying why.
 - **The shared area** sits outside every image, so the save discs, the WiFi network and the
   settings survive flashing any `.uf2`.
 
