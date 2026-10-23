@@ -159,6 +159,10 @@ void boot_guard_app_leave(void) {
     app_record.state = 0;
 }
 
+uint32_t boot_guard_app_running(void) {
+    return app_record.state == APP_IN ? app_record.id : 0;
+}
+
 uint32_t boot_guard_app_died(void) {
     // Whatever reset the board (the watchdog; a fault, then the watchdog; RESET), it came while
     // the app was running. (Not the watchdog's reason register: through the launcher it doesn't

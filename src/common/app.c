@@ -66,6 +66,9 @@ static bool s_builtin, s_started;
 static char s_state[16] = "none";           // none, loaded, running, refused, off, stopped,
                                             // installing, installed
 static char s_why[120];                     // why it's not running
+static bool s_overflowed;                   // (turned off for a stack overflow at the last boot)
+// (the Master's stack guard, stack_guard.c; none elsewhere)
+__attribute__((weak)) uint32_t stack_guard_app_overflow(void) { return 0; }
 static uint32_t s_probation;                // frames left with the watchdog armed for it (0: not)
 static struct app_api s_api;
 #define APP_PROBATION (60 * 50)
@@ -217,7 +220,8 @@ static bool check_slot(const struct app_header *h, uint32_t model, const uint8_t
         return false;
     }
     if (h->crc == system_app_off()) {
-        refuse("off", "it stopped the machine at the last boot (\"!app on\" to try again)");
+        if (s_overflowed) refuse("off", "it overflowed core 0's stack at the last boot (\"!app on\" to try again)");
+        else refuse("off", "it stopped the machine at the last boot (\"!app on\" to try again)");
         return false;
     }
 #if APP_RAM
@@ -274,6 +278,13 @@ static void load(uint32_t model, const uint8_t **disc, uint32_t *disc_size) {
         if (died && died == h->crc) {
             printf("APP it stopped the machine at the last boot: turned off\n");
             system_set_app_off(died);
+        }
+        // (core 0's stack overflowed while it ran: turned off at once, stack_guard.c; a hang takes two boots)
+        uint32_t ovf = stack_guard_app_overflow();
+        if (ovf && ovf == h->crc) {
+            printf("APP it overflowed core 0's stack at the last boot: turned off\n");
+            system_set_app_off(ovf);
+            s_overflowed = true;
         }
         if (!check_slot(h, model, disc ? *disc : NULL, disc_size ? *disc_size : 0)) return;
         s_app = h;

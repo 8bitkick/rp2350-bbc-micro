@@ -39,6 +39,7 @@
 #include "app.h"
 #include "disc.h"
 #include "panel.h"
+#include "stack_guard.h"
 #if HANG_TRAP
 #include "hang_trap.h"
 #endif
@@ -479,6 +480,7 @@ int main(void)
     vreg_set_voltage(VREG_VOLTAGE_1_25);
     set_sys_clock_khz(250000, true);
     stdio_init_all();
+    stack_guard_init();     // core 0's stack: SCRATCH_Y and no further (a plugin's deep calls ran on into core 1's)
     board_init();
     board_psram_init();
 #if WITH_AMBIENT

@@ -77,7 +77,8 @@ void __attribute__((naked, section(".time_critical.ht_systick"))) isr_systick(vo
 }
 
 void __used __not_in_flash_func(ht_fault)(uint32_t *frame) {
-    rec.fpc = frame[6], rec.flr = frame[5], rec.fxpsr = frame[7];
+    rec.cfsr = scb_hw->cfsr;
+    if (!(rec.cfsr & (1u << 20))) rec.fpc = frame[6], rec.flr = frame[5], rec.fxpsr = frame[7];     // (no frame after a stack overflow)
     rec.cfsr = scb_hw->cfsr, rec.bfar = scb_hw->bfar, rec.fcore = get_core_num();
     rec.at_ms = to_ms_since_boot(get_absolute_time());
     rec.state = HT_FAULT;
@@ -85,7 +86,9 @@ void __used __not_in_flash_func(ht_fault)(uint32_t *frame) {
     for (;;) ;
 }
 void __attribute__((naked, section(".time_critical.ht_hardfault"))) isr_hardfault(void) {
-    __asm volatile("tst lr, #4\n ite eq\n mrseq r0, msp\n mrsne r0, psp\n b ht_fault\n");
+    // (core 0's stack limit, stack_guard.c: a stack overflow leaves no room, so a stack of its own first)
+    __asm volatile("tst lr, #4\n ite eq\n mrseq r0, msp\n mrsne r0, psp\n movs r1, #0\n msr msplim, r1\n"
+                   "ldr r1, =sg_stack + 256\n mov sp, r1\n b ht_fault\n");
 }
 
 void ht_report(void) {
