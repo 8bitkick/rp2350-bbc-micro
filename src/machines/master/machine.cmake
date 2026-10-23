@@ -27,6 +27,7 @@ add_executable(presto_master
         ${PRESTO_DIR}/machine_unit.c
         ${PRESTO_DIR}/render_unit.c
         ${EMBED_C}
+        ${TOP_DIR}/src/common/stack_guard.c    # core 0's stack limit
         ${PRESTO_DIR}/master_machine.c
         )
 common_setup(presto_master)     # the command layer, the USB channel, the front end, the sound

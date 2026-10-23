@@ -27,6 +27,7 @@ static inline void boot_guard_ok(void) {}
 void boot_guard_app_enter(uint32_t id);
 void boot_guard_app_leave(void);
 uint32_t boot_guard_app_died(void);
+uint32_t boot_guard_app_running(void);    // the app being called now (its id); 0: none
 
 #ifdef __cplusplus
 }
