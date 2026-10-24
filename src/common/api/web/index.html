@@ -739,8 +739,8 @@ $('sdsel').onchange = async () => {
 poll();
 listDiscs();
 
-// --- the RP2350 application (status "app"): what it is, whether it runs and why not; folded as
-// the viewer left it
+// --- the RP2350 application (status "app"): what it is, whether it runs and why not; folded
+// unless the viewer has unfolded it
 const APP_MACHINES = {master: 'BBC Master 128', beeb: 'BBC Model B', any: 'any machine'};
 const APP_STATES = {running: 'Running', loaded: 'Starting', refused: 'Refused', off: 'Turned off', stopped: 'Stopped', none: 'None'};
 let appFold = null;
@@ -748,7 +748,7 @@ try { appFold = localStorage.getItem('appFold'); } catch (e) {}
 function showApp(a) {
   $('app').hidden = !a;
   if (!a) return;
-  $('app').classList.toggle('folded', appFold === '1');
+  $('app').classList.toggle('folded', appFold !== '0');
   $('app').classList.toggle('empty', a.state === 'none' && a.from !== 'built in');
   const ok = a.state === 'running' || a.state === 'loaded';
   const bits = [`<span class="conn"><span class="dot ${ok ? 'ok' : a.state === 'none' ? '' : 'bad'}"></span>${APP_STATES[a.state] || esc(a.state)}</span>`];
