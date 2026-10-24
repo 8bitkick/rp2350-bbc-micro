@@ -44,17 +44,17 @@ repository doesn't contain them (`setup.sh` downloads them when you build).
 
 ### First power-on: WiFi
 
-![WiFi setup on a phone, in four steps](docs/presto/wifi-setup-strip.png)
+![WiFi setup on the Presto, in four steps: scan, finish on your phone, joining, connected](docs/presto/wifi-setup-strip.png)
 
 No WiFi wanted? Tap **Skip**. The web panel is at **http://presto-xxxx.local/**, the `xxxx` being on
 the Presto's screen.
 
 ### More about WiFi
 
-At power on the Presto shows a loading screen while it joins WiFi, then the web control panel's
-address (its QR code, IP and `presto-xxxx.local`, the Presto's own name from the end of its board ID)
-for 20 seconds (counting down on its **SKIP**; **WAIT** keeps it up until **OK**), and then starts the
-BBC Micro, so it's seen booting from the start. To see the address again later, hold a finger still in
+At power on the Presto shows its loading screen for a moment, then joins WiFi as in setup (**Joining**,
+then **Connected!**), showing the web panel's address (its QR code, IP and `presto-xxxx.local`, the
+Presto's own name from the end of its board ID) for 20 seconds (counting down on its **SKIP**; **WAIT**
+keeps it up until **OK**), and then starts the BBC Micro, so it's seen booting from the start. To see the address again later, hold a finger still in
 the top-left corner of the screen for 3 seconds.
 
 If the saved network's password is wrong, the Presto goes straight into WiFi setup (below), saying so.
