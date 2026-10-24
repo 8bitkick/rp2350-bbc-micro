@@ -2,6 +2,10 @@
 
 <img src="docs/presto/presto-beebjit-elite.webp" width="480" alt="The Presto on a desk beside a mug, running Elite: the Cobra Mk III turning on the title screen">
 
+> [!TIP]
+> Also for the Presto: [**rp2350-acorn-archimedes**](https://github.com/8bitkick/rp2350-acorn-archimedes),
+> an Acorn Archimedes running RISC OS 3.11, with an ARM2 to Thumb-2 JIT: Archimedes Elite at full speed.
+
 **The ultimate retro nerd desk toy.** A cycle-accurate **BBC Model B** or **BBC Master 128**, running on a
 single $1.20 [Raspberry Pi RP2350](https://www.raspberrypi.com/products/rp2350/) chip in a
 [Pimoroni Presto](https://shop.pimoroni.com/products/presto): a 480×480 touchscreen with WiFi and an SD
