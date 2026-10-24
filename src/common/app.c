@@ -374,11 +374,12 @@ const char *app_program_json(void) {
 }
 
 const struct machine_boot_image *app_boot_image(void) {
-    if (!s_app || !s_app->boot_image) return NULL;
+    extern const struct machine_boot_image splash_default;
+    if (!s_app || !s_app->boot_image) return &splash_default;
     enter();
     const struct machine_boot_image *im = s_app->boot_image();
     leave();
-    return im;
+    return im ? im : &splash_default;
 }
 
 // ---- Installing

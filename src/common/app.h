@@ -20,6 +20,8 @@ void app_frame(struct machine_hook_io *io);
 // screen (NULL: none)
 bool app_command(const char *cmd, char *reply, uint32_t reply_size);
 const char *app_program_json(void);
+// the loading screen's picture: the app's, or the firmware's own (the 8bitkick logo:
+// splash/splash_default.c, made by tools/make_splash.py)
 const struct machine_boot_image *app_boot_image(void);
 // what it is: {"state": none|loaded|running|refused|off|stopped, "why", "name", "version",
 // "machine", "from": slot|built in} and, full, "disc", "ram" and "flash" ([used, size]) and its
