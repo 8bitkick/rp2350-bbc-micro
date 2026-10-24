@@ -361,7 +361,7 @@ static void header(void) {
 
 static void draw_setup(void) {
     if (!overlay_open(C_BG)) return;
-    char line[64];
+    char line[96];
     header();
     switch (setup->state) {
         case S_AP: {
@@ -376,7 +376,10 @@ static void draw_setup(void) {
             memset(line, 0, sizeof(line));
             overlay_text(240, y, 2, C_TEXT, "Scan to join WiFi setup");
             overlay_text(240, y + 22, 1, C_TEXT, "Then open 192.168.4.1 if it doesn't pop up");
-            if (setup->error[0]) overlay_text(240, y + 38, 2, C_ERROR, setup->error);
+            if (setup->error[0]) {
+                snprintf(line, sizeof(line), "Couldn't join %s: %s", setup->ssid, setup->error);
+                overlay_text(240, y + 38, strlen(line) > 29 ? 1 : 2, C_ERROR, line);
+            }
             else if (!setup->ap_up) overlay_text(240, y + 38, 2, C_TEXT, "Starting...");
             button(SKIP_X, SKIP_Y, SKIP_W, SKIP_H, C_BUTTON, "Skip", 4);
             break;
@@ -531,9 +534,9 @@ static void setup_end(bool joined) {
 
 static const char *join_error(int s) {
     switch (s) {
-        case CYW43_LINK_BADAUTH: return "Wrong password";
-        case CYW43_LINK_NONET: return "Network not found";
-        default: return "Couldn't join";
+        case CYW43_LINK_BADAUTH: return "wrong password";
+        case CYW43_LINK_NONET: return "network not found";
+        default: return "it failed";
     }
 }
 
@@ -570,7 +573,7 @@ static void setup_poll(void) {
             } else if (s == CYW43_LINK_BADAUTH || s == CYW43_LINK_NONET || s == CYW43_LINK_FAIL || now - setup->state_us > JOIN_US) {
                 cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
                 memset(setup->pass, 0, sizeof(setup->pass));
-                snprintf(setup->error, sizeof(setup->error), "%s", s < 0 ? join_error(s) : "No answer from it");
+                snprintf(setup->error, sizeof(setup->error), "%s", s < 0 ? join_error(s) : "no answer from it");
                 printf("NET setup: couldn't join (%s)\n", setup->error);
                 // the access point may have moved to the network's channel: it's still up
                 set_state(S_AP);
@@ -713,13 +716,13 @@ static const char *link_name(void) {
     }
 }
 
-// WiFi is up, or the setup screen is, or it won't come up
+// WiFi is up, or the setup screen is, or it won't come up at all (its failures to join the saved
+// network: net_boot_ready)
 static bool settled(void) {
     if (net_screen_up()) return true;
     if (setup && setup->from_ap) return true;
     if (!wifi_on) return net_started || !net_wanted;
-    return link_status == CYW43_LINK_UP || link_status == CYW43_LINK_FAIL || link_status == CYW43_LINK_NONET ||
-           link_status == CYW43_LINK_BADAUTH;
+    return link_status == CYW43_LINK_UP;
 }
 
 void net_print_status(void) {
@@ -1752,8 +1755,8 @@ void net_frame(void) {
 // card, or WiFi setup; the machine starts once they're done with and the framebuffer's given back.
 // 30 s at most for WiFi to join.
 
-static uint32_t boot_us;
-static bool boot_loading;
+static uint32_t boot_us, note_until;
+static bool boot_loading, boot_noting;
 
 void net_boot_begin(uint32_t *fb, int rows) {
     screen_lend(fb, rows);
@@ -1764,6 +1767,39 @@ void net_boot_begin(uint32_t *fb, int rows) {
 bool net_boot_ready(void) {
     net_frame();
     uint32_t waited = time_us_32() - boot_us;
+    if (boot_loading && wifi_on && ssid_ram[0] && !setup && link_status == CYW43_LINK_BADAUTH) {
+        // the saved network's password is wrong: trying it again is no use, so WiFi setup, saying why
+        // (the network stays saved until another is joined)
+        char ssid[33];
+        snprintf(ssid, sizeof(ssid), "%s", ssid_ram);
+        printf("NET couldn't join the saved network (wrong password): WiFi setup\n");
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+        memset(ssid_ram, 0, sizeof(ssid_ram));
+        memset(pass_ram, 0, sizeof(pass_ram));
+        boot_loading = false;
+        setup_begin();
+        if (setup) {
+            snprintf(setup->ssid, sizeof(setup->ssid), "%s", ssid);
+            snprintf(setup->error, sizeof(setup->error), "wrong password");
+            draw_setup();
+        }
+    } else if (boot_loading && wifi_on && ssid_ram[0] && !setup &&
+               (link_status == CYW43_LINK_NONET || link_status == CYW43_LINK_FAIL || waited > 30000000u)) {
+        // not there, or not answering: say so for a moment, then the machine starts; WiFi goes on
+        // trying every 15 seconds behind it
+        char line[80];
+        snprintf(line, sizeof(line), link_status == CYW43_LINK_NONET ? "%s not found" : "Couldn't join %s", ssid_ram);
+        printf("NET %s: starting without WiFi\n", link_status == CYW43_LINK_NONET ? "the saved network wasn't found" : "couldn't join the saved network");
+        screen_loading_note(line, "Starting without WiFi");
+        boot_loading = false;
+        boot_noting = true;
+        note_until = time_us_32() + 3000000u;
+    }
+    if (boot_noting) {
+        if ((int32_t) (time_us_32() - note_until) < 0) return false;
+        boot_noting = false;
+        screen_loading(NULL, -1);
+    }
     if (boot_loading) {
         if (settled() || waited > 30000000u) {
             boot_loading = false;
