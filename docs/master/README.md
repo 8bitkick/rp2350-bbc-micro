@@ -141,7 +141,7 @@ and `WIFI_PASSWORD`), and it restarts and joins it:
 python3 tools/presto.py wifi secrets.py
 ```
 
-Then open **http://beeb.local/** (or its address, from `python3 tools/presto.py net`). The panel
+Then open **http://presto-xxxx.local/** (the Presto's own name, which its screen shows at power on; or its address, from `python3 tools/presto.py net`). The panel
 has a BBC keyboard (or uses your own keyboard's keys, by position), BREAK and SHIFT+BREAK, turbo,
 the speed and both cores' load, and loading discs: drop or choose a `.ssd`, `.dsd` or `.zip`, give
 it a link to one, or pick one from the SD card. A disc boots at once (a reset with SHIFT held);

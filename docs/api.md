@@ -1,7 +1,8 @@
 # The HTTP API
 
 Everything the web panel does goes through a small HTTP API on the board, so a script can do it
-too. The board answers at `http://beeb.local/` (or its address: `python3 tools/presto.py net`).
+too. The board answers at `http://presto-xxxx.local/` (its own name, from the end of its unique ID: the
+screen shows it at power on; or its address: `python3 tools/presto.py net`).
 Replies are JSON; an error is `{"error": "why"}` with a 4xx or 5xx code.
 
 Each command is also on the USB serial channel as `!<name> <args>` (`tools/presto.py` sends them),
@@ -9,9 +10,9 @@ replying in plain text instead of JSON. The code is `src/common/api/api.c` (the 
 `src/boards/presto/presto_net.c` (the HTTP server, and the uploads below).
 
 ```sh
-curl http://beeb.local/api/status
-curl -X POST -d 1 http://beeb.local/api/turbo
-curl --data-binary @Repton.ssd "http://beeb.local/api/disc?name=Repton.ssd"
+curl http://presto-xxxx.local/api/status
+curl -X POST -d 1 http://presto-xxxx.local/api/turbo
+curl --data-binary @Repton.ssd "http://presto-xxxx.local/api/disc?name=Repton.ssd"
 ```
 
 ## Reading
@@ -77,7 +78,7 @@ The keys for the examples: RETURN `49`, SPACE `62`, SHIFT `00`, CTRL `01`, Z `61
 panel's keyboard (`ROWS_BEEB` and `ROWS_MASTER` in `src/common/api/web/index.html`) has them all. Pressing SPACE:
 
 ```sh
-curl -X POST -d "d62 u62" http://beeb.local/api/keys
+curl -X POST -d "d62 u62" http://presto-xxxx.local/api/keys
 ```
 
 ## Discs
@@ -107,4 +108,4 @@ A `.zip` isn't taken: the panel unzips it in the browser first.
 
 | Request | Body | |
 |---|---|---|
-| `POST /api/wifi` | `<network name>\n<password>` | saved in the flash; the WiFi restarts with it |
+| `POST /api/wifi` | `<network name>\n<password>` | `{"confirm": true}`: the Presto's screen asks "Join this network?" (30 seconds); **Join** there saves it and restarts to join it. In WiFi setup (its own access point), `{"joining": true}`: joined at once, saved once it has |

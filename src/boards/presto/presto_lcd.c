@@ -15,6 +15,7 @@
 #include "hardware/clocks.h"
 #include "hardware/sync.h"
 #include "board.h"
+#include "presto_screen.h"
 
 #ifndef PRESTO_LCD_TIMING_DMA
 #define PRESTO_LCD_TIMING_DMA 1
@@ -460,8 +461,17 @@ static uint16_t rgb_for(uint code) {
     return (uint16_t) ((code & 4 ? 0xf800 : 0) | (code & 2 ? 0x07e0 : 0) | (code & 1 ? 0x001f : 0));
 }
 
+const uint16_t *const *presto_lcd_rows(void) {
+    return row_table;
+}
+
 const uint16_t *board_display_row_rgb565(int row, uint16_t *buf) {
-    // expand a row to what the panel shows, as byte swapped RGB565
+    // expand a row to what the panel shows, as byte swapped RGB565 (black for a screen showing a
+    // password: presto_screen.h)
+    if (screen_private()) {
+        memset(buf, 0, BOARD_DISPLAY_WIDTH * sizeof *buf);
+        return buf;
+    }
     const uint32_t *src = (const uint32_t *) row_table[row];
     for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++)
         buf[x] = __builtin_bswap16(rgb_for((src[x >> 3] >> ((x & 7) * 4)) & 7));

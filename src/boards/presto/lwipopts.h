@@ -38,13 +38,14 @@
 #define LWIP_IPV6                   0
 #define LWIP_TCP                    1
 #define LWIP_UDP                    1
+#define MEMP_NUM_UDP_PCB            6               // DHCP and DNS clients, mDNS; in setup, the DHCP and DNS servers
 #define LWIP_DNS                    1
 #define LWIP_TCP_KEEPALIVE          1
 #define DHCP_DOES_ARP_CHECK         0
 #define LWIP_DHCP_DOES_ACD_CHECK    0
 #define SO_REUSE                    1
 
-// beeb.local
+// presto-xxxx.local
 #define LWIP_IGMP                   1
 #define LWIP_MDNS_RESPONDER         1
 #define LWIP_NUM_NETIF_CLIENT_DATA  1

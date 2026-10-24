@@ -12,6 +12,8 @@
 //   !put <name> <size>         receive a disc image and write it to the SD card
 //   !app install <size>        receive an app's image and install it in the app slot (app.c)
 //   !temp, !bootsel            the chip's temperature; reboot to the USB bootloader
+//   !wifisetup                 (a board with a network) restart into WiFi setup, the network saved
+//                              staying saved until another is joined
 //   !flashtest [n]             (a test aid) rewrite a flash sector n times: STATS shows what it
 //                              did to the display (lcd_rolls, lcd_missed) and flash_writes
 //   !audio, !beep              (SOUND) the sound's state, test sounds
@@ -159,6 +161,10 @@ static void usb_command(char *cmd) {
         board_sd_put(after(cmd, "put"));
     } else if (is(cmd, "flashtest")) {
         flash_test(after(cmd, "flashtest"));
+#if BOARD_HAS_NET
+    } else if (is(cmd, "wifisetup")) {
+        net_setup_restart();
+#endif
     } else if (is(cmd, "temp")) {
         int centi = frontend_temp_centi();
         printf("TEMP %d.%02dC\n", centi / 100, centi % 100);
@@ -234,6 +240,27 @@ static void usb_poll(void) {
 void frontend_init(void) {
 #if BOARD_HAS_NET
     net_init();
+#endif
+}
+
+// Before the machine's first instruction: the board's network comes up meanwhile, behind its own
+// screens (presto_net.c: the loading screen, WiFi setup, the web panel's address), in the machine's
+// framebuffer, lent; the USB channel goes on
+void frontend_start(void) {
+#if BOARD_HAS_NET
+    int rows = 0;
+    uint32_t *fb = machine_framebuffer(&rows);
+    net_boot_begin(fb, rows);
+    uint32_t frame = board_display_frames();
+    for (;;) {
+        while (board_display_frames() == frame) {
+            usb_poll();
+            net_poll();
+        }
+        frame = board_display_frames();
+        watchdog_update();
+        if (net_boot_ready()) break;
+    }
 #endif
 }
 

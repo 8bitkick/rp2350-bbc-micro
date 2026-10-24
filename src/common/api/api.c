@@ -378,7 +378,8 @@ static void cmd_net(api_req_t *r) {
     api_reply(r, 200, "{%s}", frag[0] == ',' ? frag + 1 : frag);
 }
 
-// "<ssid>\n<password>" (HTTP), or "<ssid> <password>" (USB: a quoted ssid may have spaces)
+// "<ssid>\n<password>" (HTTP), or "<ssid> <password>" (USB: a quoted ssid may have spaces). Over
+// USB it's saved and the board restarts to join it; over HTTP the board's screen asks first.
 static void cmd_wifi(api_req_t *r) {
     char ssid[34], pass[66];
     const char *p = r->args, *nl = strchr(p, '\n');
@@ -413,13 +414,22 @@ static void cmd_wifi(api_req_t *r) {
     ssid[n] = 0;
     snprintf(pass, sizeof pass, "%s", p);
     pass[strcspn(pass, "\r\n")] = 0;
-    if (!net_wifi_save(ssid, pass)) {
+    if (r->json) {
+        // over HTTP: joined only once someone at the board says so (or in WiFi setup, at once)
+        int how = net_wifi_request(ssid, pass);
+        memset(pass, 0, sizeof pass);
+        if (how == NET_WIFI_REFUSED) api_error(r, 400, "couldn't take that network");
+        else api_reply(r, 200, how == NET_WIFI_CONFIRM ? "{\"confirm\":true}" : "{\"joining\":true}");
+        return;
+    }
+    bool saved = net_wifi_save(ssid, pass);
+    memset(pass, 0, sizeof pass);
+    if (!saved) {
         api_error(r, 400, "couldn't save that");
         return;
     }
-    api_reply(r, 200, "{}");
-    if (!r->json) printf("WIFI saved (%u character network name)\n", (unsigned) strlen(ssid));
-    net_restart(r->json);
+    printf("WIFI saved (%u character network name)\n", (unsigned) strlen(ssid));
+    net_restart(false);
 }
 #endif
 
