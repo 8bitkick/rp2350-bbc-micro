@@ -55,6 +55,11 @@ void machine_drive_clean(void);
 // last picture); permille < 0: over without a restart, the machine carries on
 void machine_install_screen(const char *what, int permille);
 
+// the machine's framebuffer: *rows rows of the board's display format (board.h), which it doesn't
+// draw in until it runs, so the board borrows it before then (frontend_start: its own screens, its
+// network's buffers), giving it back black. Called once, once the machine is set up.
+uint32_t *machine_framebuffer(int *rows);
+
 // a USB "!" command only this machine has (e.g. the Model B's crtc, state, peek): false if it
 // isn't one
 bool machine_usb_command(const char *cmd);

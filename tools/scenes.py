@@ -3,7 +3,7 @@
 
   tools/scenes.py [scene ...]        (default: all; needs the board on WiFi and USB)
 
-Each scene is set up through the web panel (http://beeb.local/ or PRESTO_HOST)
+Each scene is set up through the web panel (PRESTO_HOST: http://presto-xxxx.local, the board's own name)
 and measured over USB (presto.py stats, three readings, the middle one):
 per-core load and speed at real speed, then turbo speed where it's meaningful.
 Discs come from the discs/ directory (Exile.ssd, teletext-elite.ssd, the
@@ -15,7 +15,7 @@ raw lock): rows drawn late / rows, and the nearest any row came to the scan
 """
 import os, subprocess, sys, time, urllib.request
 
-HOST = os.environ.get('PRESTO_HOST', 'http://beeb.local')
+HOST = os.environ.get('PRESTO_HOST') or sys.exit('set PRESTO_HOST (http://presto-xxxx.local: the name the Presto shows)')
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, '..')
 PRESTO = os.path.join(HERE, 'presto.py')

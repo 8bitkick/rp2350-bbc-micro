@@ -93,7 +93,8 @@ A change to video, render or the JIT isn't done until those are frame-exact. For
 | `src/common/sound.c`, `app.c`, `boot_guard.c` | The SN76489 on core 1; the program hook (`machine_hook.h`); the boot guard |
 | `src/common/board.h` | The board interface |
 | `src/boards/presto/presto_lcd.c`, `st7701_*.pio` | Panel driver: ST7701 init, PIO2 timing, PIO1 scanout of a 4-bit framebuffer, row-table DMA |
-| `src/boards/presto/presto_net.c` | WiFi, mDNS, the HTTP server (`/api/<name>` through the command layer) |
+| `src/boards/presto/presto_net.c` | WiFi, its setup (access point, captive portal), mDNS (presto-xxxx.local), the HTTP server (`/api/<name>` through the command layer), the wait at power on |
+| `src/boards/presto/presto_screen.c`, `presto_touch.c`, `lib/` | The Presto's own screens (loading, WiFi setup, the address card) drawn as deduplicated rows in the machine's idle framebuffer; the touch screen for them; DHCP / DNS servers, QR codes, a font |
 | `src/boards/presto/presto_sd.c`, `presto_psram.c`, `presto_ambient.c`, `board_config.h` | SD card (FatFs), PSRAM, the LEDs; the display format, audio pin and flash layout |
 | `tools/beebjit_hillclimb.py` | The optimization graph, with each step's measurements |
 

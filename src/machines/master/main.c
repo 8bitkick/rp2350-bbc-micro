@@ -6,7 +6,7 @@
 // one 4-bit row per BBC scanline, scanned out by PIO and DMA
 // (presto_lcd.c).
 //
-// The USB channel and the web panel (http://beeb.local/ once on WiFi) are the
+// The USB channel and the web panel (http://presto-xxxx.local/ once on WiFi) are the
 // common front end's (src/common/frontend.c, src/common/api); this file gives
 // it the machine (machine_if.h): keys, turbo, the figures.
 #include <stdio.h>
@@ -192,6 +192,13 @@ bool machine_turbo_get(void)
     return s_turbo;
 }
 
+// the framebuffer, lent to the board until the machine runs: core 1 has nothing to draw till then
+uint32_t *machine_framebuffer(int *rows)
+{
+    while (vs_available(&s_stream)) __sev();
+    return panel_framebuffer(rows);
+}
+
 void machine_install_screen(const char *what, int permille)
 {
     if (permille < 0) {
@@ -375,6 +382,8 @@ static void run(void)
         sleep_ms(300);      // (a moment at 100%, not the rest of a fixed 3 s)
     }
     multicore_launch_core1(core1_main);
+    // held until the board's network is up (or set up), so the Master is seen booting from the start
+    frontend_start();
 #if HANG_TRAP
     ht_init_core0();
 #endif
