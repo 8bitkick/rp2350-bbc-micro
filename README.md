@@ -26,7 +26,7 @@ other discs and type on the machine's own keyboard over WiFi.
 | ![Elite on the Model B](docs/presto/shot-beeb-elite.png) | ![Prince of Persia on the Master](docs/master/shot-pop.png) | ![Stunt Car Racer on the Master](docs/master/shot-scr.png) |
 | Model B: Elite (flicker-free) | Master 128: Prince of Persia | Master 128: Stunt Car Racer |
 
-## Install on a Presto
+## Quick start
 
 No tools needed: one file onto the Presto.
 
@@ -39,42 +39,17 @@ It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite
 seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it as Commander JAMESON, already
 Deadly, carrying on from its last save after a power-off. (Flashing a release replaces the Master's saves.) The BBC Model B, with its own
 flicker-free Elite, is one click away on the [web panel](#web-panel---httppresto-xxxxlocal) once the Presto is on your
-WiFi ([setting it up](#starting-up-and-wifi-setup) takes a phone and a minute). Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
+WiFi ([setting it up](#first-power-on-wifi) takes a phone and a minute). Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
 repository doesn't contain them (`setup.sh` downloads them when you build).
 
-## Quick start (building it yourself)
+### First power-on: WiFi
 
-You need a [Pimoroni Presto](https://shop.pimoroni.com/products/presto), a USB-C cable and a computer
-with Git (Linux, macOS, or Windows with Git Bash).
+![WiFi setup on a phone, in four steps](docs/presto/wifi-setup-strip.png)
 
-```sh
-git clone https://github.com/8bitkick/rp2350-bbc-micro.git && cd rp2350-bbc-micro
-scripts/setup.sh              # both machines -> build-dual-boot/presto_dual_boot.uf2
-```
+No WiFi wanted? Tap **Skip**. The web panel is at **http://presto-xxxx.local/**, the `xxxx` being on
+the Presto's screen.
 
-`setup.sh` fetches everything it needs (the Arm toolchain, the Pico SDK, both machines' ROMs and
-Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
-in one `.uf2`, with the choice between them on the [web panel](#web-panel---httppresto-xxxxlocal). Add
-`--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages first. Sound and the LEDs
-are on in it, and switched on the panel.
-
-One machine on its own:
-
-```sh
-scripts/setup.sh --beeb       # BBC Model B  -> build/presto_beebjit.uf2
-scripts/setup.sh --master     # BBC Master   -> build-master/presto_master.uf2
-```
-
-The Master boots Elite by default; `--master --disc=pop-beeb.ssd` builds in Prince of Persia instead
-(also `bs-scr-beeb.ssd` Stunt Car Racer, `arcadians.ssd`, `bs-twisted.ssd`, `EvilIn11.ssd`, or your own).
-On one machine's build, sound and the LEDs are [build options](#build-options), off by default.
-
-To flash it: hold **BOOT** on the Presto, tap **RESET**, and copy the `.uf2` onto the **RP2350** drive
-that appears (or add `--flash` to `setup.sh`). It reboots into Elite.
-
-Then put it on your WiFi, once: the first time it starts it [sets up WiFi on its screen](#starting-up-and-wifi-setup).
-
-### Starting up, and WiFi setup
+### More about WiFi
 
 At power on the Presto shows a loading screen while it joins WiFi, then the web control panel's
 address (its QR code, IP and `presto-xxxx.local`, the Presto's own name from the end of its board ID)
@@ -86,13 +61,10 @@ If the saved network's password is wrong, the Presto goes straight into WiFi set
 If the network isn't there or doesn't answer, it says so for a few seconds and starts without WiFi,
 trying again every 15 seconds behind the machine.
 
-With no WiFi network saved, the Presto starts as its own WiFi network, `Presto-XXXX`, and shows its
-password and a QR code. Scan it with a phone to join; the phone then opens the setup page (or go to
-`http://192.168.4.1/`). Pick a network, give its password, and the Presto joins it, saves it (only once
-it has joined), and shows its address, with a QR code for the web panel. **Skip** on the screen (or ten
-minutes) carries on without WiFi until the next restart. The BBC Micro starts once setup is done with;
-until then setup uses memory the emulator isn't using yet (its framebuffer), so it costs the machine
-nothing.
+If a phone doesn't open the setup page by itself, go to `http://192.168.4.1/`. The network is saved
+only once the Presto has joined it. **Skip** (or ten minutes) carries on without WiFi until the next
+restart. Setup runs before the BBC Micro starts, in memory the emulator isn't using yet (its
+framebuffer), so it costs the machine nothing.
 
 To set up WiFi again later: hold a finger on the screen while the Presto powers on, for about 2
 seconds, or send `!wifisetup` over USB serial. The saved network stays until another is joined. A
@@ -204,10 +176,21 @@ synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers i
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads the ROMs and
 flicker-free Elite (which aren't part of this repository), and builds
 `build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
-`build-master/presto_master.uf2`). Flash it as in the [install steps](#install-on-a-presto), or run
+`build-master/presto_master.uf2`). Flash it as in the [quick start](#quick-start), or run
 `scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
 `. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
 `ninja -C build-master`).
+
+Or one machine on its own:
+
+```sh
+scripts/setup.sh --beeb       # BBC Model B  -> build/presto_beebjit.uf2
+scripts/setup.sh --master     # BBC Master   -> build-master/presto_master.uf2
+```
+
+The Master boots Elite by default; `--master --disc=pop-beeb.ssd` builds in Prince of Persia instead
+(also `bs-scr-beeb.ssd` Stunt Car Racer, `arcadians.ssd`, `bs-twisted.ssd`, `EvilIn11.ssd`, or your own).
+On one machine's build, sound and the LEDs are [build options](#build-options), off by default.
 
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.

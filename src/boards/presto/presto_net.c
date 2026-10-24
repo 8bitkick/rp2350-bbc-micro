@@ -598,10 +598,10 @@ static void setup_poll(void) {
 static bool card_up, card_waiting;      // on screen; WAIT tapped (it stays until OK)
 static uint32_t card_until;             // then, unless waiting (time_us_32)
 static int card_shown;                  // the seconds left its SKIP button shows
-#define SKIP_CARD_X 70
+#define SKIP_CARD_X 40
 #define WAIT_X 250
 #define CARD_BTN_Y 410
-#define CARD_BTN_W 160
+#define CARD_BTN_W 190            // (wide enough for "SKIP 20" at size 3)
 #define CARD_BTN_H 48
 
 static void draw_card(int left) {
