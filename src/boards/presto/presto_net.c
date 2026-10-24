@@ -309,6 +309,10 @@ enum { S_OFF, S_AP, S_JOINING, S_JOINED, S_CONFIRM };
 typedef struct {
     uint8_t state;
     bool ap_up, scanning, from_ap;
+    bool phone;                 // a phone's on the access point: the screen says to carry on there
+    uint8_t dots;               // the joining screen's progress
+    uint32_t phone_us;          // when the phone last asked for a page (0: never)
+    uint32_t stas_us;           // when the access point's stations were last counted
     char ap_ssid[20], ap_pass[AP_PASS_LEN + 1];
     char ssid[33], pass[65];    // the network being joined, or to be confirmed
     char error[32];
@@ -336,10 +340,14 @@ static setup_t *setup;          // allocated while the screen's up
 #define C_RULE SCREEN_BLUE
 
 // the screen's buttons
-#define SKIP_X 140
-#define SKIP_Y 404
-#define SKIP_W 200
-#define SKIP_H 64
+#define SKIP_X 372
+#define SKIP_Y 424
+#define SKIP_W 92
+#define SKIP_H 40
+#define START_X 150
+#define START_Y 412
+#define START_W 180
+#define START_H 52
 #define YES_X 40
 #define NO_X 260
 #define YESNO_Y 300
@@ -351,55 +359,92 @@ static void button(int x, int y, int w, int h, int colour, const char *label, in
     overlay_text(x + w / 2, y + (h - 8 * scale) / 2, scale, C_TEXT, label);
 }
 
-// the top of every setup screen: "BBC Micro for Presto" and this Presto's name, the setup
-// network's name, to check the page on the phone against
-static void header(void) {
-    overlay_text(240, 19, 2, C_TEXT, "BBC Micro for Presto");
-    overlay_box(40, 44, 400, 2, C_RULE);
-    overlay_text(240, 56, 3, C_NAME, setup->ap_ssid);
+// setup's steps, 1-3, as dots across the top of its screens
+static void steps(int step) {
+    for (int i = 0; i < 3; i++) overlay_box(219 + i * 32 - 16, 16, 14, 14, i + 1 == step ? C_NAME : C_RULE);
 }
 
+// "Couldn't join <network>" and why, in place of a screen's instructions
+static void error_lines(int y) {
+    char line[64];
+    snprintf(line, sizeof(line), "Couldn't join %s", setup->ssid);
+    overlay_text(240, y, strlen(line) > 29 ? 1 : 2, C_ERROR, line);
+    overlay_text(240, y + 22, 2, C_ERROR, setup->error);
+}
+
+// a phone, with a list of networks and a Join button on it
+static void phone(int x, int y) {
+    overlay_box(x, y, 120, 4, C_TEXT);
+    overlay_box(x, y + 196, 120, 4, C_TEXT);
+    overlay_box(x, y, 4, 200, C_TEXT);
+    overlay_box(x + 116, y, 4, 200, C_TEXT);
+    overlay_box(x + 48, y + 10, 24, 4, C_TEXT);
+    for (int i = 0; i < 4; i++) overlay_box(x + 16, y + 28 + i * 30, 88, 18, i ? C_RULE : C_TEXT);
+    overlay_box(x + 16, y + 160, 88, 24, C_GOOD);
+    overlay_text(x + 60, y + 168, 1, C_BG, "Join");
+}
+
+// The setup screens, one step each: 1, scan the QR code to join the Presto's access point (or
+// type its name and password); 2, once a phone's on it, finish on the phone (a network and its
+// password, on the setup page), then joining it; 3, joined: a QR code for the web panel.
 static void draw_setup(void) {
     if (!overlay_open(C_BG)) return;
     char line[96];
-    header();
     switch (setup->state) {
-        case S_AP: {
-            overlay_private();
-            snprintf(line, sizeof(line), "Password %s", setup->ap_pass);
-            overlay_text(240, 90, 2, C_NAME, line);
-            // the WiFi QR code phones' cameras know, to join the access point; the setup page then
-            // opens by itself (neither the name nor the password has a character that would need
-            // escaping in it)
-            snprintf(line, sizeof(line), "WIFI:T:WPA;S:%s;P:%s;;", setup->ap_ssid, setup->ap_pass);
-            int y = 116 + overlay_qr(240, 116, 204, line) + 10;
-            memset(line, 0, sizeof(line));
-            overlay_text(240, y, 2, C_TEXT, "Scan to join WiFi setup");
-            overlay_text(240, y + 22, 1, C_TEXT, "Then open 192.168.4.1 if it doesn't pop up");
-            if (setup->error[0]) {
-                snprintf(line, sizeof(line), "Couldn't join %s: %s", setup->ssid, setup->error);
-                overlay_text(240, y + 38, strlen(line) > 29 ? 1 : 2, C_ERROR, line);
+        case S_AP:
+            if (setup->phone) {
+                steps(2);
+                overlay_text(240, 50, 3, C_NAME, "Now finish on");
+                overlay_text(240, 82, 3, C_NAME, "your phone");
+                phone(180, 126);
+                if (setup->error[0]) {
+                    error_lines(348);
+                } else {
+                    overlay_text(240, 348, 2, C_TEXT, "Pick your WiFi");
+                    overlay_text(240, 370, 2, C_TEXT, "and its password");
+                }
+            } else {
+                // (why the last network wasn't joined, if it wasn't, is on step 2 and the setup page)
+                overlay_private();
+                steps(1);
+                overlay_text(240, 50, 3, C_NAME, "Set up WiFi");
+                overlay_text(240, 88, 2, C_TEXT, "Scan with your phone");
+                // the WiFi QR code phones' cameras know, to join the access point; the setup page
+                // then opens by itself (neither the name nor the password has a character that
+                // would need escaping in it)
+                snprintf(line, sizeof(line), "WIFI:T:WPA;S:%s;P:%s;;", setup->ap_ssid, setup->ap_pass);
+                int y = 118 + overlay_qr(240, 118, 230, line) + 14;
+                memset(line, 0, sizeof(line));
+                snprintf(line, sizeof(line), "or join %s", setup->ap_ssid);
+                overlay_text(240, y, 2, C_TEXT, line);
+                snprintf(line, sizeof(line), "password %s", setup->ap_pass);
+                overlay_text(240, y + 22, 2, C_TEXT, line);
+                memset(line, 0, sizeof(line));
+                if (!setup->ap_up) overlay_text(240, y + 48, 2, C_TEXT, "Starting...");
             }
-            else if (!setup->ap_up) overlay_text(240, y + 38, 2, C_TEXT, "Starting...");
-            button(SKIP_X, SKIP_Y, SKIP_W, SKIP_H, C_BUTTON, "Skip", 4);
+            button(SKIP_X, SKIP_Y, SKIP_W, SKIP_H, C_BUTTON, "Skip", 2);
             break;
-        }
         case S_JOINING:
-            overlay_text(240, 150, 3, C_TEXT, "Joining");
-            overlay_text(240, 200, 2, C_NAME, setup->ssid);
-            overlay_text(240, 250, 2, C_TEXT, "This takes a few seconds");
+            steps(2);
+            overlay_text(240, 50, 3, C_NAME, "Joining");
+            snprintf(line, sizeof(line), "%s...", setup->ssid);
+            overlay_text(240, 82, strlen(line) > 15 ? 2 : 3, C_NAME, line);
+            for (int i = 0; i < 5; i++) overlay_box(170 + i * 30, 220, 18, 18, i <= setup->dots % 5 ? C_LINK : C_RULE);
+            overlay_text(240, 290, 2, C_TEXT, "This takes a few seconds");
             break;
         case S_JOINED: {
-            struct netif *nif = &cyw43_state.netif[CYW43_ITF_STA];
             // and a QR code for the web panel, for the phone once it's back on that network
-            snprintf(line, sizeof(line), "Joined %s", setup->ssid);
-            overlay_text(240, 90, strlen(line) > 29 ? 1 : 2, C_GOOD, line);
-            snprintf(line, sizeof(line), "http://%s/", ip4addr_ntoa(netif_ip4_addr(nif)));
-            int y = 114 + overlay_qr(240, 114, 196, line) + 8;
-            overlay_text(240, y, 2, C_TEXT, "Scan for the web panel");
-            overlay_text(240, y + 24, 2, C_TEXT, line);
-            snprintf(line, sizeof(line), "http://%s.local/", host_name);
-            overlay_text(240, y + 64, 2, C_LINK, line);
+            steps(3);
+            overlay_text(240, 50, 3, C_GOOD, "Connected!");
+            overlay_text(240, 86, 2, C_TEXT, "Scan to open the");
+            overlay_text(240, 108, 2, C_TEXT, "web panel");
+            const char *ip = ip4addr_ntoa(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]));
+            snprintf(line, sizeof(line), "http://%s/", ip);
+            int y = 136 + overlay_qr(240, 136, 210, line) + 14;
+            snprintf(line, sizeof(line), "%s.local", host_name);
+            overlay_text(240, y, 2, C_LINK, line);
+            overlay_text(240, y + 22, 2, C_TEXT, ip);
+            button(START_X, START_Y, START_W, START_H, C_BUTTON, "Start", 3);
             break;
         }
         case S_CONFIRM:
@@ -415,6 +460,7 @@ static void draw_setup(void) {
 static void set_state(uint8_t s) {
     setup->state = s;
     setup->state_us = time_us_32();
+    setup->dots = 0;
     draw_setup();
 }
 
@@ -534,9 +580,9 @@ static void setup_end(bool joined) {
 
 static const char *join_error(int s) {
     switch (s) {
-        case CYW43_LINK_BADAUTH: return "wrong password";
-        case CYW43_LINK_NONET: return "network not found";
-        default: return "it failed";
+        case CYW43_LINK_BADAUTH: return "Wrong password";
+        case CYW43_LINK_NONET: return "Network not found";
+        default: return "Connection failed";
     }
 }
 
@@ -559,9 +605,26 @@ static void setup_poll(void) {
                 start_ap();
                 draw_setup();
             }
+            if (setup->ap_up && now - setup->stas_us > 1000000u) {
+                // a phone on the access point (or asking it for pages lately): on to step 2
+                setup->stas_us = now;
+                int n = 4;
+                uint8_t macs[4 * 6];
+                cyw43_wifi_ap_get_stas(&cyw43_state, &n, macs);
+                bool phone = n > 0 || (setup->phone_us && now - setup->phone_us < 15000000u);
+                if (phone != setup->phone) {
+                    setup->phone = phone;
+                    printf("NET setup: %s\n", phone ? "a phone's joined the access point" : "no phone on the access point");
+                    draw_setup();
+                }
+            }
             if (now - setup->began_us > SETUP_US) setup_end(false);
             break;
         case S_JOINING: {
+            if (now - setup->state_us > (setup->dots + 1) * 400000u) {
+                setup->dots++;
+                draw_setup();
+            }
             int s = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
             if (s == CYW43_LINK_UP) {
                 if (!net_wifi_save(setup->ssid, setup->pass)) printf("NET setup: couldn't save the network\n");
@@ -573,7 +636,7 @@ static void setup_poll(void) {
             } else if (s == CYW43_LINK_BADAUTH || s == CYW43_LINK_NONET || s == CYW43_LINK_FAIL || now - setup->state_us > JOIN_US) {
                 cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
                 memset(setup->pass, 0, sizeof(setup->pass));
-                snprintf(setup->error, sizeof(setup->error), "%s", s < 0 ? join_error(s) : "no answer from it");
+                snprintf(setup->error, sizeof(setup->error), "%s", s < 0 ? join_error(s) : "No answer from it");
                 printf("NET setup: couldn't join (%s)\n", setup->error);
                 // the access point may have moved to the network's channel: it's still up
                 set_state(S_AP);
@@ -608,13 +671,13 @@ static void draw_card(int left) {
     if (!overlay_open(C_BG)) return;
     char line[64];
     struct netif *nif = &cyw43_state.netif[CYW43_ITF_STA];
-    overlay_text(240, 19, 2, C_TEXT, "BBC Micro Web Control");
-    overlay_box(40, 44, 400, 2, C_RULE);
-    snprintf(line, sizeof(line), "http://%s/", ip4addr_ntoa(netif_ip4_addr(nif)));
-    int y = 66 + overlay_qr(240, 66, 240, line) + 14;
-    overlay_text(240, y, 2, C_TEXT, line);
-    snprintf(line, sizeof(line), "http://%s.local/", host_name);
-    overlay_text(240, y + 36, 2, C_LINK, line);
+    const char *ip = ip4addr_ntoa(netif_ip4_addr(nif));
+    overlay_text(240, 24, 3, C_NAME, "Web panel");
+    snprintf(line, sizeof(line), "http://%s/", ip);
+    int y = 64 + overlay_qr(240, 64, 240, line) + 16;
+    snprintf(line, sizeof(line), "%s.local", host_name);
+    overlay_text(240, y, 2, C_LINK, line);
+    overlay_text(240, y + 22, 2, C_TEXT, ip);
     if (card_waiting) {
         button(240 - CARD_BTN_W / 2, CARD_BTN_Y, CARD_BTN_W, CARD_BTN_H, C_BUTTON, "OK", 3);
     } else {
@@ -1273,8 +1336,7 @@ static void setup_page(conn_t *c) {
             "select,input,button{display:block;font-size:17px;width:100%%;padding:10px;margin:6px 0 16px;box-sizing:border-box}"
             "p{color:#aab4c8}.e{color:#ff7a6c}.o{color:#6cd890}a{color:#8cb4ff}.c{color:#0ff;font-size:20px}.n{color:#feea55;font-size:28px;font-weight:bold;margin:12px 0 2px}</style></head><body>"
             // the Presto screen's header: the title, and this Presto's name
-            "<h3>BBC Micro for Presto</h3><div class=n>%s</div>"
-            "<p>Check this matches the name on your Presto's screen.</p>",
+            "<h3>BBC Micro for Presto</h3><div class=n>%s</div>",
         busy ? "<meta http-equiv=refresh content=\"2;url=/\">" : "", setup->ap_ssid);
     if (setup->state == S_JOINING) {
         put(&p, "<p>Joining ");
@@ -1462,6 +1524,7 @@ static void route(conn_t *c) {
         for (const char *l = strchr(c->head, '\n'); l; l = strchr(l + 1, '\n')) {
             if (!strncasecmp(l + 1, "host:", 5)) sscanf(l + 6, " %63[^:\r\n ]", host);
         }
+        setup->phone_us = time_us_32() | 1;
         c->route = R_REDIRECT;
         if (!host[0] || !strcmp(host, "192.168.4.1")) {
             if (!strcmp(target, "/")) {
@@ -1780,7 +1843,7 @@ bool net_boot_ready(void) {
         setup_begin();
         if (setup) {
             snprintf(setup->ssid, sizeof(setup->ssid), "%s", ssid);
-            snprintf(setup->error, sizeof(setup->error), "wrong password");
+            snprintf(setup->error, sizeof(setup->error), "Wrong password");
             draw_setup();
         }
     } else if (boot_loading && wifi_on && ssid_ram[0] && !setup &&
