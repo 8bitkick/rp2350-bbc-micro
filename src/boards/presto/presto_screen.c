@@ -476,15 +476,3 @@ void screen_loading(const char *what, int permille) {
     fb_rect(bar_x + 2, 230, (bar_w - 4) * permille / 1000, 3, SCREEN_CYAN);
 }
 
-void screen_loading_note(const char *line1, const char *line2) {
-    if (!s_fb || s_table) return;
-    if (!s_loading) {
-        s_loading = true;
-        loading_picture();
-    }
-    s_loading_permille = -2;    // (the next screen_loading draws its line again)
-    for (int r = 192; r < 240 && r < s_fb_rows; r++) memset(s_fb + r * ROW_WORDS, 0, ROW_BYTES - 4);
-    // (8 pixels a character: room for a network's name of 32 and more)
-    fb_text(W / 2, 204, line1, SCREEN_YELLOW, 2, 1);
-    fb_text(W / 2, 220, line2, SCREEN_WHITE, 2, 1);
-}

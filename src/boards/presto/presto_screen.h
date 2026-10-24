@@ -26,8 +26,6 @@ void presto_free(void *p);
 // ---- The loading screen: the app's picture (app_boot_image), if it has one, with what's going on
 // and how far (of 1000) under it, drawn in the lent framebuffer; permille < 0: over
 void screen_loading(const char *what, int permille);
-// and in place of the line and the bar, two lines saying why it's going on without something
-void screen_loading_note(const char *line1, const char *line2);
 
 // ---- An overlay: boxes, text and QR codes. overlay_open clears it (allocating it the first time:
 // it uses no memory while closed); what's added shows from the next overlay_frame_done.

@@ -384,6 +384,16 @@ static void phone(int x, int y) {
     overlay_text(x + 60, y + 168, 1, C_BG, "Join");
 }
 
+// "Joining <network>...", with progress: in setup, and at power on
+static void joining(const char *ssid, int dots) {
+    char line[48];
+    overlay_text(240, 50, 3, C_NAME, "Joining");
+    snprintf(line, sizeof(line), "%s...", ssid);
+    overlay_text(240, 82, strlen(line) > 15 ? 2 : 3, C_NAME, line);
+    for (int i = 0; i < 5; i++) overlay_box(170 + i * 30, 220, 18, 18, i <= dots % 5 ? C_LINK : C_RULE);
+    overlay_text(240, 290, 2, C_TEXT, "This takes a few seconds");
+}
+
 // The setup screens, one step each: 1, scan the QR code to join the Presto's access point (or
 // type its name and password); 2, once a phone's on it, finish on the phone (a network and its
 // password, on the setup page), then joining it; 3, joined: a QR code for the web panel.
@@ -426,11 +436,7 @@ static void draw_setup(void) {
             break;
         case S_JOINING:
             steps(2);
-            overlay_text(240, 50, 3, C_NAME, "Joining");
-            snprintf(line, sizeof(line), "%s...", setup->ssid);
-            overlay_text(240, 82, strlen(line) > 15 ? 2 : 3, C_NAME, line);
-            for (int i = 0; i < 5; i++) overlay_box(170 + i * 30, 220, 18, 18, i <= setup->dots % 5 ? C_LINK : C_RULE);
-            overlay_text(240, 290, 2, C_TEXT, "This takes a few seconds");
+            joining(setup->ssid, setup->dots);
             break;
         case S_JOINED: {
             // and a QR code for the web panel, for the phone once it's back on that network
@@ -659,6 +665,7 @@ static void setup_poll(void) {
 // 20 seconds once WiFi has joined at power on, and whenever asked for (presto_touch.c: a finger
 // held in the top-left corner)
 static bool card_up, card_waiting;      // on screen; WAIT tapped (it stays until OK)
+static bool card_connected;             // at power on, just joined: "Connected!"
 static uint32_t card_until;             // then, unless waiting (time_us_32)
 static int card_shown;                  // the seconds left its SKIP button shows
 #define SKIP_CARD_X 40
@@ -672,9 +679,18 @@ static void draw_card(int left) {
     char line[64];
     struct netif *nif = &cyw43_state.netif[CYW43_ITF_STA];
     const char *ip = ip4addr_ntoa(netif_ip4_addr(nif));
-    overlay_text(240, 24, 3, C_NAME, "Web panel");
     snprintf(line, sizeof(line), "http://%s/", ip);
-    int y = 64 + overlay_qr(240, 64, 240, line) + 16;
+    int y;
+    if (card_connected) {
+        // as setup's last step
+        overlay_text(240, 50, 3, C_GOOD, "Connected!");
+        overlay_text(240, 86, 2, C_TEXT, "Scan to open the");
+        overlay_text(240, 108, 2, C_TEXT, "web panel");
+        y = 136 + overlay_qr(240, 136, 210, line) + 14;
+    } else {
+        overlay_text(240, 24, 3, C_NAME, "Web panel");
+        y = 64 + overlay_qr(240, 64, 240, line) + 16;
+    }
     snprintf(line, sizeof(line), "%s.local", host_name);
     overlay_text(240, y, 2, C_LINK, line);
     overlay_text(240, y + 22, 2, C_TEXT, ip);
@@ -688,8 +704,27 @@ static void draw_card(int left) {
     card_shown = left;
 }
 
+// At power on, with a network saved: joining it, after the loading screen (net_boot_ready)
+static bool boot_joining;
+static uint8_t boot_dots;
+static uint32_t boot_dots_us;
+
+static void draw_boot_joining(void) {
+    if (!overlay_open(C_BG)) return;
+    joining(ssid_ram, boot_dots);
+}
+
+static void boot_joining_poll(void) {
+    if (boot_joining && time_us_32() - boot_dots_us > 400000u) {
+        boot_dots_us = time_us_32();
+        boot_dots++;
+        draw_boot_joining();
+    }
+}
+
 void net_show_address(uint32_t seconds) {
     if (!wifi_on || link_status != CYW43_LINK_UP || (setup && setup->state != S_OFF)) return;
+    card_connected = false;
     card_up = true;
     card_waiting = false;
     card_until = time_us_32() + seconds * 1000000u;
@@ -761,6 +796,7 @@ void net_poll(void) {
         last_link_check_us = now;
         if (setup && setup->from_ap) setup_poll();
         else check_link();
+        boot_joining_poll();
         if (setup && setup->state == S_CONFIRM) setup_poll();
     }
 }
@@ -1818,6 +1854,7 @@ void net_frame(void) {
 // card, or WiFi setup; the machine starts once they're done with and the framebuffer's given back.
 // 30 s at most for WiFi to join.
 
+#define SPLASH_US 1500000u      // the loading screen, at least
 static uint32_t boot_us, note_until;
 static bool boot_loading, boot_noting;
 
@@ -1850,10 +1887,17 @@ bool net_boot_ready(void) {
                (link_status == CYW43_LINK_NONET || link_status == CYW43_LINK_FAIL || waited > 30000000u)) {
         // not there, or not answering: say so for a moment, then the machine starts; WiFi goes on
         // trying every 15 seconds behind it
-        char line[80];
-        snprintf(line, sizeof(line), link_status == CYW43_LINK_NONET ? "%s not found" : "Couldn't join %s", ssid_ram);
         printf("NET %s: starting without WiFi\n", link_status == CYW43_LINK_NONET ? "the saved network wasn't found" : "couldn't join the saved network");
-        screen_loading_note(line, "Starting without WiFi");
+        boot_joining = false;
+        if (overlay_open(C_BG)) {
+            char line[48];
+            overlay_text(240, 50, 3, C_ERROR, "Couldn't join");
+            snprintf(line, sizeof(line), "%s", ssid_ram);
+            overlay_text(240, 82, strlen(line) > 15 ? 2 : 3, C_ERROR, line);
+            overlay_text(240, 220, 2, C_TEXT, link_status == CYW43_LINK_NONET ? "Network not found" :
+                         link_status == CYW43_LINK_FAIL ? "Connection failed" : "No answer from it");
+            overlay_text(240, 290, 2, C_TEXT, "Starting without WiFi");
+        }
         boot_loading = false;
         boot_noting = true;
         note_until = time_us_32() + 3000000u;
@@ -1861,17 +1905,29 @@ bool net_boot_ready(void) {
     if (boot_noting) {
         if ((int32_t) (time_us_32() - note_until) < 0) return false;
         boot_noting = false;
-        screen_loading(NULL, -1);
+        if (!setup && !card_up) overlay_close();
     }
     if (boot_loading) {
-        if (settled() || waited > 30000000u) {
+        // the loading screen briefly, then (with a network saved) joining it, as in WiFi setup
+        if (waited < SPLASH_US) {
+            screen_loading("Loading", (int) (waited / (SPLASH_US / 1000)));
+        } else if (settled() || waited > 30000000u) {
             boot_loading = false;
+            boot_joining = false;
             screen_loading(NULL, -1);
-            net_show_address(20);   // (if WiFi joined: where the web panel is, before the machine starts)
-        } else {
-            // (how long joining takes isn't known: most of the way in 10 s, then creeping)
-            int permille = waited < 10000000u ? (int) (waited / 12500) : 800 + (int) ((waited - 10000000u) / 100000);
-            screen_loading("Joining WiFi", permille > 980 ? 980 : permille);
+            if (wifi_on && link_status == CYW43_LINK_UP && !setup) {
+                // where the web panel is, before the machine starts
+                net_show_address(20);
+                card_connected = true;
+                draw_card(20);
+            } else if (!setup) {
+                overlay_close();
+            }
+        } else if (!boot_joining && !setup && wifi_on && ssid_ram[0]) {
+            boot_joining = true;
+            boot_dots = 0;
+            boot_dots_us = time_us_32();
+            draw_boot_joining();
         }
     }
     if (boot_loading || setup_pending() || net_screen_up()) return false;
