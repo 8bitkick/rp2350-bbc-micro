@@ -12,7 +12,6 @@ function(common_setup TARGET)
             ${COMMON_DIR}/system.c          # both machines in one flash: which boots (docs/dual-boot.md)
             ${COMMON_DIR}/boot_guard.c
             ${COMMON_DIR}/app.c             # a program built in alongside (machine_hook.h)
-            ${COMMON_DIR}/splash/splash_default.c   # the loading screen's picture, unless the app has one
             )
     target_include_directories(${TARGET} PRIVATE ${COMMON_DIR} ${COMMON_DIR}/api)
     # An allocation that fails comes back NULL, for the caller to deal with (a web reply dropped, an install

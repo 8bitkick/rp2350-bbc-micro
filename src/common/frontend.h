@@ -14,7 +14,6 @@ extern "C" {
 // between frames (where requests may press keys, change the disc or reset the machine).
 
 void frontend_init(void);       // once the machine is set up
-void frontend_start(void);      // then, just before it runs: waits for the board (its network)
 void frontend_poll(void);
 void frontend_frame(void);
 

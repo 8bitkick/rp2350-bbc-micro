@@ -232,7 +232,7 @@ own report gives way to it.
 The running firmware installs a plugin, three ways, one code path (`app_install_*`):
 
 - `POST /api/app` with the image as the body (`curl --data-binary @elite-agent.bin
-  http://presto-xxxx.local/api/app`);
+  http://beeb.local/api/app`);
 - the panel's Plugin section: **Install plugin…**, or a `.bin` dropped on it, with the
   upload's progress, then the result; a plugin for the other machine offers the switch;
 - `tools/presto.py app install elite-agent.bin`: over USB (`!app install <size>` then the

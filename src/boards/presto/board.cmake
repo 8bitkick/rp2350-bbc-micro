@@ -18,22 +18,16 @@ function(board_setup TARGET)
             ${BOARD_DIR}/presto_sd.c        # the SD card and the disc in drive 0
             ${BOARD_DIR}/fatfs/ff.c
             ${BOARD_DIR}/fatfs/ffunicode.c
-            ${BOARD_DIR}/presto_net.c       # WiFi, its setup, the HTTP server for /api/<name> and the page
-            ${BOARD_DIR}/presto_screen.c    # its own screens: loading, WiFi setup, the web panel's address
-            ${BOARD_DIR}/presto_touch.c     # the touch screen, for those
-            ${BOARD_DIR}/lib/dhcpserver.c   # WiFi setup's access point: DHCP, DNS (a captive portal)
-            ${BOARD_DIR}/lib/dnsserver.c
-            ${BOARD_DIR}/lib/qrcodegen.c    # QR codes on the screen
+            ${BOARD_DIR}/presto_net.c       # WiFi, the HTTP server for /api/<name> and the page
             )
     pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_parallel.pio)
     pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_timing.pio)
     target_include_directories(${TARGET} PRIVATE ${BOARD_DIR} ${BOARD_DIR}/fatfs)
     target_compile_definitions(${TARGET} PRIVATE
             BOARD_FLASH_SAVE_SHIFT=${BOARD_FLASH_SAVE_SHIFT}
-            CYW43_HOST_NAME="presto")   # (presto_net.c names it presto-xxxx, presto-xxxx.local)
+            CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
     target_link_libraries(${TARGET} PRIVATE
-            hardware_pio hardware_dma hardware_spi hardware_pwm hardware_adc hardware_flash hardware_i2c pico_flash
-            pico_rand pico_unique_id
+            hardware_pio hardware_dma hardware_spi hardware_pwm hardware_adc hardware_flash pico_flash
             pico_cyw43_arch_lwip_poll   # WiFi, polled from core 0 (presto_net.c)
             pico_lwip_mdns)
 

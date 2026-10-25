@@ -3,7 +3,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,17 +23,6 @@ void net_print_status(void);
 bool net_wifi_save(const char *ssid, const char *pass);
 // restart to join the network saved: now, or once the HTTP reply in hand has gone
 void net_restart(bool after_reply);
-// a network to join asked for over HTTP (POST /api/wifi): joined at once in WiFi setup, otherwise
-// once someone at the board says so (its screen)
-enum { NET_WIFI_REFUSED, NET_WIFI_JOINING, NET_WIFI_CONFIRM };
-int net_wifi_request(const char *ssid, const char *pass);
-// "!wifisetup": restart into WiFi setup (the network saved stays saved until another is joined)
-void net_setup_restart(void);
-// before the machine's first instruction (frontend_start): the machine's framebuffer lent to the
-// board (machine_framebuffer), then net_boot_ready once a display frame until it says the machine
-// can start (WiFi joined, or not to be; its setup done with), with the framebuffer given back
-void net_boot_begin(uint32_t *fb, int rows);
-bool net_boot_ready(void);
 
 #ifdef __cplusplus
 }

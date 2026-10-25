@@ -2,7 +2,7 @@
 """Work on the web control panel without reflashing: serves src/common/api/web/index.html from
 disk (read afresh on every request) and passes /api/... through to the Presto.
 
-  tools/webdev.py <presto address: presto-xxxx.local, its own name, on its screen> [port, default 8080]
+  tools/webdev.py [presto address, default beeb.local] [port, default 8080]
 
 then open http://<this machine>:8080/ and refresh after each edit.
 """
@@ -14,9 +14,7 @@ import urllib.request
 from pathlib import Path
 
 PAGE = Path(__file__).resolve().parent.parent / 'src/common/api/web/index.html'
-if len(sys.argv) < 2:
-    sys.exit(__doc__)
-PRESTO = sys.argv[1]
+PRESTO = sys.argv[1] if len(sys.argv) > 1 else 'beeb.local'
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8080
 
 
