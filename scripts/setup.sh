@@ -227,8 +227,7 @@ To flash: hold BOOT and tap RESET on the Presto, then copy
   $UF2
 to the RP2350 drive that appears (or re-run with --flash).
 
-It boots into $BOOTS. The first time, it sets up WiFi on its screen: scan the QR code with a phone
-and pick your network. Then it shows the web control panel's address (http://presto-xxxx.local/)
-for 20 seconds at each power on. (Or give it the network over USB:
-  python3 tools/presto.py wifi secrets.py     (a Pimoroni-style secrets.py with WIFI_SSID / WIFI_PASSWORD))
+It boots straight into $BOOTS. To use the web control panel, give it your WiFi network once over USB:
+  python3 tools/presto.py wifi secrets.py     (a Pimoroni-style secrets.py with WIFI_SSID / WIFI_PASSWORD)
+then open http://beeb.local/
 EOF

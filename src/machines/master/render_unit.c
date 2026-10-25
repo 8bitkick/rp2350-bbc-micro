@@ -250,12 +250,6 @@ bool panel_splash_picture(void)
     return true;
 }
 
-uint32_t *panel_framebuffer(int *rows)
-{
-    *rows = k_rows;
-    return &s_fb[0][0];
-}
-
 void panel_splash_blank(void)
 {
     for (int y = 0; y < k_rows; y++) memset(s_fb[y], 0, (k_row_words - 1) * 4);

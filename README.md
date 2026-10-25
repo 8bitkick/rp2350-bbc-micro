@@ -26,7 +26,7 @@ other discs and type on the machine's own keyboard over WiFi.
 | ![Elite on the Model B](docs/presto/shot-beeb-elite.png) | ![Prince of Persia on the Master](docs/master/shot-pop.png) | ![Stunt Car Racer on the Master](docs/master/shot-scr.png) |
 | Model B: Elite (flicker-free) | Master 128: Prince of Persia | Master 128: Stunt Car Racer |
 
-## Quick start
+## Install on a Presto
 
 No tools needed: one file onto the Presto.
 
@@ -38,49 +38,53 @@ No tools needed: one file onto the Presto.
 It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite.bbcelite.com/), and after a few
 seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it as Commander JAMESON, already
 Deadly, carrying on from its last save after a power-off. (Flashing a release replaces the Master's saves.) The BBC Model B, with its own
-flicker-free Elite, is one click away on the [web panel](#web-panel---httppresto-xxxxlocal) once the Presto is on your
-WiFi ([setting it up](#first-power-on-wifi) takes a phone and a minute). Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
+flicker-free Elite, is one click away on the [web panel](#web-panel---httpbeeblocal) once the Presto is on your
+WiFi. Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
 repository doesn't contain them (`setup.sh` downloads them when you build).
 
-### First power-on: WiFi
+## Quick start (building it yourself)
 
-![WiFi setup on the Presto, in four steps: scan, finish on your phone, joining, connected](docs/presto/wifi-setup-strip.png)
+You need a [Pimoroni Presto](https://shop.pimoroni.com/products/presto), a USB-C cable and a computer
+with Git (Linux, macOS, or Windows with Git Bash).
 
-No WiFi wanted? Tap **Skip**. The web panel is at **http://presto-xxxx.local/**, the `xxxx` being on
-the Presto's screen.
+```sh
+git clone https://github.com/8bitkick/rp2350-bbc-micro.git && cd rp2350-bbc-micro
+scripts/setup.sh              # both machines -> build-dual-boot/presto_dual_boot.uf2
+```
 
-### More about WiFi
+`setup.sh` fetches everything it needs (the Arm toolchain, the Pico SDK, both machines' ROMs and
+Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
+in one `.uf2`, with the choice between them on the [web panel](#web-panel---httpbeeblocal). Add
+`--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages first. Sound and the LEDs
+are on in it, and switched on the panel.
 
-At power on the Presto shows its loading screen for a moment, then joins WiFi as in setup (**Joining**,
-then **Connected!**), showing the web panel's address (its QR code, IP and `presto-xxxx.local`, the
-Presto's own name from the end of its board ID) for 20 seconds (counting down on its **SKIP**; **WAIT**
-keeps it up until **OK**), and then starts the BBC Micro, so it's seen booting from the start. To see the address again later, hold a finger still in
-the top-left corner of the screen for 3 seconds.
+One machine on its own:
 
-If the saved network's password is wrong, the Presto goes straight into WiFi setup (below), saying so.
-If the network isn't there or doesn't answer, it says so for a few seconds and starts without WiFi,
-trying again every 15 seconds behind the machine.
+```sh
+scripts/setup.sh --beeb       # BBC Model B  -> build/presto_beebjit.uf2
+scripts/setup.sh --master     # BBC Master   -> build-master/presto_master.uf2
+```
 
-If a phone doesn't open the setup page by itself, go to `http://192.168.4.1/`. The network is saved
-only once the Presto has joined it. **Skip** (or ten minutes) carries on without WiFi until the next
-restart. Setup runs before the BBC Micro starts, in memory the emulator isn't using yet (its
-framebuffer), so it costs the machine nothing.
+The Master boots Elite by default; `--master --disc=pop-beeb.ssd` builds in Prince of Persia instead
+(also `bs-scr-beeb.ssd` Stunt Car Racer, `arcadians.ssd`, `bs-twisted.ssd`, `EvilIn11.ssd`, or your own).
+On one machine's build, sound and the LEDs are [build options](#build-options), off by default.
 
-To set up WiFi again later: hold a finger on the screen while the Presto powers on, for about 2
-seconds, or send `!wifisetup` over USB serial. The saved network stays until another is joined. A
-network sent to `POST /api/wifi` is joined only once someone taps **Join** on the Presto's screen.
-`tools/forget_wifi.py` makes a UF2 that forgets it. Or, over USB, without a phone:
+To flash it: hold **BOOT** on the Presto, tap **RESET**, and copy the `.uf2` onto the **RP2350** drive
+that appears (or add `--flash` to `setup.sh`). It reboots into Elite.
+
+Then put it on your WiFi, once, with the Presto plugged in over USB:
 
 1. Copy [`tools/secrets.example.py`](tools/secrets.example.py) to `secrets.py` and fill in your network
    name and password (`secrets.py` is ignored by git).
 2. Run `python3 tools/presto.py wifi secrets.py`. The Presto saves them in its flash and restarts by
-   itself. It remembers them through power-offs and new firmware.
+   itself (the machine reboots too). It remembers them through power-offs and new firmware.
+3. Give it 10–20 seconds to join: the machine is back at once, and the WiFi connects in the
+   background (it retries every 15 seconds if it can't). `python3 tools/presto.py net` shows the link
+   and its address.
+4. Open **[http://beeb.local/](http://beeb.local/)** in a browser on the same network (or the address
+   `net` shows, if your network doesn't do `.local` names).
 
-`python3 tools/presto.py net` shows the link, its address and its name. Open
-**http://presto-xxxx.local/** in a browser on the same network (or the address, if your network
-doesn't do `.local` names).
-
-## Web panel - http://presto-xxxx.local/
+## Web panel - [http://beeb.local/](http://beeb.local/)
 
 | Model B | Master 128 |
 |---|---|
@@ -176,21 +180,10 @@ synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers i
 `setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads the ROMs and
 flicker-free Elite (which aren't part of this repository), and builds
 `build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
-`build-master/presto_master.uf2`). Flash it as in the [quick start](#quick-start), or run
+`build-master/presto_master.uf2`). Flash it as in the [install steps](#install-on-a-presto), or run
 `scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
 `. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
 `ninja -C build-master`).
-
-Or one machine on its own:
-
-```sh
-scripts/setup.sh --beeb       # BBC Model B  -> build/presto_beebjit.uf2
-scripts/setup.sh --master     # BBC Master   -> build-master/presto_master.uf2
-```
-
-The Master boots Elite by default; `--master --disc=pop-beeb.ssd` builds in Prince of Persia instead
-(also `bs-scr-beeb.ssd` Stunt Car Racer, `arcadians.ssd`, `bs-twisted.ssd`, `EvilIn11.ssd`, or your own).
-On one machine's build, sound and the LEDs are [build options](#build-options), off by default.
 
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
@@ -249,7 +242,6 @@ names, as the web page's `/api/<name>`. `presto.py <name> [args]` gives the text
 | `presto.py state <snapshot.json>` | Load a BBC Micro Bot snapshot |
 | `presto.py discs` / `disc <name>` / `put <file>` | The SD card's discs |
 | `presto.py wifi secrets.py` / `net` | Save the WiFi network / show the link |
-| `tools/forget_wifi.py out.uf2` | A UF2 that blanks the saved WiFi network (and the setup network's password): flashed, the Presto starts in WiFi setup |
 | `presto.py bootsel` | Reboot into the bootloader for flashing |
 
 [AGENTS.md](AGENTS.md) has notes for developers and coding agents: how to
@@ -269,18 +261,7 @@ build and measure, where things are, and what hasn't been tried yet.
 - **[Flicker-free Elite](https://github.com/markmoxon/elite-source-code-bbc-micro-disc):** Mark
   Moxon. Elite is © Ian Bell and David Braben. `setup.sh` fetches it and builds it into the firmware;
   the source tree doesn't include it.
-- **WiFi setup:** the DHCP server (Damien P. George, from MicroPython; MIT) and the DNS server
-  (Raspberry Pi; BSD-3-Clause) from Raspberry Pi's pico-examples, Project Nayuki's
-  [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT), and Daniel
-  Hepper's [font8x8](https://github.com/dhepper/font8x8) (public domain), each with its notice in
-  `src/boards/presto/lib/`; the setup flow is the one on the
-  [Acorn Archimedes for the Presto](https://github.com/8bitkick/rp2350-acorn-archimedes).
-- **Loading screen:** the 8bitkick logo, with the mark set in [Comfortaa](https://fonts.google.com/specimen/Comfortaa)
-  (Johan Aakerlund, OFL), baked by `tools/make_splash.py` (from [elite-agent](https://github.com/8bitkick/elite-agent))
-  into `src/common/splash/splash_default.c`; a plugin's own picture replaces it.
 - **Screenshots:** Exile © Superior Software; Wobble Colours by Tom Seddon of [Bitshifters](https://bitshifters.github.io/).
 
 beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The BBC Micro
-ROMs in `roms/` are not covered by the GPL; see [roms/README.md](roms/README.md). In
-`src/boards/presto/lib/`: `dhcpserver` and `qrcodegen` are MIT, `dnsserver` is BSD-3-Clause,
-`font8x8_basic.h` is public domain, each with its notice.
+ROMs in `roms/` are not covered by the GPL; see [roms/README.md](roms/README.md).

@@ -982,28 +982,6 @@ frame_callback(void* p, uint64_t cycles) {
   s_stats_cycles = cycles;
 }
 
-/* The framebuffer, lent to the board until the machine runs (machine_if.h):
- * once core 1 has drawn all it was given (beebjit's set-up hands it a line
- * or two) and the PIO's last row is in.
- */
-uint32_t*
-machine_framebuffer(int* p_rows) {
-#if PRESTO_BEEBJIT_WIRE
-  beebjit_wire_sync();
-#endif
-#if PRESTO_BEEBJIT_PANEL_PIO
-  {
-    uint32_t t0 = time_us_32();
-    while ((dma_channel_is_busy((uint) s_copy_dma) ||
-            dma_channel_is_busy((uint) s_pack_dma)) &&
-           ((time_us_32() - t0) < 1000)) {
-    }
-  }
-#endif
-  *p_rows = (int) k_beebjit_panel_rows;
-  return &s_fb[0][0];
-}
-
 static size_t s_psram;
 
 static void
@@ -1083,10 +1061,6 @@ run_beebjit(void) {
 #else
     presto_machine_init(p_bbc, NULL);
 #endif
-    /* Held until the board's network is up (or set up), so the BBC is seen
-     * booting from the start.
-     */
-    frontend_start();
     (void) beebjit_embedded_run(p_bbc);
     (void) printf("#beebjit exited\n");
   }

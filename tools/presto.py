@@ -17,7 +17,7 @@ as /api/<name>: any of them runs as "presto.py <name> [args]" (its text reply) o
   presto.py key <sdl_scancode> [ms]   press a key (40 RETURN, 44 SPACE, 4-29 A-Z, 30-39 1-0)
   presto.py bootsel                reboot into the USB bootloader, ready for a new .uf2
   presto.py wifi <secrets.py>      save the WiFi network (Pimoroni's WIFI_SSID / WIFI_PASSWORD) and
-                                   restart; the web panel is then at http://presto-xxxx.local/
+                                   restart; the web panel is then at http://beeb.local/
   presto.py net                    the WiFi link and address
   presto.py discs                  the .ssd/.dsd images on the SD card
   presto.py disc [name]            boot a disc from the card (no name: the built-in disc)

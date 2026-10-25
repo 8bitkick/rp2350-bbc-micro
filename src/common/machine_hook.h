@@ -10,8 +10,8 @@
 // built for one machine checks it before trusting anything else (the Model B has no shadow RAM,
 // ANDY or HAZEL: those are NULL, size 0). MACHINE_HOOK_VERSION goes up whenever this interface
 // changes; a program checks io->version against the version it was built for, too.
-// machine_boot_image (a loading screen's picture) shows while the machine loads and its WiFi joins
-// (the firmware's own, the 8bitkick logo, if the program has none).
+// machine_boot_image (a loading screen) is the Master's only: the Model B boots too quickly to
+// show one.
 #ifndef MACHINE_HOOK_H
 #define MACHINE_HOOK_H
 #include <stdbool.h>

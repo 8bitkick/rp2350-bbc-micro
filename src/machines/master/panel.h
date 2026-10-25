@@ -16,9 +16,6 @@ bool panel_splash_picture(void);
 void panel_splash_status(const char *what, int permille);
 // the framebuffer black (a program being installed: core 1 idle, the machine paused)
 void panel_splash_blank(void);
-// the framebuffer: its rows (machine_framebuffer)
-#include <stdint.h>
-uint32_t *panel_framebuffer(int *rows);
 // Core 1: renders what is in the stream now (not what arrives meanwhile).
 void panel_consume(struct vstream *vs);
 // Core 0, right after a machine reset: the renderer starts again from its
