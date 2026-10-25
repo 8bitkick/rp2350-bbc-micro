@@ -26,7 +26,7 @@ as are `PRESTO_MACHINE` and `PRESTO_BEEBJIT_SOUND` / `_AMBIENT`).
 ## Build, flash, run
 
 ```sh
-scripts/setup.sh            # first time: toolchain and Pico SDK into deps/, ROMs, Elite, build-dual-boot/presto_dual_boot.uf2
+scripts/setup.sh --roms     # first time: toolchain and Pico SDK into deps/, ROMs, Elite, build-dual-boot/presto_dual_boot.uf2
 . deps/env.sh && scripts/build-dual-boot.sh      # rebuild it
 scripts/setup.sh --beeb     # the Model B alone: build/presto_beebjit.uf2 (rebuild: ninja -C build presto_beebjit)
 scripts/setup.sh --master   # the Master alone: build-master/presto_master.uf2

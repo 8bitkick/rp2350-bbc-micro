@@ -20,7 +20,7 @@ jobs:
           path: deps
           key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
       - name: The toolchain, the SDK, both machines' ROMs and Elite
-        run: scripts/setup.sh --no-build
+        run: scripts/setup.sh --no-build --roms
       - name: The pinned discs and elite-agent
         env:
           GH_TOKEN: ${{ github.token }}

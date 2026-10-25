@@ -118,13 +118,13 @@ Evil.
 ## Build and flash
 
 ```
-scripts/setup.sh --master                      # toolchain, Pico SDK, MOS 3.20 ROMs, discs; builds with Elite
+scripts/setup.sh --master                      # toolchain, Pico SDK, discs; builds with Elite
 scripts/setup.sh --master --disc=pop-beeb.ssd  # or another disc in discs/
 ```
 
-It fetches the pinned Arm toolchain and Pico SDK into `deps/`, the MOS 3.20 ROMs (from beebjit's
-ROM set) into `roms/mos3.20/`, and the six discs above into `discs/`. None of them are in this
-repository. Then hold BOOT and tap RESET on the Presto, and copy `build-master/presto_master.uf2` to
+It fetches the pinned Arm toolchain and Pico SDK into `deps/` and the six discs above into `discs/`.
+It needs the MOS 3.20 ROMs in `roms/mos3.20/` (the list is in [the README](../../README.md#roms));
+`--roms` downloads them. None of them are in this repository. Then hold BOOT and tap RESET on the Presto, and copy `build-master/presto_master.uf2` to
 the RP2350 drive (or add `--flash`). After that, `python3 tools/presto.py bootsel` gets to the
 bootloader without the buttons.
 
@@ -247,8 +247,7 @@ on core 1, cost it about 3 points of core 1 (docs/cores.md).
 
 - [Kieran Connell](https://github.com/kieranhj/esp32-beeb): the emulator in `src/cores/kc-beeb/`.
 - [beebjit](https://github.com/scarybeasts/beebjit) by Chris Evans: the reference Kieran's
-  emulator is checked against, and the MOS 3.20 ROM set `setup.sh` fetches (Acorn's ROMs; not
-  covered by this licence).
+  emulator is checked against.
 - The teletext character set in `src/cores/kc-beeb/teletext_glyphs.h` is from
   [B-em](https://github.com/stardot/b-em) by Sarah Walker and others.
 - The web keyboard's keycaps use [Open Gorton](https://github.com/dakotafelder/open-gorton) by Dakota

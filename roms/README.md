@@ -1,15 +1,14 @@
 BBC Micro ROMs
 ==============
 
-The firmware builds in three Acorn ROMs: the MOS 1.20 (`os/os12.rom`), BBC BASIC II
-(`general/basic2.rom`) and DFS 0.90 (`general/dfs09.rom`).
+The firmware builds in these ROMs, which aren't part of this repository:
 
-These ROMs are NOT covered by the GPL licence of the rest of this repository. They are placed
-here in "good faith" in accordance with the GPL licence [0], as other BBC Micro emulators do.
-Should these terms be unacceptable to any holder of the ROMs' copyrights, they will be removed,
-and users would have to source the ROMs elsewhere.
+| File | ROM | Needed for |
+|---|---|---|
+| `os/os12.rom` | MOS 1.20 | the Model B |
+| `general/basic2.rom` | BBC BASIC II | the Model B |
+| `general/dfs09.rom` | DFS 0.90 | the Model B |
+| `mos3.20/mos.rom`, `dfs.rom`, `viewsht.rom`, `edit.rom`, `basic4.rom`, `adfs.rom`, `view.rom`, `terminal.rom` | MOS 3.20 | the Master 128 |
+| `general/gxr.rom` | Graphics Extension ROM | optional: BBC Micro Bot snapshots that use it |
 
-`scripts/setup.sh --gxr` also fetches Acorn's Graphics Extension ROM to `general/gxr.rom` (it isn't
-part of this repository); many BBC Micro Bot snapshots need it.
-
-[0] https://www.gnu.org/licenses/gpl-faq.en.html#GPLInProprietarySystem
+Put them here, or run `scripts/setup.sh --roms`.

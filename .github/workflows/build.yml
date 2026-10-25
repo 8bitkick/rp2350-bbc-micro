@@ -27,7 +27,7 @@ jobs:
           path: deps
           key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
       - name: Fetch the toolchain, the SDK and Elite
-        run: scripts/setup.sh --no-build
+        run: scripts/setup.sh --no-build --roms
       - name: The Master's ROMs and disc
         if: matrix.machine == 'master'
         run: |
@@ -67,7 +67,7 @@ jobs:
         with:
           path: deps
           key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
-      - run: scripts/setup.sh --no-build
+      - run: scripts/setup.sh --no-build --roms
       - name: The Master's ROMs and disc
         if: matrix.machine == 'master'
         run: |
@@ -109,11 +109,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Elite (for the Elite scenarios)
         run: scripts/fetch-elite.sh
+      - name: The Model B's ROMs
+        run: scripts/fetch-roms.sh --beeb
       - name: QEMU and the Arm toolchain
         if: matrix.target == 'qemu'
         run: |
           sudo apt-get update && sudo apt-get install -y qemu-system-arm ninja-build
-          scripts/setup.sh --no-build
+          scripts/setup.sh --no-build --roms
       - name: Build and test (interpreter, then the JIT)
         timeout-minutes: 60
         run: |
