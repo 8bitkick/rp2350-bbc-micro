@@ -1,12 +1,14 @@
 #!/bin/sh
 # From a fresh clone to the Presto firmware: fetches the pinned toolchain and Pico SDK into deps/,
-# the machines' ROMs and flicker-free Elite, and builds the dual-boot firmware, both machines and
+# flicker-free Elite (and with --roms the machines' ROMs), and builds the dual-boot firmware, both machines and
 # the launcher in one .uf2 (build-dual-boot/presto_dual_boot.uf2, docs/dual-boot.md), the machine
 # chosen on the web panel.
 #
-#   scripts/setup.sh [--apt] [--gxr] [--demos] [--beeb | --master [--disc=NAME]] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--roms] [--gxr] [--demos] [--beeb | --master [--disc=NAME]] [--no-build] [--flash]
 #
 #   --apt        install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
+#   --roms       also fetch the ROMs into roms/ (scripts/fetch-roms.sh, from beebjit's ROM set); without
+#                it, the ROMs must already be there
 #   --gxr        also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
 #   --demos      also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
 #   --beeb       the BBC Model B alone (beebjit): builds build/presto_beebjit.uf2
@@ -37,10 +39,11 @@ ROOT=$(cd "$ROOT" && pwd $PWD_OPT)
 DEPS=${DEPS:-$ROOT/deps}
 mkdir -p "$DEPS" "$ROOT/deps"
 DEPS=$(cd "$DEPS" && pwd $PWD_OPT)
-DO_APT=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MACH=both; DISC=; DISC_DEFAULT=elite-master-flicker-free-sng47.ssd
+DO_APT=0; DO_ROMS=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MACH=both; DISC=; DISC_DEFAULT=elite-master-flicker-free-sng47.ssd
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
+    --roms) DO_ROMS=1 ;;
     --gxr) DO_GXR=1 ;;
     --demos) DO_DEMOS=1 ;;
     --beeb) MACH=beeb ;;
@@ -48,7 +51,7 @@ for a in "$@"; do
     --disc=*) DISC=${a#--disc=} ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
@@ -151,15 +154,25 @@ if [ $DO_DEMOS = 1 ]; then
   done
 fi
 
-# ---- The Master 128: its MOS 3.20 ROMs and test discs
+# ---- ROMs
+if [ $DO_ROMS = 1 ]; then
+  say "Fetching the ROMs (beebjit's ROM set)"
+  "$ROOT/scripts/fetch-roms.sh" $([ $MACH = beeb ] && echo --beeb)
+fi
+NEED="os/os12.rom general/basic2.rom general/dfs09.rom"
+[ $MACH = beeb ] || for r in mos dfs viewsht edit basic4 adfs view terminal; do NEED="$NEED mos3.20/$r.rom"; done
+ROMS_MISSING=""
+for r in $NEED; do [ -f "$ROOT/roms/$r" ] || ROMS_MISSING="$ROMS_MISSING roms/$r"; done
+if [ -n "$ROMS_MISSING" ]; then
+  echo "The build needs these ROMs, not found:"
+  for r in $ROMS_MISSING; do echo "  $r"; done
+  echo "Put them there, or run scripts/setup.sh --roms to download them (see README)."
+  [ $DO_BUILD = 1 ] && exit 1
+fi
+
+# ---- The Master 128's test discs
 if [ $MACH != beeb ]; then
-  mkdir -p "$ROOT/roms/mos3.20" "$ROOT/discs"
-  for r in mos dfs viewsht edit basic4 adfs view terminal; do
-    [ -f "$ROOT/roms/mos3.20/$r.rom" ] && continue
-    say "Fetching $r.rom (MOS 3.20, from beebjit's ROM set)"
-    curl -fsSL -o "$ROOT/roms/mos3.20/$r.rom" \
-      "https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom"
-  done
+  mkdir -p "$ROOT/discs"
   for u in \
     https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
     https://bitshifters.github.io/content/pop-beeb.ssd \

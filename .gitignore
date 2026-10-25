@@ -8,8 +8,8 @@ deps/
 # not part of this repository (scripts/setup.sh fetches them)
 discs/*
 !discs/README.md
-roms/general/gxr.rom
-roms/mos3.20/
+roms/*
+!roms/README.md
 __pycache__/
 
 # your WiFi details (tools/secrets.example.py)

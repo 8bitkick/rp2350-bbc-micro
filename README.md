@@ -52,8 +52,8 @@ git clone https://github.com/8bitkick/rp2350-bbc-micro.git && cd rp2350-bbc-micr
 scripts/setup.sh              # both machines -> build-dual-boot/presto_dual_boot.uf2
 ```
 
-`setup.sh` fetches everything it needs (the Arm toolchain, the Pico SDK, both machines' ROMs and
-Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
+It needs the [ROMs](#roms) in `roms/` first (or add `--roms` to download them). `setup.sh` fetches
+the rest (the Arm toolchain, the Pico SDK and Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
 in one `.uf2`, with the choice between them on the [web panel](#web-panel---httpbeeblocal). Add
 `--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages first. Sound and the LEDs
 are on in it, and switched on the panel.
@@ -177,15 +177,15 @@ On Windows, run it from Git Bash, with CMake and Ninja installed; it also fetche
 `pioasm` and `picotool`. To keep the toolchain and SDK (1.6 GB) somewhere else, such as outside a
 synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers it.
 
-`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads the ROMs and
-flicker-free Elite (which aren't part of this repository), and builds
+`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
+(and with `--roms` the [ROMs](#roms)), and builds
 `build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
 `build-master/presto_master.uf2`). Flash it as in the [install steps](#install-on-a-presto), or run
 `scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
 `. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
 `ninja -C build-master`).
 
-`scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
+`scripts/setup.sh --gxr` also fetches the Graphics Extension ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
 ### What `setup.sh` downloads
@@ -198,16 +198,26 @@ Everything is fetched over HTTPS from these places; re-running keeps what's alre
 | Pico SDK 2.2.0 and its submodules | [github.com/raspberrypi/pico-sdk](https://github.com/raspberrypi/pico-sdk) | `deps/pico-sdk` | always |
 | `pioasm` and `picotool`, prebuilt | [github.com/raspberrypi/pico-sdk-tools](https://github.com/raspberrypi/pico-sdk-tools/releases) | `deps/` | Windows only (elsewhere the SDK builds them; it downloads picotool's source on first configure) |
 | Flicker-free Elite for the Model B | [Mark Moxon's GitHub](https://github.com/markmoxon/elite-source-code-bbc-micro-disc/tree/flicker-free/5-compiled-game-discs) | `discs/elite-disc-flicker-free-sth.ssd` | always |
-| MOS 3.20 ROMs (the Master 128) | [beebjit's ROM set](https://github.com/scarybeasts/beebjit/tree/master/roms/mos3.20) | `roms/mos3.20/` | unless `--beeb` |
 | Flicker-free Elite for the Master | [elite.bbcelite.com](https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd) | `discs/` | unless `--beeb` |
 | Prince of Persia, Bitshifters demos (`bs-scr-beeb`, `bs-twisted`, `EvilIn11`) | [bitshifters.github.io](https://bitshifters.github.io/) | `discs/` | unless `--beeb` |
 | Arcadians | [bbcmicro.co.uk](https://www.bbcmicro.co.uk/) | `discs/arcadians.ssd` | unless `--beeb` |
-| GXR ROM | [beebjit's ROM set](https://github.com/scarybeasts/beebjit/blob/master/roms/gxr.rom) | `roms/general/gxr.rom` | `--gxr` |
 | Wobble Colours, Bar Beeb (Bitshifters) | [bitshifters.github.io](https://bitshifters.github.io/) | `discs/` | `--demos` |
 
-The Model B's ROMs (OS 1.2, BASIC 2, DFS 0.9) are in the repository, in `roms/`. The ROMs are © their
-owners (Acorn's, as other BBC Micro emulators carry them) and the games © theirs, fetched for personal
-use; to use your own, put them at the paths above first, as `setup.sh` keeps any file already there. `--apt` installs
+### ROMs
+
+The ROMs aren't part of this repository. The build needs these in `roms/` (`--beeb` needs only the
+Model B's three):
+
+| File | ROM |
+|---|---|
+| `roms/os/os12.rom` | MOS 1.20 (Model B) |
+| `roms/general/basic2.rom` | BBC BASIC II (Model B) |
+| `roms/general/dfs09.rom` | DFS 0.90 (Model B) |
+| `roms/mos3.20/` `mos.rom`, `dfs.rom`, `viewsht.rom`, `edit.rom`, `basic4.rom`, `adfs.rom`, `view.rom`, `terminal.rom` | MOS 3.20 (Master 128) |
+| `roms/general/gxr.rom` | Graphics Extension ROM (optional, built in when present) |
+
+Put them there before running `setup.sh`, or add `--roms` to have it download them; without them it
+stops and lists what's missing. Files already there are kept. `--apt` installs
 the host packages (CMake, Ninja, a host compiler) with `sudo apt`.
 
 ### Build options
@@ -217,7 +227,7 @@ One machine and one board per build; everything else is a switch:
 | Option | |
 |---|---|
 | `-DMACHINE=beeb` | The BBC Model B on beebjit (the default): `build/presto_beebjit.uf2` |
-| `-DMACHINE=master` | The BBC Master 128 on Kieran Connell's emulator: `build/presto_master.uf2`. `scripts/setup.sh --master` fetches its MOS 3.20 ROMs and discs and builds it in `build-master/`; [docs/master/README.md](docs/master/README.md) has how it runs and why the Master isn't on beebjit |
+| `-DMACHINE=master` | The BBC Master 128 on Kieran Connell's emulator: `build/presto_master.uf2`. `scripts/setup.sh --master` fetches its discs (with `--roms`, its MOS 3.20 ROMs) and builds it in `build-master/`; [docs/master/README.md](docs/master/README.md) has how it runs and why the Master isn't on beebjit |
 | `-DBOARD=presto` | The board (the only one so far; [docs/porting-a-board.md](docs/porting-a-board.md)) |
 | `-DSOUND=ON` | The BBC's sound on the Presto's piezo |
 | `-DAMBIENT=ON` | The LEDs on the back lit with what's on screen |
@@ -285,5 +295,5 @@ build and measure, where things are, and what hasn't been tried yet.
   the source tree doesn't include it.
 - **Screenshots:** Exile © Superior Software; Wobble Colours by Tom Seddon of [Bitshifters](https://bitshifters.github.io/).
 
-beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The BBC Micro
-ROMs in `roms/` are not covered by the GPL; see [roms/README.md](roms/README.md).
+beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The ROMs
+aren't part of this repository; see [ROMs](#roms).
