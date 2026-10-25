@@ -188,6 +188,28 @@ flicker-free Elite (which aren't part of this repository), and builds
 `scripts/setup.sh --gxr` also fetches Acorn's GXR graphics ROM, which many
 [BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
+### What `setup.sh` downloads
+
+Everything is fetched over HTTPS from these places; re-running keeps what's already there.
+
+| What | From | To | When |
+|---|---|---|---|
+| Arm GNU toolchain 14.2 | [developer.arm.com](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads) | `deps/` | always (unless your platform has no prebuilt one: then your own `arm-none-eabi-gcc`) |
+| Pico SDK 2.2.0 and its submodules | [github.com/raspberrypi/pico-sdk](https://github.com/raspberrypi/pico-sdk) | `deps/pico-sdk` | always |
+| `pioasm` and `picotool`, prebuilt | [github.com/raspberrypi/pico-sdk-tools](https://github.com/raspberrypi/pico-sdk-tools/releases) | `deps/` | Windows only (elsewhere the SDK builds them; it downloads picotool's source on first configure) |
+| Flicker-free Elite for the Model B | [Mark Moxon's GitHub](https://github.com/markmoxon/elite-source-code-bbc-micro-disc/tree/flicker-free/5-compiled-game-discs) | `discs/elite-disc-flicker-free-sth.ssd` | always |
+| MOS 3.20 ROMs (the Master 128) | [beebjit's ROM set](https://github.com/scarybeasts/beebjit/tree/master/roms/mos3.20) | `roms/mos3.20/` | unless `--beeb` |
+| Flicker-free Elite for the Master | [elite.bbcelite.com](https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd) | `discs/` | unless `--beeb` |
+| Prince of Persia, Bitshifters demos (`bs-scr-beeb`, `bs-twisted`, `EvilIn11`) | [bitshifters.github.io](https://bitshifters.github.io/) | `discs/` | unless `--beeb` |
+| Arcadians | [bbcmicro.co.uk](https://www.bbcmicro.co.uk/) | `discs/arcadians.ssd` | unless `--beeb` |
+| GXR ROM | [beebjit's ROM set](https://github.com/scarybeasts/beebjit/blob/master/roms/gxr.rom) | `roms/general/gxr.rom` | `--gxr` |
+| Wobble Colours, Bar Beeb (Bitshifters) | [bitshifters.github.io](https://bitshifters.github.io/) | `discs/` | `--demos` |
+
+The Model B's ROMs (OS 1.2, BASIC 2, DFS 0.9) are in the repository, in `roms/`. The ROMs are © their
+owners (Acorn's, as other BBC Micro emulators carry them) and the games © theirs, fetched for personal
+use; to use your own, put them at the paths above first, as `setup.sh` keeps any file already there. `--apt` installs
+the host packages (CMake, Ninja, a host compiler) with `sudo apt`.
+
 ### Build options
 
 One machine and one board per build; everything else is a switch:
