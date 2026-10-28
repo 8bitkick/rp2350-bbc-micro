@@ -20,7 +20,11 @@
 #define PRESTO_LCD_TIMING_DMA 1
 #endif
 
+#if MACHINE_C64
+#include "st7701_rgb565.pio.h"
+#else
 #include "st7701_parallel.pio.h"
+#endif
 #include "st7701_timing.pio.h"
 
 #define LCD_SPI         spi1
@@ -143,6 +147,12 @@ static void __not_in_flash_func(sm_exec)(uint instr) {
 }
 
 static void __not_in_flash_func(load_colours)(void) {
+#if MACHINE_C64
+    pio_sm_put(lcd_pio, parallel_sm, BOARD_DISPLAY_WIDTH - 1);
+    sm_exec(pio_encode_pull(false, true));
+    sm_exec(pio_encode_mov(pio_y, pio_osr));
+    sm_exec(pio_encode_out(pio_null, 32));
+#else
     static const uint8_t to[3] = {pio_x, pio_y, pio_isr};
     static const uint16_t rgb[3] = {0xf800, 0x07e0, 0x001f};
     for (int i = 0; i < 3; i++) {
@@ -153,6 +163,7 @@ static void __not_in_flash_func(load_colours)(void) {
         // every register got the first colour
         sm_exec(pio_encode_out(pio_null, 32));
     }
+#endif
 }
 
 // What the frame interrupt saw (STATS): the most it ran late; the frames whose rows it found out of
@@ -461,11 +472,18 @@ static uint16_t rgb_for(uint code) {
 }
 
 const uint16_t *board_display_row_rgb565(int row, uint16_t *buf) {
+#if MACHINE_C64
+    const uint16_t *raw = row_table[row];
+    for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++)
+        buf[x] = __builtin_bswap16((uint16_t)pins_for(raw[x]));
+    return buf;
+#else
     // expand a row to what the panel shows, as byte swapped RGB565
     const uint32_t *src = (const uint32_t *) row_table[row];
     for (int x = 0; x < BOARD_DISPLAY_WIDTH; x++)
         buf[x] = __builtin_bswap16(rgb_for((src[x >> 3] >> ((x & 7) * 4)) & 7));
     return buf;
+#endif
 }
 
 const uint16_t *__not_in_flash_func(board_display_row)(int row) {

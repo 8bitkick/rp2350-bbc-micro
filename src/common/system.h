@@ -1,6 +1,10 @@
 #ifndef SYSTEM_H
 #define SYSTEM_H
 
+#define C64_DIAG_MAGIC 0x64360000u
+#define C64_RETURN_MAGIC 0x64370000u
+
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
@@ -8,6 +12,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+void system_capture_c64_failure(void);
+void system_failure_json(char *out, uint32_t size);
 
 // The system: both machines in one flash, each in a slot of its own, and the launcher at the
 // bottom of the flash that boots the one chosen (docs/dual-boot.md). The choice lives in the
@@ -18,6 +25,7 @@ extern "C" {
 // the slots: partitions of the table in src/launcher/partitions.json, in this order
 #define SYSTEM_SLOT_MASTER 0
 #define SYSTEM_SLOT_BEEB   1
+#define SYSTEM_SLOT_C64    3
 #define SYSTEM_SLOT_APP    2        // the app (app_api.h)
 // (the board's flash regions, WiFi, settings and save discs, are above them all, unpartitioned)
 
@@ -37,7 +45,7 @@ typedef struct {
 
 // the slot a machine's name says (-1: no such machine)
 static inline int system_slot(const char *machine) {
-    return !strcmp(machine, "master") ? SYSTEM_SLOT_MASTER : !strcmp(machine, "beeb") ? SYSTEM_SLOT_BEEB : -1;
+    return !strcmp(machine, "master") ? SYSTEM_SLOT_MASTER : !strcmp(machine, "beeb") ? SYSTEM_SLOT_BEEB : !strcmp(machine, "c64") ? SYSTEM_SLOT_C64 : -1;
 }
 
 // the machine a settings sector chooses: SYSTEM_DEFAULT_MACHINE if it's blank, garbage, or a

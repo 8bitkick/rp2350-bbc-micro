@@ -4,6 +4,7 @@
 
 #include "pico/stdlib.h"
 #include "hardware/structs/qmi.h"
+#include "hardware/structs/watchdog.h"
 
 #include "system.h"
 #include "mem.h"
@@ -50,7 +51,7 @@ bool system_set_app_off(uint32_t id) {
 }
 
 const char *system_machines(void) {
-    return system_launched() ? "master beeb" : "";
+    return system_launched() ? "master beeb c64" : "";
 }
 
 void system_status_json(char *out, uint32_t size) {
@@ -58,5 +59,23 @@ void system_status_json(char *out, uint32_t size) {
         if (size) out[0] = 0;
         return;
     }
-    snprintf(out, size, ",\"system\":{\"machines\":[\"master\",\"beeb\"],\"choice\":\"%s\"}", system_choice());
+    snprintf(out, size, ",\"system\":{\"machines\":[\"master\",\"beeb\",\"c64\"],\"choice\":\"%s\"}", system_choice());
+}
+
+// Capture before Master initializes hardware or any profiler reuses scratch registers.
+static bool c64_failed;
+static uint32_t c64_phase, c64_pc, c64_cfsr, c64_bfar;
+void system_capture_c64_failure(void) {
+    if ((watchdog_hw->scratch[0] & 0xffff0000u) != C64_RETURN_MAGIC) return;
+    c64_failed=true;
+    c64_phase=watchdog_hw->scratch[0]&511;
+    c64_pc=watchdog_hw->scratch[2];
+    c64_cfsr=watchdog_hw->scratch[1];
+    c64_bfar=watchdog_hw->scratch[3];
+    watchdog_hw->scratch[0]=0;
+}
+void system_failure_json(char *out, uint32_t size) {
+    if (!c64_failed) {if(size)out[0]=0;return;}
+    snprintf(out,size,",\"c64_failure\":{\"build\":\"r11\",\"reason\":\"watchdog\",\"phase\":%lu,\"pc\":\"%08lx\",\"cfsr\":\"%08lx\",\"bfar\":\"%08lx\"}",
+        (unsigned long)c64_phase,(unsigned long)c64_pc,(unsigned long)c64_cfsr,(unsigned long)c64_bfar);
 }

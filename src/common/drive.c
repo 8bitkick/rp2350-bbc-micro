@@ -69,6 +69,9 @@ void drive0_init(const uint8_t *golden, uint32_t golden_size, uint8_t *staging) 
                 mem_flash_region(MEM_FLASH_SAVE_HEAD, &s_head_off, &head_size) &&
                 mem_flash_region(MEM_FLASH_SAVE_DATA, &s_data_off, &s_save_size) &&
                 golden_size <= s_save_size;
+#if MACHINE_C64
+    s_save_ok = false; // C64 disk writes stay in RAM, never use the BBC save region.
+#endif
     if (s_save_ok) s_golden_hash = fnv(golden, golden_size);
     if (save_taken()) printf("DISC the save disc is another disc's: saves to this one aren't kept (restore to start one)\n");
     load_builtin(false);
@@ -84,6 +87,9 @@ const char *drive0_name(void) {
 
 const char *drive0_builtin_title(void) {
     // DFS: the title's first 8 characters at the start of sector 0, the last 4 at sector 1's
+#if MACHINE_C64
+    return s_golden ? "Elite C64 PAL" : "";
+#else
     static char t[13];
     uint32_t n = 0;
     if (s_golden && s_golden_size >= 512)
@@ -95,6 +101,7 @@ const char *drive0_builtin_title(void) {
     while (n && t[n - 1] == ' ') n--;
     t[n] = 0;
     return t;
+#endif
 }
 
 int drive0_saves(void) {
@@ -114,6 +121,18 @@ const char *drive0_source(void) {
 bool drive0_insert(const char *name, uint32_t size) {
     uint8_t *ram = s_staging;
     if (!ram || size == 0 || size > DRIVE_IMAGE_MAX) return false;
+#if MACHINE_C64
+    const char *dot = strrchr(name, '.');
+    if (!dot) return false;
+    bool valid64 = !strcasecmp(dot,".d64") && (size==174848 || size==175531 || size==196608 || size==197376);
+    bool valid81 = !strcasecmp(dot,".d81") && (size==819200 || size==822400);
+    if (!valid64 && !valid81) return false;
+    s_persist = false;
+    machine_drive_load(ram, size, false, true);
+    snprintf(s_name, sizeof s_name, "%s", name);
+    s_last_writes = machine_drive_writes();
+    return true;
+#else
     // DFS single sided (.ssd) or interleaved double sided (.dsd). The name isn't always right
     // (double sided images get called .ssd), so ask the disc too: its catalogue (bytes 6 and 7 of
     // sector 1) says how many sectors a side holds, so an image bigger than one side is two.
@@ -129,6 +148,7 @@ bool drive0_insert(const char *name, uint32_t size) {
     snprintf(s_name, sizeof s_name, "%s", name);
     s_last_writes = machine_drive_writes();
     return true;
+#endif
 }
 
 void drive0_eject(void) {

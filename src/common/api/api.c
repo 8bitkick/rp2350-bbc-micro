@@ -79,6 +79,9 @@ static bool flag(const char *args, bool now) {
 // Queued, and let out between frames with each key held down for a few frames, so the MOS's
 // keyboard scan sees it however quickly the page sends down and up.
 
+#ifndef MACHINE_C64
+#define MACHINE_C64 0
+#endif
 #define KEYQ 64
 #define KEY_BREAK 0x80
 static uint16_t s_keyq[KEYQ];
@@ -86,7 +89,7 @@ static uint8_t s_keyq_head, s_keyq_tail;
 
 static void queue_key(bool down, unsigned code) {
     uint8_t next = (uint8_t) ((s_keyq_head + 1) % KEYQ);
-    if (next == s_keyq_tail || (code > 0x7f && code != KEY_BREAK)) return;
+    if (next == s_keyq_tail || (code > (MACHINE_C64 ? 134u : 0x7fu) && code != KEY_BREAK)) return;
     s_keyq[s_keyq_head] = (uint16_t) (code | (down ? 0x100 : 0));
     s_keyq_head = next;
 }
@@ -136,6 +139,9 @@ static void cmd_keys(api_req_t *r) {
 
 // ---- Status
 
+#if MACHINE_C64
+extern void c64_diagnostics_json(char *, uint32_t);
+#endif
 static void status_json(char *j, size_t size) {
     unsigned c0, c1, speed;
     machine_perf_get(&c0, &c1, &speed);
@@ -203,6 +209,14 @@ static void status_json(char *j, size_t size) {
         app_json(j + n, (uint32_t) (size - (size_t) n), false);
         n += (int) strlen(j + n);
     }
+#if MACHINE_C64
+    if(n>0 && (size_t)n<size){c64_diagnostics_json(j+n,size-n);n+=(int)strlen(j+n);}
+#endif
+#if MACHINE_C64 && WITH_SOUND
+    extern void c64_audio_json(char *, uint32_t);
+    if(n>0 && (size_t)n<size){c64_audio_json(j+n,size-n);n+=(int)strlen(j+n);}
+#endif
+    if(n>0 && (size_t)n<size){system_failure_json(j+n,size-n);n+=(int)strlen(j+n);}
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
 }
 
@@ -480,6 +494,9 @@ static void cmd_sound(api_req_t *r) {
         p = amp + 1;
     }
     audio_set(on, vol);
+#if MACHINE_C64
+    if(strstr(r->args,"test=1"))audio_test("");
+#endif
     cmd_status(r);
 }
 #endif

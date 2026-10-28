@@ -1,0 +1,26 @@
+const {chromium}=require('playwright');
+const fs=require('fs');
+(async()=>{
+ const b=await chromium.launch({executablePath:process.env.CHROME_PATH,headless:true});
+ const page=await b.newPage({viewport:{width:1100,height:1100}});let failures=[];page.on('pageerror',e=>failures.push(e.message));let posted=[],soundPosted=[];
+ const html=fs.readFileSync(require('path').join(__dirname,'../../src/common/api/web/index.html'),'utf8');
+ await page.route('**/*',route=>{const u=new URL(route.request().url());if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:html});if(u.pathname==='/api/sound'){soundPosted.push(route.request().postData());return route.fulfill({contentType:'application/json',body:JSON.stringify({machine:'c64',sound:{on:true,vol:200}})});}if(u.pathname==='/api/keys')posted.push(route.request().postData());let data={};if(u.pathname==='/api/status')data={machine:'c64',board:'presto',system:{machines:['master','beeb','c64']},disc:'test.d81',core0:60,core1:20,mhz:250,temp:40,sound:{on:false,vol:50},ambient:{on:true,bright:40,locks:false},app:{state:'none'}};if(u.pathname==='/api/discs')data={card:true,discs:[{name:'test.d81',size:819200},{name:'test.d64',size:174848}]};return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});});
+ await page.goto('http://presto.test/');await page.waitForFunction(()=>document.querySelector('#mname').textContent==='Commodore 64');
+ if(await page.locator('#sthsel').isVisible())throw Error('BBC archive shown in C64');
+ if(await page.locator('#file').getAttribute('accept')!=='.d64,.d81,.zip')throw Error('wrong image types');
+ if(!await page.locator('#lights').isVisible())throw Error('C64 lighting controls missing');
+ await page.locator('#soundtest').click();
+ if(!soundPosted.includes('test=1'))throw Error('Speaker test request missing');
+ await page.locator('#capture').click();await page.keyboard.press('a');await page.waitForTimeout(400);
+ if(!posted.some(x=>x.includes('da')))throw Error('C64 A mapping absent: '+posted);
+ if(await page.locator('.c64fn').count()!==4)throw Error('C64 function-key column missing');
+ if(!await page.locator('#kbcase').evaluate(e=>e.classList.contains('c64')))throw Error('C64 keyboard theme missing');
+ await page.evaluate(()=>show({...status,c64:{build:'r2',recovery:true,phase:4,pc:'12345678',cfsr:'00000000'}}));
+ if(!await page.locator('#c64notice').isVisible())throw Error('Recovery diagnostics hidden');
+ await page.screenshot({path:process.env.SCREENSHOT || '/tmp/c64-web-r2-preview.png',fullPage:true});
+ await page.evaluate(()=>show({...status,machine:'master'}));
+ if(await page.locator('#mname').textContent()!=='BBC Master')throw Error('Master selection failed');
+ if(await page.locator('#file').getAttribute('accept')!=='.ssd,.dsd,.zip')throw Error('BBC types not restored');
+ if(failures.length)throw Error(failures.join('\n'));
+ console.log('Browser C64/BBC controls and keyboard mapping: passed');await b.close();
+})().catch(e=>{console.error(e);process.exit(1)});

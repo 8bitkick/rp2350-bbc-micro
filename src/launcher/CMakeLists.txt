@@ -16,7 +16,7 @@ pico_sdk_init()
 
 add_executable(presto_launcher launcher.c)
 target_include_directories(presto_launcher PRIVATE ${TOP_DIR}/src/common ${BOARD_DIR})
-target_link_libraries(presto_launcher PRIVATE pico_stdlib pico_bootrom hardware_flash)
+target_link_libraries(presto_launcher PRIVATE pico_stdlib pico_bootrom hardware_flash hardware_watchdog)
 # its RAM at the top of SRAM, clear of what a machine keeps across a reset
 pico_set_linker_script(presto_launcher ${CMAKE_CURRENT_LIST_DIR}/memmap_launcher.ld)
 # the partition table, in its block loop

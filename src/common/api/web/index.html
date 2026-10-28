@@ -147,6 +147,12 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #appmsg.err { color: var(--accent); } #appmsg.ok { color: var(--ok); }
 #program { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
 #program h3 { font-size: 15px; margin: 0 0 10px; font-weight: 600; }
+#kbcase.c64 { background:#b6a482; }
+#kbcase.c64 #kb { background:#463d32; }
+#kbcase.c64 .k { background:#493f36; color:#fff5df; border-bottom:3px solid #241f1b; }
+#kbcase.c64 .c64fn { background:#c1b7a1; color:#29231e; font-size:12px; }
+#kbcase.c64 .k.latched, #kbcase.c64 .k.down { background:#946c42; }
+#c64notice { white-space:pre-wrap; padding:12px; border:1px solid #ba4a21; }
 </style>
 </head>
 <body>
@@ -154,13 +160,16 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 <header>
   <h1><a href="https://github.com/8bitkick/rp2350-bbc-micro" target="_blank" rel="noopener" title="The project on GitHub"><span id="mname">BBC Micro</span> <span>RP2350</span></a></h1>
   <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
-    <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
+    <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button><button data-m="c64">Commodore 64</button>
   </div>
 </header>
 
+<details id="tracepanel" hidden open><summary>Diagnostic trace</summary><p>Last received messages stay here if the board stops responding. Select and copy the text, or save it below.</p><button id="tracesave">Save trace</button> <button id="traceclear">Clear trace</button><pre id="traceout" style="max-height:240px;overflow:auto;white-space:pre-wrap;font-size:12px"></pre></details>
+<section id="c64notice" hidden><span id="c64diag"></span> <button id="c64retry">Retry C64</button></section>
 <section id="av">
   <div class="row">
     <span class="row" id="sound" hidden>
+      <button id="soundtest" hidden>Test speaker</button>
       <button id="soundon" title="The BBC's sound on the speaker">Sound</button>
       <label class="check" for="vol">Volume <input type="range" id="vol" min="0" max="200" step="5"></label>
     </span>
@@ -239,7 +248,7 @@ const $ = id => document.getElementById(id);
 // down ends the QWERTY row, DELETE and COPY sit under left and right. The numeric keypad, 0.75 keys
 // right of the main keys, runs level with the function row down: its keys are matrix columns 10-12
 // (the Master's INKEY table: keypad 0 is &6A, RETURN &3C).
-const SHIFT = 0x00, CTRL = 0x01, BREAK = 'b';
+let SHIFT = 0x00, CTRL = 0x01; const BREAK = 'b';
 const F = 'f', C = 'c', B = 'b', A = 'a';
 const ROWS_MASTER = [
   [['',null,2],['ƒ0',0x20,1,F],['ƒ1',0x71,1,F],['ƒ2',0x72,1,F],['ƒ3',0x73,1,F],['ƒ4',0x14,1,F],['ƒ5',0x74,1,F],['ƒ6',0x75,1,F],['ƒ7',0x16,1,F],['ƒ8',0x76,1,F],['ƒ9',0x77,1,F],
@@ -270,6 +279,7 @@ const down = c => c === BREAK ? 'b' : 'd' + hex(c), up = c => c === BREAK ? '' :
 // key events go out in order, batched while a request is in flight
 let pending = [], sending = false;
 function keys(ev) {
+  if(switchingTo)return;
   pending.push(...ev.filter(Boolean));
   pump();
 }
@@ -295,12 +305,18 @@ const kb = $('kb');
 // status bits: 1 CAPS LOCK, 2 SHIFT LOCK, 4 cassette motor (8: POWER ON, the page's own)
 const ledEls = {};
 // the machine's keyboard, once /api/status says which it is
+const ROWS_C64=[[["\u2190", 57], ["1", 56], ["2", 59], ["3", 8], ["4", 11], ["5", 16], ["6", 19], ["7", 24], ["8", 27], ["9", 32], ["0", 35], ["+", 40], ["\u2212", 43], ["\u00a3", 48], ["HOME", 51], ["DEL", 0]], [["CTRL", 58], ["Q", 62], ["W", 9], ["E", 14], ["R", 17], ["T", 22], ["Y", 25], ["U", 30], ["I", 33], ["O", 38], ["P", 41], ["@", 46], ["*", 49], ["\u2191", 54], ["RESTORE", 134, 2]], [["RUN\nSTOP", 63], ["SHIFT\nLOCK", 15], ["A", 10], ["S", 13], ["D", 18], ["F", 21], ["G", 26], ["H", 29], ["J", 34], ["K", 37], ["L", 42], [":", 45], [";", 50], ["=", 53], ["RETURN", 1, 2]], [["C=", 61], ["SHIFT", 15, 1.5], ["Z", 12], ["X", 23], ["C", 20], ["V", 31], ["B", 28], ["N", 39], ["M", 36], [",", 47], [".", 44], ["/", 55], ["SHIFT", 52, 1.5], ["\u2190 \u2192", 2], ["\u2191 \u2193", 7]], [["", null, 4], ["SPACE", 60, 8]], [["RESET", "b", 2], ["", null, 1], ["JOY \u2191", 129, 2], ["\u2193", 130, 2], ["\u2190", 131, 2], ["\u2192", 132, 2], ["FIRE", 133, 2]]];
+const PC_C64={"KeyA": 10, "KeyB": 28, "KeyC": 20, "KeyD": 18, "KeyE": 14, "KeyF": 21, "KeyG": 26, "KeyH": 29, "KeyI": 33, "KeyJ": 34, "KeyK": 37, "KeyL": 42, "KeyM": 36, "KeyN": 39, "KeyO": 38, "KeyP": 41, "KeyQ": 62, "KeyR": 17, "KeyS": 13, "KeyT": 22, "KeyU": 30, "KeyV": 31, "KeyW": 9, "KeyX": 23, "KeyY": 25, "KeyZ": 12, "Digit1": 56, "Digit2": 59, "Digit3": 8, "Digit4": 11, "Digit5": 16, "Digit6": 19, "Digit7": 24, "Digit8": 27, "Digit9": 32, "Digit0": 35, "Escape": 63, "Enter": 1, "Backspace": 0, "Delete": 0, "Space": 60, "ShiftLeft": 15, "ShiftRight": 15, "ControlLeft": 58, "ControlRight": 58, "AltLeft": 61, "AltRight": 61, "ArrowLeft": 66, "ArrowRight": 2, "ArrowUp": 71, "ArrowDown": 7, "Home": 51, "Minus": 43, "Equal": 53, "Semicolon": 50, "Quote": 45, "Comma": 47, "Period": 44, "Slash": 55, "F12": 134, "Numpad8": 129, "Numpad2": 130, "Numpad4": 131, "Numpad6": 132, "Numpad0": 133, "F1": 4, "F2": 68, "F3": 5, "F4": 69, "F5": 6, "F6": 70, "F7": 3, "F8": 67};
+const PLAIN_C64={"A": 10, "B": 28, "C": 20, "D": 18, "E": 14, "F": 21, "G": 26, "H": 29, "I": 33, "J": 34, "K": 37, "L": 42, "M": 36, "N": 39, "O": 38, "P": 41, "Q": 62, "R": 17, "S": 13, "T": 22, "U": 30, "V": 31, "W": 9, "X": 23, "Y": 25, "Z": 12, "1": 56, "2": 59, "3": 8, "4": 11, "5": 16, "6": 19, "7": 24, "8": 27, "9": 32, "0": 35, " ": 60, "\n": 1, "+": 40, "-": 43, "\u00a3": 48, "@": 46, "*": 49, "\u2191": 54, ":": 45, ";": 50, "=": 53, ",": 47, ".": 44, "/": 55};
+const SHIFTED_C64={"!": 56, "\"": 59, "#": 8, "$": 11, "%": 16, "&": 19, "'": 24, "(": 27, ")": 32, "<": 47, ">": 44, "?": 55};
 function buildKeyboard(machine) {
+SHIFT=machine==='c64'?15:0;CTRL=machine==='c64'?58:1;latched.clear();
 const beeb = machine !== 'master';
-const ROWS = beeb ? ROWS_BEEB : ROWS_MASTER;
+$('kbcase').classList.toggle('c64',machine==='c64');
+const ROWS = machine === 'c64' ? ROWS_C64 : beeb ? ROWS_BEEB : ROWS_MASTER;
 kb.innerHTML = '';
 for (const b in ledEls) delete ledEls[b];
-kb.style.gridTemplateColumns = `repeat(${beeb ? 67 : 85}, 1fr)`;
+kb.style.gridTemplateColumns = `repeat(${machine==='c64'?72:beeb?67:85}, 1fr)`;
 $('kbcase').style.minWidth = beeb ? '664px' : '842px';
 const ledRow = document.createElement('div');
 ledRow.id = 'leds';
@@ -313,7 +329,7 @@ for (const [bit, name] of beeb ? [[4, 'CASSETTE\nMOTOR'], [1, 'CAPS\nLOCK'], [2,
   ledRow.appendChild(d);
   ledEls[bit] = led;
 }
-kb.appendChild(ledRow);
+if(machine!=='c64')kb.appendChild(ledRow);
 ROWS.forEach((row, y) => {
   let x = 0;    // in quarter keys
   for (const [label, code, w = 1, cls] of row) {
@@ -331,7 +347,7 @@ ROWS.forEach((row, y) => {
       k.addEventListener('pointerdown', e => {
         e.preventDefault();
         k.classList.add('down');
-        if (code === SHIFT || code === CTRL) {
+        if (code === SHIFT || code === CTRL || (machine==='c64' && (code===52 || code===61))) {
           const on = !latched.has(code);
           on ? latched.add(code) : latched.delete(code);
           document.querySelectorAll(`.k[data-code="${code}"]`).forEach(x => x.classList.toggle('latched', on));
@@ -345,6 +361,13 @@ ROWS.forEach((row, y) => {
     }
     kb.appendChild(k);
   }
+ });
+if(machine==='c64') [[4,'f1 / f2'],[5,'f3 / f4'],[6,'f5 / f6'],[3,'f7 / f8']].forEach(([code,label],i)=>{
+  const k=document.createElement('button');
+  k.className='k c64fn'; k.textContent=label; k.dataset.code=String(code);
+  k.style.gridColumn='69 / span 4'; k.style.gridRow=i+1;
+  k.addEventListener('pointerdown',e=>{e.preventDefault();tap(code);});
+  kb.appendChild(k);
 });
 }
 
@@ -382,7 +405,7 @@ function releaseAll() {
 let lastEsc = 0;
 addEventListener('keydown', e => {
   if (!capturing || e.target.tagName === 'INPUT') return;
-  const code = PC[e.code];
+  const code = (builtFor==='c64'?PC_C64:PC)[e.code];
   if (code == null) return;
   e.preventDefault();
   if (e.code === 'Escape') {
@@ -396,7 +419,7 @@ addEventListener('keydown', e => {
   keys([down(code)]);
 });
 addEventListener('keyup', e => {
-  const code = PC[e.code];
+  const code = (builtFor==='c64'?PC_C64:PC)[e.code];
   if (code == null || !held.has(code)) return;
   e.preventDefault();
   held.delete(code);
@@ -416,33 +439,67 @@ const SHIFTED = {'!': 0x30, '"': 0x31, '#': 0x11, '$': 0x12, '%': 0x13, '&': 0x3
   '=': 0x17, '~': 0x18, '|': 0x78, '{': 0x38, '£': 0x28, '+': 0x57, '*': 0x48, '}': 0x58, '<': 0x66, '>': 0x67, '?': 0x68};
 function typeText(s) {
   const ev = [];
+  const plain=builtFor==='c64'?PLAIN_C64:PLAIN, shifted=builtFor==='c64'?SHIFTED_C64:SHIFTED;
   for (const ch of s) {
     const u = ch.toUpperCase();
-    if (u in PLAIN) ev.push(down(PLAIN[u]), up(PLAIN[u]));
-    else if (ch in SHIFTED) ev.push(down(SHIFT), down(SHIFTED[ch]), up(SHIFTED[ch]), up(SHIFT));
+    if (u in plain) ev.push(down(plain[u]), up(plain[u]));
+    else if (ch in shifted) ev.push(down(SHIFT), down(shifted[ch]), up(shifted[ch]), up(SHIFT));
   }
   keys(ev);
 }
+$('c64retry').onclick=async()=>{await api('/api/boot');pollSoon();};
 $('send').onclick = () => { typeText($('typeit').value + '\n'); $('typeit').value = ''; };
 $('typeit').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('send').click(); } });
 
+// Bounded browser-side history survives lost connections and page reloads.
+const WEBDIAG = true; // Set by embed_web.py from the CMake option.
+$('tracepanel').hidden=!WEBDIAG;
+let traceLines=[];
+try {const saved=WEBDIAG?JSON.parse(sessionStorage.getItem('presto-trace')||'[]'):[];if(Array.isArray(saved))traceLines=saved.filter(x=>typeof x==='string').slice(-160);} catch(e) {}
+function trace(message) {
+  if(!WEBDIAG)return;
+  traceLines.push(new Date().toISOString()+' '+message);traceLines=traceLines.slice(-160);
+  $('traceout').textContent=traceLines.join('\n');$('traceout').scrollTop=$('traceout').scrollHeight;
+  try {sessionStorage.setItem('presto-trace',JSON.stringify(traceLines));} catch(e) {}
+}
+$('traceclear').onclick=()=>{traceLines=[];trace('Trace cleared');};
+$('tracesave').onclick=()=>{const url=URL.createObjectURL(new Blob([traceLines.join('\n')],{type:'text/plain'}));const a=document.createElement('a');a.href=url;a.download='presto-trace.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+trace('Web trace r11 opened; samples are last received status, not an instruction-level crash trace');
 // --- machine controls and status
 let status = {};
 async function api(path, body, method = 'POST') {
-  const r = await fetch(path, method === 'GET' ? {} : {method, body: body ?? ''});
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),4000);
+  let r;try {r=await fetch(path,{...(method === 'GET' ? {} : {method, body: body ?? ''}),signal:controller.signal});
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || r.statusText);
   return j;
+  } finally {clearTimeout(timer);}
 }
+
 const BOARDS = {presto: 'Pimoroni Presto'};
-const MACHINES = {master: 'BBC Master', beeb: 'BBC Model B'};
+const MACHINES = {master: 'BBC Master', beeb: 'BBC Model B', c64: 'Commodore 64'};
 let builtFor, switchingTo;
 function show(s) {
+  if(s.c64_failure && s.machine==='master')switchingTo=null;
+  if(switchingTo && s.machine!==switchingTo)return;
+  const oldMachine=status.machine;
   status = s;
-  if (s.machine && s.machine !== builtFor) {
+  if(oldMachine && oldMachine!==s.machine)listDiscs();
+  const diag=s.c64;
+  const failure=s.c64_failure;
+  $('c64notice').hidden=!WEBDIAG || !(failure || (diag && diag.recovery));
+  $('c64retry').hidden=!!failure;
+  if(failure)$('c64diag').textContent=`C64 watchdog restart — returned to Master. Phase ${failure.phase}, PC ${failure.pc}, fault ${failure.cfsr}, memory address ${failure.bfar || "unavailable"}. Save the trace before restarting. Select C64 to retry.`;
+  if(diag && diag.recovery)$('c64diag').textContent=`C64 recovery — ${diag.build || "unknown build"}. Automatic restart stopped. Phase ${diag.phase}, PC ${diag.pc}, fault ${diag.cfsr}. You can select a BBC machine, or retry C64. Please report these numbers.`;
+  if (s.machine && (s.machine !== builtFor || oldMachine!==s.machine)) {
     builtFor = s.machine;
     buildKeyboard(s.machine);
-    const name = s.machine === 'master' ? 'BBC Master' : 'BBC Micro';
+    const name = MACHINES[s.machine] || s.machine;
+    const c64=s.machine==='c64';
+    $('file').accept=c64?'.d64,.d81,.zip':'.ssd,.dsd,.zip';
+    $('sthsel').hidden=c64; $('sthfind').hidden=true; $('app').hidden=c64;
+    $('drop').title=c64?'Choose a .d64, .d81 or .zip file':'Choose a .ssd, .dsd or .zip file';
+    $('typeit').placeholder=c64?'LOAD"*",8,1':'CHAIN"ELITE"';
     $('mname').textContent = name;
     document.title = name + ' RP2350';
   }
@@ -451,19 +508,20 @@ function show(s) {
   $('msel').hidden = !s.system;
   for (const b of $('msel').querySelectorAll('button')) {
     b.classList.toggle('on', b.dataset.m === s.machine);
-    b.disabled = !!switchingTo;
+    b.disabled = !!switchingTo || !!(s.system && !s.system.machines.includes(b.dataset.m));
   }
   $('turbo').classList.toggle('on', s.turbo);
   // the panel's figures: only in builds that have them
   // what's in the drive: a disc loaded (its name), or the built-in one (its title, and its saves)
-  const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || 'The built-in disc';   // "E L I T E": ELITE
-  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd)$/i, '') : builtin;
-  $('dnote').textContent = '';
+  const builtin = (s.builtin || '').replace(/^(\S )+\S$/, t => t.replace(/ /g, '')) || (s.machine==='c64'?'No disk mounted':'The built-in disc');   // "E L I T E": ELITE
+  $('dname').textContent = s.disc ? s.disc.replace(/\.(ssd|dsd|d64|d81)$/i, '') : builtin;
+  $('dnote').textContent = s.machine==='c64'?' · disk writes last this session':'';
   const lit = s.leds | 8;   // POWER ON: lit while the board answers
   for (const bit in ledEls) ledEls[bit].classList.toggle('on', !!(lit & bit));
   // the sound: only in builds that have it
   const snd = s.sound;
   $('sound').hidden = !snd;
+  $('soundtest').hidden=!WEBDIAG || !(snd && s.machine==='c64');
   if (snd) {
     $('soundon').classList.toggle('on', snd.on);
     if (document.activeElement !== $('vol')) $('vol').value = snd.vol;
@@ -480,7 +538,7 @@ function show(s) {
     `<span class="group"><span>core 0 <b>${s.core0}%</b></span><span>core 1 <b>${s.core1}%</b></span>` +
     `<span><b>${s.mhz}</b> MHz</span><span><b>${s.temp}</b> °C</span></span>` +
     `<a class="api" href="https://github.com/8bitkick/rp2350-bbc-micro/blob/main/docs/api.md" target="_blank" rel="noopener" title="The HTTP API: what this page does, for your own scripts">⚙</a>`;
-  showApp(s.app);
+  showApp(s.machine==='c64'?null:s.app);
   if (document.activeElement !== $('sdsel')) $('sdsel').value = [...$('sdsel').options].some(o => o.value === s.disc) ? s.disc : '';
   const f = s.fetch || {state: 'idle'};
   if (f.state === 'downloading') progress(f.got, f.length, `Downloading on the RP2350… ${Math.round(f.got / 1024)} KB`);
@@ -493,9 +551,10 @@ let pollFails = 0, pollTimer;
 function pollSoon() { clearTimeout(pollTimer); pollTimer = setTimeout(poll, 250); }
 async function poll() {
   clearTimeout(pollTimer);
-  try { show(await api('/api/status', null, 'GET')); pollFails = 0; }
+  try { const sample=await api('/api/status', null, 'GET');trace('STATUS '+JSON.stringify({machine:sample.machine,core0:sample.core0,core1:sample.core1,c64:sample.c64,c64_audio:sample.c64_audio,c64_failure:sample.c64_failure}));show(sample); pollFails = 0; }
   // one failed poll can be a dropped WiFi packet: only say so after two in a row
   catch (e) {
+    trace('STATUS LOST: '+(e.name==='AbortError'?'no complete response within 4 seconds':e.message));
     if (switchingTo) $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[switchingTo]}…</span>`;
     else if (++pollFails >= 2) $('stats').innerHTML = '<span class="conn"><span class="dot bad"></span>Can\'t reach the board</span>';
   }
@@ -505,14 +564,20 @@ for (const b of $('msel').querySelectorAll('button')) b.onclick = async () => {
   const m = b.dataset.m;
   if (m === status.machine || switchingTo) return;
   if (!confirm(`Restart as the ${MACHINES[m]}? The machine running now stops (games saved to the built-in disc are kept).`)) return;
+  trace('Requested machine '+m);
   try { await api('/api/machine', m); } catch (e) { msg(e.message, 'err'); return; }
   switchingTo = m;
+  pending=[];held.clear();capturing=false;
+  buildKeyboard(m);builtFor=m;
+  $('mname').textContent=MACHINES[m];
+  $('capture').classList.remove('on');$('capture').textContent='Use my keyboard';
   setTimeout(() => { switchingTo = null; }, 60000);   // (not back as it in a minute: give up waiting)
   b.parentElement.querySelectorAll('button').forEach(x => x.disabled = true);
   $('stats').innerHTML = `<span class="conn"><span class="dot"></span>Restarting as the ${MACHINES[m]}…</span>`;
 };
 $('turbo').onclick = async () => show(await api('/api/turbo', status.turbo ? '0' : '1'));
 $('ambient').onclick = async () => show(await api('/api/ambient', 'on=' + (status.ambient.on ? 0 : 1)));
+$('soundtest').onclick=async()=>{trace('One-second speaker test requested');show(await api('/api/sound','test=1'));};
 $('soundon').onclick = async () => show(await api('/api/sound', 'on=' + (status.sound.on ? 0 : 1)));
 // the volume as the slider moves, at most every 150 ms
 let volTimer;
@@ -553,7 +618,7 @@ async function unzip(buf) {
     const off = v.getUint32(p + 42, true);
     const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
     p += 46 + nlen + xlen + clen;
-    if (!/\.(ssd|dsd)$/i.test(name)) continue;
+    if (!(builtFor==='c64'?/\.(d64|d81)$/i:/\.(ssd|dsd)$/i).test(name)) continue;
     const start = off + 30 + v.getUint16(off + 26, true) + v.getUint16(off + 28, true);
     const data = u8.subarray(start, start + csize);
     if (method === 0) return {name: name.split('/').pop(), data};
@@ -561,14 +626,14 @@ async function unzip(buf) {
     const out = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
     return {name: name.split('/').pop(), data: new Uint8Array(out)};
   }
-  throw new Error('no .ssd or .dsd in that zip');
+  throw new Error('No compatible disk image in that zip');
 }
 
 async function bootImage(name, buf, toCard = false) {
   let data = new Uint8Array(buf);
   if (/\.zip$/i.test(name) || (data[0] === 0x50 && data[1] === 0x4b)) ({name, data} = await unzip(buf));
-  if (!/\.(ssd|dsd)$/i.test(name)) name += '.ssd';
-  if (data.length > 409600) throw new Error('too big for a disc image');
+  if (!(builtFor==='c64'?/\.(d64|d81)$/i:/\.(ssd|dsd)$/i).test(name)) throw new Error('Choose a disk image for this machine');
+  if (data.length > (builtFor==='c64'?1048576:409600)) throw new Error('too big for a disc image');
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('POST', `/api/disc?name=${encodeURIComponent(name)}&save=${toCard ? 1 : 0}&boot=${toCard ? 0 : 1}`);
@@ -823,7 +888,7 @@ $('app').addEventListener('drop', e => {
 let progTimer;
 async function pollProgram() {
   clearTimeout(progTimer);
-  if ($('app').classList.contains('folded')) { progTimer = setTimeout(pollProgram, 2000); return; }
+  if (builtFor==='c64' || $('app').classList.contains('folded')) { progTimer = setTimeout(pollProgram, 2000); return; }
   try { const r = await fetch('/api/app'); if (r.ok) { const a = await r.json(); $('applog').textContent = (a.log || []).slice().reverse().join('\n'); } } catch (e) {}
   let pj = null;
   try { const r = await fetch('/api/program'); if (r.ok) pj = await r.json(); else if (r.status === 404) { $('program').hidden = true; progTimer = setTimeout(pollProgram, 5000); return; } } catch (e) {}

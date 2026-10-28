@@ -1,3 +1,4 @@
+#include "system.h"
 // Kieran Connell's BBC Master 128 (src/cores/kc-beeb/) on the Pimoroni Presto (RP2350, 250 MHz).
 //
 // Core 0 runs the machine (machine_unit.c), paced to real time; it writes
@@ -476,6 +477,7 @@ static void run(void)
 
 int main(void)
 {
+    system_capture_c64_failure();
     slow_flash_timing();
     vreg_set_voltage(VREG_VOLTAGE_1_25);
     set_sys_clock_khz(250000, true);

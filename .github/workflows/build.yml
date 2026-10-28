@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        machine: [beeb, master]
+        machine: [beeb, master, c64]
         board: [presto]
         features: [plain, sound+ambient]
     steps:
