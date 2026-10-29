@@ -66,6 +66,8 @@ def size_k(v):
 
 def write(path, placed):
     placed.sort()
+    if any(a+256>b for (a,_),(b,_) in zip(placed,placed[1:])):
+        sys.exit("UF2 blocks overlap")
     out = bytearray()
     for n, (addr, payload) in enumerate(placed):
         out += struct.pack('<8I', MAGIC0, MAGIC1, FLAG_FAMILY, addr, 256, n, len(placed), ABSOLUTE)
@@ -74,6 +76,9 @@ def write(path, placed):
 
 def main():
     a = sys.argv[1:]
+    c64 = None
+    if "--c64" in a:
+        i=a.index("--c64"); c64=a[i+1]; del a[i:i+2]
     app = None
     if '--app' in a:
         i = a.index('--app')
@@ -91,13 +96,17 @@ def main():
     if len(a) != 5:
         sys.exit(__doc__)
     parts = json.load(open(a[0]))['partitions']
+    if any(p['name']=='c64' for p in parts) and not c64:
+        sys.exit('This partition table includes C64: supply --c64 <presto_c64.uf2>')
     placed = []
     launcher = blocks(a[1])
     first = min(size_k(p['start']) for p in parts)
     if max(addr for addr, _ in launcher) + 256 > FLASH + first:
         sys.exit('the launcher runs into the first slot')
     placed += launcher
-    for p, path in zip(parts[:2], a[2:4]):
+    machines = list(zip(parts[:2], a[2:4]))
+    if c64: machines.append((next(p for p in parts if p["name"]=="c64"),c64))
+    for p, path in machines:
         start, size = size_k(p['start']), size_k(p['size'])
         image = blocks(path)
         end = max(addr for addr, _ in image) + 256 - FLASH

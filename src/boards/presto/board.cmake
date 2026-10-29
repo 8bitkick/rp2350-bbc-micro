@@ -20,7 +20,11 @@ function(board_setup TARGET)
             ${BOARD_DIR}/fatfs/ffunicode.c
             ${BOARD_DIR}/presto_net.c       # WiFi, the HTTP server for /api/<name> and the page
             )
-    pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_parallel.pio)
+    if (MACHINE STREQUAL "c64")
+        pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_rgb565.pio)
+    else()
+        pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_parallel.pio)
+    endif()
     pico_generate_pio_header(${TARGET} ${BOARD_DIR}/st7701_timing.pio)
     target_include_directories(${TARGET} PRIVATE ${BOARD_DIR} ${BOARD_DIR}/fatfs)
     target_compile_definitions(${TARGET} PRIVATE
@@ -35,7 +39,7 @@ function(board_setup TARGET)
     set(WEB_C ${CMAKE_CURRENT_BINARY_DIR}/presto_web_page.c)
     set(WEB_DIR ${COMMON_DIR}/api/web)
     add_custom_command(OUTPUT ${WEB_C}
-            COMMAND python3 ${TOP_DIR}/tools/embed_web.py ${WEB_DIR}/index.html ${WEB_C}
+            COMMAND python3 ${TOP_DIR}/tools/embed_web.py ${WEB_DIR}/index.html ${WEB_C} --webdiag=${WEBDIAG}
             DEPENDS ${WEB_DIR}/index.html ${WEB_DIR}/fonts/OpenGorton-Regular.otf
                     ${WEB_DIR}/fonts/OpenGorton-Bold.otf ${TOP_DIR}/tools/embed_web.py)
     target_sources(${TARGET} PRIVATE ${WEB_C})

@@ -15,10 +15,18 @@
 
 // ---- The display: the ST7701 480x480 panel (presto_lcd.c), packed 4-bit rows. A row is 480
 // pixels, then an end of row code (bit 3, E: see st7701_parallel.pio).
+#if MACHINE_C64
+#define BOARD_DISPLAY_FORMAT 2
+#else
 #define BOARD_DISPLAY_FORMAT BOARD_DISPLAY_PACKED4_ROWS
+#endif
 #define BOARD_DISPLAY_WIDTH 480
 #define BOARD_DISPLAY_HEIGHT 480
+#if MACHINE_C64
+#define BOARD_DISPLAY_ROW_WORDS (BOARD_DISPLAY_WIDTH / 2 + 1)
+#else
 #define BOARD_DISPLAY_ROW_WORDS (BOARD_DISPLAY_WIDTH / 8 + 1)
+#endif
 #define BOARD_DISPLAY_ROW_END 0x8u
 
 // ---- Audio out: the piezo, through a MOSFET on GPIO 43 (PWM slice 9; the backlight on 45 is 10).

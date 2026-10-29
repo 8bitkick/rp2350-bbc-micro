@@ -56,3 +56,6 @@ tapes/* binary
 
 roms/README.md text
 utils/* text
+
+# Unified-diff context includes intentional leading spaces and upstream tabs.
+third_party/*.patch -whitespace

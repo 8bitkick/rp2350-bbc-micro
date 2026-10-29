@@ -162,12 +162,23 @@ void __not_in_flash_func(board_leds_update)(void) {
     }
     uint32_t seen_w0 = s_seen_w0, seen_w1 = s_seen_w1, seen_y0 = s_seen_y0, seen_y1 = s_seen_y1;
     for (uint32_t y = ROW_STEP / 2; y < BOARD_DISPLAY_HEIGHT; y += ROW_STEP) {
+#if MACHINE_C64
+        static uint16_t sample_row[BOARD_DISPLAY_WIDTH];
+        const uint16_t *row = board_display_row_rgb565((int)y, sample_row);
+#else
         const uint32_t *row = (const uint32_t *) board_display_row((int) y);
+#endif
         if (row == NULL) continue;
         int cell_row = ((y < by0) || (y >= by1)) ? -1 : (int) (((y - by0) * 3) / (by1 - by0));
         bool lit = false;
         for (uint32_t w = 0; w < ROW_WORDS; w++) {
+#if MACHINE_C64
+            // Quantize RGB565 to the sampler's B/G/R colour-bit bins.
+            uint16_t pixel=__builtin_bswap16(row[w*8]);
+            uint32_t c=((pixel&0xf800)>=0x8000?4:0)|((pixel&0x07e0)>=0x0400?2:0)|((pixel&0x001f)>=0x0010?1:0);
+#else
             uint32_t c = row[w] & 7;
+#endif
             if (c != 0) {
                 lit = true;
                 if (w < seen_w0) seen_w0 = w;

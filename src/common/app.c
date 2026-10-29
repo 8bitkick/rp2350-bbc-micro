@@ -564,8 +564,10 @@ bool app_remove(void) {
 
 // ---- What it is
 
+// Metadata is read without address translation: C64 never calls app_load(),
+// so the executable app window need not be mapped when status is requested.
 uint32_t app_flash_used(void) {
-    const struct app_header *h = (const struct app_header *) APP_SLOT_XIP;
+    const struct app_header *h = (const struct app_header *) mem_flash_ptr(APP_SLOT_OFFSET);
     return h->magic == APP_MAGIC && h->image_size <= APP_SLOT_SIZE ? h->image_size : 0;
 }
 
@@ -590,7 +592,7 @@ static int json_str(char *o, uint32_t n, const char *s, uint32_t max) {
 static const struct app_header *described(void) {
     if (s_app) return s_app;
     if (s_builtin) return &app_header ? &app_header : &s_hooks;
-    const struct app_header *h = (const struct app_header *) APP_SLOT_XIP;
+    const struct app_header *h = (const struct app_header *) mem_flash_ptr(APP_SLOT_OFFSET);
     return h->magic == APP_MAGIC ? h : NULL;
 }
 

@@ -1,0 +1,31 @@
+const {chromium}=require('playwright');
+const fs=require('fs'),path=require('path');
+(async()=>{
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH,headless:true});
+const page=await browser.newPage();let offline=false, errors=[];
+page.on('pageerror',e=>errors.push(e.message));
+const html=fs.readFileSync(path.join(__dirname,'../../src/common/api/web/index.html'),'utf8');
+await page.route('**/*',route=>{
+ const u=new URL(route.request().url());
+ if(u.pathname==='/')return route.fulfill({contentType:'text/html',body:html});
+ if(u.pathname==='/api/status' && offline)return route.abort();
+ const data=u.pathname==='/api/status'?{machine:'c64',board:'presto',system:{machines:['master','beeb','c64']},c64:{build:'r4',frames:123,rendered:122,uptime_ms:3000,live_phase:6,recovery:false}}:{};
+ return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});
+});
+await page.goto('http://presto.test/');
+await page.waitForFunction(()=>document.querySelector('#traceout').textContent.includes('"frames":123'));
+await page.evaluate(()=>{switchingTo='c64';show({machine:'master',system:{machines:['master','beeb','c64']},c64_failure:{phase:40,pc:'12345678',cfsr:'00000000'}});});
+if(await page.locator('#mname').textContent()!=='BBC Master')throw Error('Fallback hidden during switch');
+if(!(await page.locator('#c64diag').textContent()).includes('Phase 40'))throw Error('Failure details missing');
+offline=true;await page.evaluate(()=>poll());
+let log=await page.locator('#traceout').textContent();
+if(!log.includes('STATUS LOST')||!log.includes('"frames":123'))throw Error('Lost connection erased sample');
+await page.reload();
+if(!(await page.locator('#traceout').textContent()).includes('"frames":123'))throw Error('Reload lost history');
+await page.evaluate(()=>{for(let i=0;i<200;i++)trace('bounded '+i);});
+if((await page.locator('#traceout').textContent()).split('\n').length!==160)throw Error('Unbounded history');
+const download=page.waitForEvent('download');await page.locator('#tracesave').click();
+if((await download).suggestedFilename()!=='presto-trace.txt')throw Error('Download failed');
+if(errors.length)throw Error(errors.join('\n'));
+await browser.close();console.log('Trace retention, reload, bounds, download and lost-connection checks passed');
+})().catch(e=>{console.error(e);process.exit(1)});

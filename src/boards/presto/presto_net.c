@@ -125,6 +125,13 @@ void net_init(void) {
     net_wanted = true;
 }
 
+static void net_start_step(uint32_t n) {
+    boot_guard_step(n);
+#if MACHINE_C64
+    extern void c64_network_phase(uint32_t);
+    c64_network_phase(n);
+#endif
+}
 static void net_start(void) {
     const cred_t *c = saved_cred();
     if (!c) {
@@ -133,21 +140,21 @@ static void net_start(void) {
     }
     snprintf(ssid_ram, sizeof(ssid_ram), "%s", c->ssid);
     snprintf(pass_ram, sizeof(pass_ram), "%s", c->pass);
-    boot_guard_step(40);
+    net_start_step(40);
     if (cyw43_arch_init_with_country(CYW43_COUNTRY_UK)) {
         printf("NET WiFi chip didn't start\n");
         return;
     }
-    boot_guard_step(41);
+    net_start_step(41);
     cyw43_arch_enable_sta_mode();
-    boot_guard_step(42);
+    net_start_step(42);
     // no power saving: it adds a lot of latency to every key press from the web page
     cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
-    boot_guard_step(43);
+    net_start_step(43);
     start_server();
-    boot_guard_step(44);
+    net_start_step(44);
     join();
-    boot_guard_step(45);
+    net_start_step(45);
     wifi_on = true;
 }
 
@@ -329,17 +336,18 @@ static void fetch_restart(void);
 
 static err_t fetch_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     if (!p) {
+        err_t result = ERR_OK;
         // the server closed: done, if we have the whole thing
         tcp_arg(pcb, NULL);
         tcp_recv(pcb, NULL);
         tcp_err(pcb, NULL);
         tcp_poll(pcb, NULL, 0);
-        if (tcp_close(pcb) != ERR_OK) tcp_abort(pcb);
+        if (tcp_close(pcb) != ERR_OK) { tcp_abort(pcb); result = ERR_ABRT; }
         fetch.pcb = NULL;
         if (!fetch.in_body) fetch_fail("no reply");
         else if (!fetch.got || (fetch.length && fetch.got != fetch.length)) fetch_fail("download cut short");
         else fetch.state = F_READY;
-        return pcb ? ERR_OK : ERR_OK;
+        return result;
     }
     uint8_t *stage = drive0_staging() + STAGE_OFFSET;
     fetch.last_progress_us = time_us_32();
@@ -492,7 +500,7 @@ static const char *fetch_start(const char *url, bool save) {
 // ---------------------------------------------------------------------------------------
 // The web server
 
-enum { C_HEAD, C_BODY, C_WAIT, C_SEND };
+enum { C_HEAD, C_BODY, C_WAIT, C_SEND, C_DONE };
 enum { R_404, R_PAGE, R_API, R_DISC, R_FETCH, R_APP, R_TOOBIG };
 
 typedef struct conn {
@@ -540,7 +548,7 @@ static void conn_free(conn_t *c) {
             break;
         }
     }
-    if (c->route == R_DISC && c->state != C_SEND && upload_busy) upload_busy = false;
+    if (c->route == R_DISC && c->state < C_SEND && upload_busy) upload_busy = false;
     if (c->route == R_APP && c->state <= C_BODY) app_install_abort("the upload stopped");
     board_sd_discs_end(c->list_dir);        // (a disc list dropped halfway)
     free(c->out);
@@ -548,7 +556,8 @@ static void conn_free(conn_t *c) {
     conn_count--;
 }
 
-static void conn_close(conn_t *c) {
+static err_t conn_close(conn_t *c) {
+    err_t result = ERR_OK;
     struct tcp_pcb *pcb = c->pcb;
     if (pcb) {
         tcp_arg(pcb, NULL);
@@ -556,9 +565,10 @@ static void conn_close(conn_t *c) {
         tcp_sent(pcb, NULL);
         tcp_err(pcb, NULL);
         tcp_poll(pcb, NULL, 0);
-        if (tcp_close(pcb) != ERR_OK) tcp_abort(pcb);
+        if (tcp_close(pcb) != ERR_OK) { tcp_abort(pcb); result = ERR_ABRT; }
     }
     conn_free(c);
+    return result;
 }
 
 // the disc list's next chunk into out[]: the next discs, while one more surely fits (an entry is at most ~120 bytes:
@@ -605,7 +615,7 @@ static void send_more(conn_t *c) {
         }
     }
     tcp_output(pcb);
-    if (c->out_sent == c->out_len && c->flash_sent == c->flash_len && !c->listing) conn_close(c);
+    if (c->out_sent == c->out_len && c->flash_sent == c->flash_len && !c->listing) c->state = C_DONE;
 }
 
 // GET /api/discs: the header and the list's start; send_more makes the rest as it goes
@@ -613,7 +623,7 @@ static void respond_disc_list(conn_t *c) {
     free(c->out);
     c->out = malloc(LIST_CHUNK);
     if (!c->out) {
-        conn_close(c);
+        c->state = C_DONE;
         return;
     }
     c->out_len = (uint32_t) snprintf(c->out, LIST_CHUNK, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
@@ -632,7 +642,7 @@ static void respond(conn_t *c, int code, const char *type, const char *body, uin
     uint32_t cap = 256 + (gzip ? 0 : body_len);
     c->out = malloc(cap);
     if (!c->out) {
-        conn_close(c);
+        c->state = C_DONE;
         return;
     }
     int n = snprintf(c->out, cap, "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %u\r\n%sCache-Control: no-store\r\nConnection: close\r\n\r\n",
@@ -817,10 +827,7 @@ static void body_done(conn_t *c) {
 
 static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) {
     conn_t *c = arg;
-    if (!p) {
-        conn_close(c);
-        return ERR_OK;
-    }
+    if (!p) return conn_close(c);
     c->idle_polls = 0;
     uint16_t total = p->tot_len;
     for (struct pbuf *b = p; b && c->state <= C_BODY; b = b->next) {
@@ -865,7 +872,7 @@ static err_t on_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err) 
             }
         }
     }
-    // (respond may have closed and freed c: only touch pcb now)
+    // Responses defer closing until a sent/poll callback, so pcb remains valid.
     tcp_recved(pcb, total);
     pbuf_free(p);
     return ERR_OK;
@@ -875,7 +882,7 @@ static err_t on_sent(void *arg, struct tcp_pcb *pcb, u16_t len) {
     conn_t *c = arg;
     c->idle_polls = 0;
     if (c->state == C_SEND) send_more(c);
-    return ERR_OK;
+    return c->state == C_DONE ? conn_close(c) : ERR_OK;
 }
 
 static void on_err(void *arg, err_t err) {
@@ -888,13 +895,14 @@ static void on_err(void *arg, err_t err) {
 
 static err_t on_poll(void *arg, struct tcp_pcb *pcb) {
     conn_t *c = arg;
+    if (c->state == C_DONE) return conn_close(c);
     // a response that couldn't be queued at all (lwIP out of buffers, with several connections
     // sending at once) gets no sent callback to carry it on: try again here
     // every 2s; give up on a connection that's gone quiet for 20s
     if (c->state == C_SEND && c->idle_polls < 10) {
         c->idle_polls++;
-        send_more(c);      // (which may close and free c)
-        return ERR_OK;
+        send_more(c);
+        return c->state == C_DONE ? conn_close(c) : ERR_OK;
     }
     if (c->state != C_WAIT && ++c->idle_polls > 10) {
         tcp_arg(pcb, NULL);

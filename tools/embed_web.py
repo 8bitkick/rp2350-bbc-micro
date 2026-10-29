@@ -9,6 +9,8 @@ import sys
 
 src, out = sys.argv[1], sys.argv[2]
 page = open(src, 'rb').read()
+webdiag = any(arg.lower() in ('--webdiag=on', '--webdiag=true', '--webdiag=1') for arg in sys.argv[3:])
+page = page.replace(b'const WEBDIAG = true;', b'const WEBDIAG = ' + (b'true' if webdiag else b'false') + b';')
 
 def inline(m):
     name = m.group(1).decode()

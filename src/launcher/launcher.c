@@ -11,6 +11,8 @@
 #include "pico/bootrom.h"
 #include "boot/picobin.h"
 #include "hardware/flash.h"
+#include "hardware/watchdog.h"
+#include "hardware/structs/watchdog.h"
 
 #include "board_config.h"
 #include "system.h"
@@ -32,8 +34,18 @@ static void chain(int slot) {
 int main(void) {
     rom_load_partition_table(s_work, sizeof s_work, false);
     const system_settings_t *s = (const system_settings_t *) (XIP_NOCACHE_NOALLOC_BASE + BOARD_FLASH_SYSTEM_OFFSET);
-    int slot = system_slot(system_settings_machine(s));
+    // Power-on and external reset start Master. Watchdog/software restarts
+    // retain the selected machine for web switching and C64 recovery.
+    int slot = watchdog_caused_reboot() ? system_slot(system_settings_machine(s)) : SYSTEM_SLOT_MASTER;
+    // Only an armed C64 watchdog failure triggers fallback, not a web restart.
+    if (watchdog_enable_caused_reboot() && (watchdog_hw->scratch[0] & 0xffff0000u) == C64_DIAG_MAGIC) {
+        watchdog_hw->scratch[0] = C64_RETURN_MAGIC | (watchdog_hw->scratch[0] & 511u);
+        slot = SYSTEM_SLOT_MASTER;
+    }
     chain(slot);
-    chain(slot == SYSTEM_SLOT_MASTER ? SYSTEM_SLOT_BEEB : SYSTEM_SLOT_MASTER);
+    for (int i = 0; i < 3; i++) {
+        const int slots[] = {SYSTEM_SLOT_MASTER, SYSTEM_SLOT_BEEB, SYSTEM_SLOT_C64};
+        if (slots[i] != slot) chain(slots[i]);
+    }
     reset_usb_boot(0, 0);
 }

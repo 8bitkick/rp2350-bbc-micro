@@ -1,0 +1,13 @@
+; C64 RGB565 scanout: 480 reversed-pin-order pixels + one padding word per row.
+; Four SM cycles per pixel, matching the existing panel timing.
+.program st7701_rgbe
+.side_set 1
+.origin 0
+public row_start:
+    wait 1 irq 4 side 1
+    mov x, y side 1 [1]
+pixels:
+    out pins, 16 side 1 [1]
+    jmp x-- pixels side 1 [1]
+    out null, 32 side 1
+    jmp row_start side 1

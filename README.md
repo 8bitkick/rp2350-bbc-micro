@@ -1,3 +1,9 @@
+> Experimental C64 integration (r11): see [build/dependency instructions](docs/c64-pr-build.md) and [credits](docs/c64-credits.md). FRANK is fetched from the configured fork; Elite is downloaded separately. Known audio/performance limitations remain.
+
+# Experimental three-machine Presto build
+
+This copy adds a C64 target and extends the combined build to BBC Master, Model B and C64. See [C64 setup, limitations and validation](docs/c64-presto.md) before building. Hardware validation is still required.
+
 # BBC Micro on the RP2350
 
 <img src="docs/presto/presto-beebjit-elite.webp" width="480" alt="The Presto on a desk beside a mug, running Elite: the Cobra Mk III turning on the title screen">

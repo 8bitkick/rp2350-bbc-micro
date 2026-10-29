@@ -25,7 +25,11 @@ extern "C" {
 // _clean); this decides what goes in it. All on core 0, between frames.
 
 // the size the disc images arriving (from the card, the web) may be: an 80 track double sided .dsd
+#if MACHINE_C64
+#define DRIVE_IMAGE_MAX (1024 * 1024)
+#else
 #define DRIVE_IMAGE_MAX (80 * 10 * 256 * 2)
+#endif
 
 // at boot, before the machine runs: the built-in disc (NULL: none) into the drive, the save disc
 // if there's one for it; staging: DRIVE_IMAGE_MAX bytes where images arrive (drive0_staging)

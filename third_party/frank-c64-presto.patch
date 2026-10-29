@@ -1,0 +1,59 @@
+--- a/src/VIC.cpp
++++ b/src/VIC.cpp
+@@ -1566,15 +1566,10 @@
+ 			rc = 0;
+ 
+ 			// Read and latch 40 bytes from video matrix and color RAM
+-			uint8_t *mp = matrix_line - 1;
+-			uint8_t *cp = color_line - 1;
+-			int vc1 = vc - 1;
+-			const uint8_t *mbp = matrix_base + vc1;
+-			uint8_t *crp = color_ram + vc1;
+ 			for (unsigned i = 0; i < 40; ++i) {
+-				*++mp = *++mbp;
+-				*++cp = *++crp;
+-			}
++                matrix_line[i] = matrix_base[vc + i];
++                color_line[i] = color_ram[vc + i];
++            }
+ 		}
+ 
+ 		// Handler upper/lower border
+--- a/src/1541d64.cpp
++++ b/src/1541d64.cpp
+@@ -1123,7 +1123,8 @@
+ 	while (num_dir_blocks < max_dir_sectors) {
+ 
+ 		// Goto next entry
+-		entry++; de += SIZEOF_DE;
++		entry++;
++        if (de) de += SIZEOF_DE;
+ 		if (entry >= 8) {
+ 
+ 			// Read next directory block
+--- a/src/rp2350/C64_rp2350.cpp
++++ b/src/rp2350/C64_rp2350.cpp
+@@ -120,8 +120,9 @@
+     TheIEC = new IEC(this);
+     MII_DEBUG_PRINTF("  IEC created\n");
+ 
+-    // No tape support on RP2350
+-    TheTape = nullptr;
++    // The CPU updates the tape motor even when no tape is mounted.
++    // Supply the platform stub so those writes never dereference a null pointer.
++    TheTape = new Tape(TheCIA1);
+ 
+     // No cartridge by default
+     TheCart = new NoCartridge;
+--- a/src/rp2350/Prefs_rp2350.cpp
++++ b/src/rp2350/Prefs_rp2350.cpp
+@@ -13,7 +13,8 @@
+  *  All settings are hardcoded for embedded use.
+  */
+ 
+-#include "Prefs_rp2350.h"
++// Use the same class layout as the CPU/IEC code (including map members).
++#include "../Prefs.h"
+ 
+ // Global preferences instance
+ Prefs ThePrefs;
