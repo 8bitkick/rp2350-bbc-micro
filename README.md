@@ -3,8 +3,8 @@
 <img src="docs/presto/presto-beebjit-elite.webp" width="480" alt="The Presto on a desk beside a mug, running Elite: the Cobra Mk III turning on the title screen">
 
 > [!TIP]
-> Also for the Presto: [**rp2350-acorn-archimedes**](https://github.com/8bitkick/rp2350-acorn-archimedes),
-> an Acorn Archimedes running RISC OS 3.11, with an ARM2 to Thumb-2 JIT: Archimedes Elite at full speed.
+> Also for the Presto: [**rp2350-8-bit-retro**](https://github.com/andriodious/rp2350-8-bit-retro),
+> A multi-machine emulator platform for Pimoroni Presto, bringing the BBC Model B, BBC Master 128 and Commodore 64 together on one RP2350 board.
 
 **The ultimate retro nerd desk toy.** A cycle-accurate **BBC Model B** or **BBC Master 128**, running on a
 single $1.20 [Raspberry Pi RP2350](https://www.raspberrypi.com/products/rp2350/) chip in a
