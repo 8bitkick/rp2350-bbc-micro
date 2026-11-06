@@ -856,7 +856,7 @@ pollProgram();
 // the commit below): the app's "agent net" gives its senses, the page runs the weights again here to light the units
 const NET_SRC = 'https://cdn.jsdelivr.net/gh/8bitkick/elite-agent@5c926d866180c1d532bca3ae6185d6106854c427/web/';
 const NET_NAMES = {0: ['fight', 'Dogfight AI'], 1: ['camera', 'Camera AI'], 2: ['interceptor', 'Interceptor AI'], 3: [null, 'Docking AI']};
-const NET_TOP = 310, NET_H = 670;
+const NET_TOP = 310, NET_H = 790;      // (the tallest network, the camera: 46 rows of the demo's 16 px)
 let netLoad = null;
 function netPanel() {
   netLoad ??= Promise.all([import(NET_SRC + 'src/panel.js'), fetch(NET_SRC + 'panel.json').then((r) => r.json())]).then(([m, data]) => {
