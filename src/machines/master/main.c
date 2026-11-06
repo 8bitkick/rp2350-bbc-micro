@@ -313,6 +313,7 @@ static void frame_hook(struct machine *m)
     ht_beat0++;
     { static uint32_t n; if (++n % 250 == 0) ht_report(); }
 #endif
+    panel_view_poll();
     app_frame(io);
 }
 

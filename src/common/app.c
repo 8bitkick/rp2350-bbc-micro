@@ -318,6 +318,8 @@ static void start(const struct machine_hook_io *io) {
     s_api = (struct app_api) {
         .version = APP_API_VERSION, .size = sizeof s_api, .io = io, .log = api_log, .time_us = api_time_us,
         .turbo_get = machine_turbo_get, .turbo_set = machine_turbo_set,
+        .view_open = machine_view_open, .view_buffer = machine_view_buffer, .view_map = machine_view_map, .view_shown = machine_view_shown,
+        .view_set = machine_view_set, .view_taps = machine_view_taps, .view_edges = machine_view_edges, .view_errors = machine_view_errors,
 #if APP_RAM
         .ram = s_builtin ? NULL : (void *) s_app->ram_base, .ram_size = s_builtin ? 0 : APP_RAM_TOP - s_app->ram_base,
 #endif
@@ -414,6 +416,7 @@ bool app_install_begin(uint32_t size, char *why, uint32_t why_size) {
     const char *no = s_in.busy ? "already installing one" : s_builtin ? "this firmware has an app built in"
                    : size < sizeof (struct app_header) || size > APP_SLOT_SIZE ? "that's not the size of an app (at most 1 MB)" : NULL;
     if (!no) {
+        machine_view_release();     // (the app's own screen, if shown: its RAM)
         s_in.sector = malloc(FLASH_SECTOR_SIZE);
         s_in.first = malloc(FLASH_SECTOR_SIZE);
         if (!s_in.sector || !s_in.first) no = "no RAM for it";

@@ -28,6 +28,16 @@ void machine_boot_shift(void);
 bool machine_turbo_get(void);
 void machine_turbo_set(bool on);
 // the speed and load figures on the panel: false from machine_overlay_has if the build has none
+// the app's own screen (app_api.h); the machine with no such thing: view_open gives NULL
+bool machine_view_open(int rows, int *row_words, int *display_rows);
+uint32_t *machine_view_buffer(void);
+void machine_view_release(void);        // back to the machine's picture, the RAM free now
+void machine_view_map(int display_row, int row);
+bool machine_view_shown(void);
+void machine_view_set(bool shown);
+uint32_t machine_view_taps(void);
+uint32_t machine_view_edges(void);
+uint32_t machine_view_errors(void);
 bool machine_overlay_has(void);
 bool machine_overlay_get(void);
 void machine_overlay_set(bool on);

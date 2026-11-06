@@ -20,6 +20,13 @@
 #define BOARD_DISPLAY_HEIGHT 480
 #define BOARD_DISPLAY_ROW_WORDS (BOARD_DISPLAY_WIDTH / 8 + 1)
 #define BOARD_DISPLAY_ROW_END 0x8u
+// The touch panel: an FT6236 on I2C1, its interrupt on GPIO 32. Only ever read after the interrupt's
+// edge, for how many fingers are down: the line alone also falls with no finger there.
+#define BOARD_TOUCH_INT_PIN 32
+#define BOARD_TOUCH_I2C i2c1
+#define BOARD_TOUCH_SDA_PIN 30
+#define BOARD_TOUCH_SCL_PIN 31
+#define BOARD_TOUCH_ADDR 0x48
 
 // ---- Audio out: the piezo, through a MOSFET on GPIO 43 (PWM slice 9; the backlight on 45 is 10).
 // -DSOUND_PIN=40 is the Qw/ST socket's SDA instead (slice 8), for an amplifier and a speaker
