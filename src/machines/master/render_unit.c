@@ -36,6 +36,11 @@ static void panel_frame_done(void);
 #include "../../cores/kc-beeb/render.c"
 
 #include "panel.h"
+#include "machine_if.h"
+#include "hardware/gpio.h"
+#include "hardware/i2c.h"
+#include "pico/time.h"
+#include <stdlib.h>
 #include "../../common/app.h"
 
 enum {
@@ -72,6 +77,121 @@ static void panel_palette_entry(const struct render *r, int logical)
 {
     s_code[logical] = panel_code(px_resolve((render_px)logical, r->logical_to_physical, r->is_flash));
     s_code[logical | 32] = panel_code(px_resolve((render_px)(logical | 32), r->logical_to_physical, r->is_flash));
+}
+
+// ---- The app's own screen (app_api.h): its rows, shown by the row table in place of the picture's.
+// The RAM only while it's shown (the SRAM has a few tens of KB to spare, and the rest of the firmware
+// wants them for an install, say); the free a few frames after the row table lets go, as the panel may be part way
+// through a row of it.
+static uint32_t *s_view_fb;
+static int s_view_rows, s_view_free;
+static const uint16_t **s_view_map;
+static bool s_view_shown;
+static uint32_t s_view_taps, s_view_tap_t, s_view_edges, s_view_errors;
+static bool s_touch_answers;
+#ifdef BOARD_TOUCH_INT_PIN
+static int touch_fingers(void);
+#endif
+bool machine_view_open(int rows, int *row_words, int *display_rows)
+{
+#ifdef BOARD_TOUCH_INT_PIN
+    if (rows <= 0 || rows > BOARD_DISPLAY_HEIGHT) return false;
+    s_view_rows = rows;
+    *row_words = k_row_words;
+    *display_rows = BOARD_DISPLAY_HEIGHT;
+    gpio_init(BOARD_TOUCH_INT_PIN);
+    gpio_set_dir(BOARD_TOUCH_INT_PIN, GPIO_IN);
+    gpio_pull_up(BOARD_TOUCH_INT_PIN);
+    gpio_acknowledge_irq(BOARD_TOUCH_INT_PIN, GPIO_IRQ_EDGE_FALL);
+    i2c_init(BOARD_TOUCH_I2C, 400000);
+    gpio_set_function(BOARD_TOUCH_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(BOARD_TOUCH_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(BOARD_TOUCH_SDA_PIN);
+    gpio_pull_up(BOARD_TOUCH_SCL_PIN);
+    // (if the panel doesn't answer at all, the line's edges alone will do)
+    s_touch_answers = touch_fingers() >= 0;
+    if (!s_touch_answers) s_view_errors++;
+    return true;
+#else
+    return false;
+#endif
+}
+uint32_t *machine_view_buffer(void) { return s_view_shown ? s_view_fb : NULL; }
+void machine_view_map(int display_row, int row)
+{
+    if (!s_view_shown || display_row < 0 || display_row >= BOARD_DISPLAY_HEIGHT || row < 0 || row >= s_view_rows) return;
+    s_view_map[display_row] = (const uint16_t *)(s_view_fb + row * k_row_words);
+    s_row_table[display_row] = s_view_map[display_row];
+}
+bool machine_view_shown(void) { return s_view_shown; }
+static void view_free(void)
+{
+    free(s_view_fb);
+    free(s_view_map);
+    s_view_fb = NULL, s_view_map = NULL, s_view_free = 0;
+}
+void machine_view_set(bool shown)
+{
+    if (!s_view_rows || shown == s_view_shown) return;
+    if (shown) {
+        s_view_free = 0;
+        if (!s_view_fb) {
+            s_view_fb = malloc((size_t)s_view_rows * k_row_words * sizeof(uint32_t));
+            s_view_map = malloc(BOARD_DISPLAY_HEIGHT * sizeof *s_view_map);
+            if (!s_view_fb || !s_view_map) { view_free(); return; }     // (no RAM: the game stays)
+        }
+        for (int y = 0; y < s_view_rows; y++) {
+            memset(s_view_fb + y * k_row_words, 0, k_row_words * sizeof(uint32_t));
+            s_view_fb[y * k_row_words + k_row_words - 1] = BOARD_DISPLAY_ROW_END;
+        }
+        s_view_shown = true;
+        for (int i = 0; i < BOARD_DISPLAY_HEIGHT; i++) s_row_table[i] = (const uint16_t *)s_view_fb;
+    } else {
+        s_view_shown = false;
+        // (a pointer at a time, each atomic: the panel shows the picture by the next refresh)
+        for (int i = 0; i < BOARD_DISPLAY_HEIGHT; i++) s_row_table[i] = (const uint16_t *)s_fb[(i * k_rows) / BOARD_DISPLAY_HEIGHT];
+        s_view_free = 3;
+    }
+}
+void machine_view_release(void)
+{
+    machine_view_set(false);
+    if (s_view_fb) { sleep_ms(40); view_free(); }       // (a refresh is about 20 ms)
+}
+uint32_t machine_view_taps(void) { return s_view_taps; }
+uint32_t machine_view_edges(void) { return s_view_edges; }
+uint32_t machine_view_errors(void) { return s_view_errors; }
+#ifdef BOARD_TOUCH_INT_PIN
+// how many fingers the panel has down; -1: no answer (at most 2 ms a call, 1 ms each way)
+static int touch_fingers(void)
+{
+    uint8_t reg = 0, b[3];
+    if (i2c_write_timeout_us(BOARD_TOUCH_I2C, BOARD_TOUCH_ADDR, &reg, 1, true, 1000) != 1) return -1;
+    if (i2c_read_timeout_us(BOARD_TOUCH_I2C, BOARD_TOUCH_ADDR, b, 3, false, 1000) != 3) return -1;
+    return b[2] & 0x0f;
+}
+#endif
+// Core 0, each frame: a tap is the interrupt's falling edge, latched by the GPIO block with no
+// interrupt taken, so one between two frames isn't missed. One swap per tap: a finger held, or the
+// panel's own repeated pulses, within 300 ms of the last are the same tap. Only a finger the panel
+// confirms counts: its line falls without one too.
+void panel_view_poll(void)
+{
+    if (s_view_free && --s_view_free == 0) view_free();
+#ifdef BOARD_TOUCH_INT_PIN
+    if (!s_view_rows) return;
+    if (!(io_bank0_hw->intr[BOARD_TOUCH_INT_PIN / 8] & (GPIO_IRQ_EDGE_FALL << (4 * (BOARD_TOUCH_INT_PIN % 8))))) return;
+    gpio_acknowledge_irq(BOARD_TOUCH_INT_PIN, GPIO_IRQ_EDGE_FALL);
+    s_view_edges++;
+    uint32_t now = time_us_32();
+    if (s_view_taps && now - s_view_tap_t < 300000) { s_view_tap_t = now; return; }
+    int fingers = touch_fingers();
+    if (fingers < 0) s_view_errors++;
+    if (s_touch_answers ? fingers <= 0 : false) return;     // (no finger on it: not a tap)
+    s_view_tap_t = now;
+    s_view_taps++;
+    machine_view_set(!s_view_shown);
+#endif
 }
 
 static void panel_frame_done(void)

@@ -7,6 +7,8 @@
 // Sets up the panel (presto_lcd.c) on its framebuffer: 256 rows, one per
 // BBC scanline, stretched to the panel's 480.
 void panel_lcd_init(void);
+// Core 0, each frame: a tap on the panel swaps the machine's picture and the app's screen (app_api.h)
+void panel_view_poll(void);
 // The renderer's power-on state.
 void panel_init(void);
 // a program's loading screen (render_unit.c): its picture (false: it has none), then what's loading

@@ -869,6 +869,17 @@ machine_turbo_set(bool on) {
   s_turbo = on;
 }
 
+// (no app on this machine: nothing to swap with)
+bool machine_view_open(int rows, int *row_words, int *display_rows) { (void) rows; (void) row_words; (void) display_rows; return false; }
+uint32_t *machine_view_buffer(void) { return NULL; }
+void machine_view_release(void) {}
+void machine_view_map(int display_row, int row) { (void) display_row; (void) row; }
+bool machine_view_shown(void) { return false; }
+void machine_view_set(bool shown) { (void) shown; }
+uint32_t machine_view_taps(void) { return 0; }
+uint32_t machine_view_edges(void) { return 0; }
+uint32_t machine_view_errors(void) { return 0; }
+
 bool
 machine_overlay_has(void) {
   return true;

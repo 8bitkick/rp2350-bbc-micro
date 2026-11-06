@@ -27,7 +27,7 @@ function(board_setup TARGET)
             BOARD_FLASH_SAVE_SHIFT=${BOARD_FLASH_SAVE_SHIFT}
             CYW43_HOST_NAME="beeb")     # its DHCP name; it also answers as beeb.local (mDNS)
     target_link_libraries(${TARGET} PRIVATE
-            hardware_pio hardware_dma hardware_spi hardware_pwm hardware_adc hardware_flash pico_flash
+            hardware_i2c hardware_pio hardware_dma hardware_spi hardware_pwm hardware_adc hardware_flash pico_flash
             pico_cyw43_arch_lwip_poll   # WiFi, polled from core 0 (presto_net.c)
             pico_lwip_mdns)
 
