@@ -121,6 +121,8 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #program progress { margin-top: 4px; }
 #program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 #program .row { margin-top: 10px; }
+#netwrap { margin-top: 12px; }
+#netc { width: 100%; max-width: 908px; display: block; background: rgb(9,11,15); border-radius: 4px; }
 /* the RP2350 application (GET /api/app): what it is and its state, its own panel inside; folds away */
 #app h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; margin: 0; display: flex; align-items: center; gap: 6px; }
 #app h2.fold .arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
@@ -198,6 +200,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
       <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
       <div class="row" id="pactions"></div>
       <div class="log" id="plog"></div>
+      <div id="netwrap" hidden><h3 id="netname"></h3><canvas id="netc"></canvas></div>
     </div>
   </div>
 </section>
@@ -848,6 +851,42 @@ async function pollProgram() {
   progTimer = setTimeout(pollProgram, 2000);
 }
 pollProgram();
+
+// --- the network flying now, drawn by the elite-agent web demo's own code (web/src/panel.js, web/panel.json, loaded from
+// the commit below): the app's "agent net" gives its senses, the page runs the weights again here to light the units
+const NET_SRC = 'https://cdn.jsdelivr.net/gh/8bitkick/elite-agent@5c926d866180c1d532bca3ae6185d6106854c427/web/';
+const NET_NAMES = {0: ['fight', 'Dogfight AI'], 1: ['camera', 'Camera AI'], 2: ['interceptor', 'Interceptor AI'], 3: [null, 'Docking AI']};
+const NET_TOP = 310, NET_H = 670;
+let netLoad = null;
+function netPanel() {
+  netLoad ??= Promise.all([import(NET_SRC + 'src/panel.js'), fetch(NET_SRC + 'panel.json').then((r) => r.json())]).then(([m, data]) => {
+    const p = new m.Panel($('netc'), data, null, null);
+    $('netc').height = NET_H;
+    return {m, p};
+  }).catch((e) => { netLoad = null; throw e; });
+  return netLoad;
+}
+async function pollNet() {
+  let wait = 200;
+  try {
+    if (document.hidden || $('app').hidden || $('app').classList.contains('folded') || $('program').hidden) wait = 1000;
+    else {
+      const j = JSON.parse((await api('/api/command', 'agent net')).reply);
+      const name = NET_NAMES[j.n];
+      if (!name) $('netwrap').hidden = true;
+      else {
+        const {m, p} = await netPanel();
+        const senses = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
+        p.drawNet({view: name[0] ? 'fight' : 'dock', fightNet: name[0], senses}, NET_TOP);
+        $('netname').textContent = name[1];
+        $('netname').style.color = `rgb(${(name[0] ? m.fightCol(name[0]) : m.CYAN).join(',')})`;
+        $('netwrap').hidden = false;
+      }
+    }
+  } catch (e) { $('netwrap').hidden = true; wait = 3000; }
+  setTimeout(pollNet, wait);
+}
+pollNet();
 </script>
 </body>
 </html>
