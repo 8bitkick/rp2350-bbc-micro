@@ -244,7 +244,7 @@ if (NET_PAGE) (async () => {
   const num = (v) => parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
   const s = {view: 'fight', fightNet: 'camera', senses: null, frame: 0, tally: 0, cash: 0, system: '-', log: [], speedLabel: '', turbo: false, rate: 1, paused: false};
   const canvas = document.getElementById('netc');
-  let panel;
+  let panel, target = null, cur = null;
   const fields = async () => {
     try {
       const j = await (await fetch('/api/program')).json(), f = Object.fromEntries(j.fields);
@@ -259,15 +259,14 @@ if (NET_PAGE) (async () => {
     setTimeout(fields, 1000);
   };
   const tick = async () => {
-    let wait = document.hidden ? 1000 : 100;      // (10 a second)
+    let wait = document.hidden ? 1000 : 50;      // (20 a second)
     try {
       if (!document.hidden) {
         const j = await post('agent net'), name = NAMES[j.n];
         if (name) {
-          s.senses = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
+          target = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
           if (name === 'dock') s.view = 'dock'; else { s.view = 'fight'; s.fightNet = name; }
-        } else { s.senses = null; s.view = 'log'; }      // (no AI deciding: the agent's log, as the demo shows it)
-        panel.draw(s);
+        } else { target = cur = s.senses = null; s.view = 'log'; }      // (no AI deciding: the agent's log, as the demo shows it)
       }
     } catch (e) { wait = 2000; }
     setTimeout(tick, wait);
@@ -275,7 +274,21 @@ if (NET_PAGE) (async () => {
   try {
     const [m, data] = await Promise.all([import(SRC + 'src/panel.js'), fetch(SRC + 'panel.json').then((r) => r.json())]);
     panel = new m.Panel(canvas, data, null, null);
-    fields(); tick();
+    // (the pilot decides up to 50 times a second, the page hears of it 20 times: between, the senses glide to the latest, at 30 frames a second)
+    let last = 0;
+    const paint = (now) => {
+      requestAnimationFrame(paint);
+      if (document.hidden || now - last < 33) return;
+      const dt = now - last; last = now;
+      if (target) {
+        if (!cur || cur.length !== target.length) cur = Float32Array.from(target);
+        const k = 1 - Math.exp(-dt / 70);
+        for (let i = 0; i < cur.length; i++) cur[i] += (target[i] - cur[i]) * k;
+        s.senses = cur;
+      }
+      panel.draw(s);
+    };
+    fields(); tick(); requestAnimationFrame(paint);
   } catch (e) { document.body.textContent = 'The AI viewer loads its code from the web, and this browser could not reach it.'; document.body.style.padding = '24px'; }
 })();
 </script>
