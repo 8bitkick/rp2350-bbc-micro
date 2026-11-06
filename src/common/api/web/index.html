@@ -251,7 +251,8 @@ if (NET_PAGE) (async () => {
       s.tally = num(f.Tally); s.cash = num(f.Credits); s.system = String(f.Where || '-').split(',')[0];
       const t = String(f['Career played'] || '0').split(':').map(Number);
       s.frame = t.reduce((a, b) => a * 60 + b, 0) * 50;
-      if (f.Doing) s.log = [[s.frame, f.Doing]];
+      s.log = (j.log || []).slice(-40).map((t) => [s.frame, String(t).replace(/^\s*\d+\s+/, '')]);
+      if (!s.log.length && f.Doing) s.log = [[s.frame, f.Doing]];
       const st = await (await fetch('/api/status')).json();
       s.turbo = !!st.turbo; s.rate = (st.speed || 100) / 100;
     } catch (e) {}
@@ -265,7 +266,7 @@ if (NET_PAGE) (async () => {
         if (name) {
           s.senses = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
           if (name === 'dock') s.view = 'dock'; else { s.view = 'fight'; s.fightNet = name; }
-        } else s.senses = null;      // (no AI deciding: the last network, dark)
+        } else { s.senses = null; s.view = 'log'; }      // (no AI deciding: the agent's log, as the demo shows it)
         panel.draw(s);
       }
     } catch (e) { wait = 2000; }
