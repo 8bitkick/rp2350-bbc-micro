@@ -258,7 +258,7 @@ if (NET_PAGE) (async () => {
     setTimeout(fields, 1000);
   };
   const tick = async () => {
-    let wait = document.hidden ? 1000 : 200;
+    let wait = document.hidden ? 1000 : 100;      // (10 a second)
     try {
       if (!document.hidden) {
         const j = await post('agent net'), name = NAMES[j.n];
