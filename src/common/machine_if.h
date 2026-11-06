@@ -29,6 +29,7 @@ bool machine_turbo_get(void);
 void machine_turbo_set(bool on);
 // the speed and load figures on the panel: false from machine_overlay_has if the build has none
 // the app's own screen (app_api.h); the machine with no such thing: view_open gives NULL
+void *machine_psram_alloc(uint32_t size);        // (the app's: app_api.psram_alloc)
 bool machine_view_open(int rows, int *row_words, int *display_rows);
 uint32_t *machine_view_buffer(void);
 void machine_view_release(void);        // back to the machine's picture, the RAM free now
