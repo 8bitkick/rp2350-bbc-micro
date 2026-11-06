@@ -121,7 +121,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #program progress { margin-top: 4px; }
 #program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 #program .row { margin-top: 10px; }
-#netopen { margin-left: auto; align-self: center; white-space: nowrap; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; text-decoration: none; color: inherit; }
+#netopen { margin-left: 12px; vertical-align: middle; font-weight: 400; white-space: nowrap; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; text-decoration: none; color: inherit; }
 /* the RP2350 application (GET /api/app): what it is and its state, its own panel inside; folds away */
 #app h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; margin: 0; display: flex; align-items: center; gap: 6px; }
 #app h2.fold .arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
@@ -157,7 +157,6 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
     <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
   </div>
-  <a id="netopen" href="/?net" target="_blank" rel="noopener" title="The AI pilot flying now, live, as the web demo draws it" hidden>AI viewer</a>
 </header>
 
 <section id="av">
@@ -182,7 +181,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 
 
 <section id="app" hidden>
-  <h2 class="fold" id="apphead" title="Show or hide the plugin"><span class="arrow">&#9660;</span>Plugin<span class="none"> · none</span><button id="appadd" title="Install a plugin (its .bin) in the plugin slot: the board restarts into it">Install plugin…</button></h2>
+  <h2 class="fold" id="apphead" title="Show or hide the plugin"><span class="arrow">&#9660;</span>Plugin<span class="none"> · none</span><button id="appadd" title="Install a plugin (its .bin) in the plugin slot: the board restarts into it">Install plugin…</button><a id="netopen" href="/?net" target="_blank" rel="noopener" title="The AI pilot flying now, live, as the web demo draws it" onclick="event.stopPropagation()" hidden>AI viewer</a></h2>
   <div class="stats appinfo" id="appinfo"></div>
   <div id="appbody">
     <div class="row appdo">
