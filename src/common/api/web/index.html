@@ -121,8 +121,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 #program progress { margin-top: 4px; }
 #program .log { margin-top: 10px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 #program .row { margin-top: 10px; }
-#netwrap { margin-top: 12px; }
-#netc { width: 100%; max-width: 908px; display: block; background: rgb(9,11,15); border-radius: 4px; }
+#netopen { margin-left: auto; align-self: center; white-space: nowrap; padding: 4px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; text-decoration: none; color: inherit; }
 /* the RP2350 application (GET /api/app): what it is and its state, its own panel inside; folds away */
 #app h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; margin: 0; display: flex; align-items: center; gap: 6px; }
 #app h2.fold .arrow { display: inline-block; transition: transform .15s; font-size: 10px; }
@@ -158,6 +157,7 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
   <div class="msel" id="msel" hidden title="Both machines are in the flash: restart as the other one">
     <span>Machine</span><button data-m="master">BBC Master</button><button data-m="beeb">BBC Model B</button>
   </div>
+  <a id="netopen" href="/?net" target="_blank" rel="noopener" title="The AI pilot flying now, live, as the web demo draws it" hidden>AI viewer</a>
 </header>
 
 <section id="av">
@@ -200,7 +200,6 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
       <div class="pbar" id="pbar" hidden><span id="plabel"></span><progress id="pprog" value="0" max="1"></progress></div>
       <div class="row" id="pactions"></div>
       <div class="log" id="plog"></div>
-      <div id="netwrap" hidden><h3 id="netname"></h3><canvas id="netc"></canvas></div>
     </div>
   </div>
 </section>
@@ -232,6 +231,56 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
 </main>
 
 <script>
+// /?net: the AI viewer, its own dark page: the elite-agent web demo's panel, without the game's screen. Its own code (web/src/panel.js,
+// web/panel.json, from the commit below) draws the units from the plugin's senses ("agent net") and its panel's fields (/api/program).
+const NET_PAGE = new URLSearchParams(location.search).has('net');
+if (NET_PAGE) (async () => {
+  const SRC = 'https://cdn.jsdelivr.net/gh/8bitkick/elite-agent@0a3840a23f0a6cde19f462697c3312fd3c05910b/web/';
+  const NAMES = {0: 'fight', 1: 'camera', 2: 'interceptor', 3: 'dock'};
+  document.title = 'Elite agent: AI viewer';
+  document.documentElement.style.cssText = 'background:rgb(9,11,15);height:100%';
+  document.body.style.cssText = 'margin:0;background:rgb(9,11,15);min-height:100%;display:flex;justify-content:center;font-family:Inter,system-ui,sans-serif;color:rgb(110,116,128)';
+  document.body.innerHTML = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap"><canvas id="netc" style="display:block;max-width:100vw;max-height:100vh;width:auto;height:auto" aria-label="The AI pilot flying now, its units lit as it decides"></canvas>';
+  const post = async (c) => JSON.parse((await (await fetch('/api/command', {method: 'POST', body: c})).json()).reply);
+  const num = (v) => parseFloat(String(v).replace(/[^0-9.]/g, '')) || 0;
+  const s = {view: 'fight', fightNet: 'camera', senses: null, frame: 0, tally: 0, cash: 0, system: '-', log: [], speedLabel: '', turbo: false, rate: 1, paused: false};
+  const canvas = document.getElementById('netc');
+  let panel;
+  const fields = async () => {
+    try {
+      const j = await (await fetch('/api/program')).json(), f = Object.fromEntries(j.fields);
+      s.tally = num(f.Tally); s.cash = num(f.Credits); s.system = String(f.Where || '-').split(',')[0];
+      const t = String(f['Career played'] || '0').split(':').map(Number);
+      s.frame = t.reduce((a, b) => a * 60 + b, 0) * 50;
+      if (f.Doing) s.log = [[s.frame, f.Doing]];
+      const st = await (await fetch('/api/status')).json();
+      s.turbo = !!st.turbo; s.rate = (st.speed || 100) / 100;
+    } catch (e) {}
+    setTimeout(fields, 1000);
+  };
+  const tick = async () => {
+    let wait = document.hidden ? 1000 : 200;
+    try {
+      if (!document.hidden) {
+        const j = await post('agent net'), name = NAMES[j.n];
+        if (name) {
+          s.senses = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
+          if (name === 'dock') s.view = 'dock'; else { s.view = 'fight'; s.fightNet = name; }
+        } else s.senses = null;      // (no AI deciding: the last network, dark)
+        panel.draw(s);
+      }
+    } catch (e) { wait = 2000; }
+    setTimeout(tick, wait);
+  };
+  try {
+    const [m, data] = await Promise.all([import(SRC + 'src/panel.js'), fetch(SRC + 'panel.json').then((r) => r.json())]);
+    panel = new m.Panel(canvas, data, null, null);
+    fields(); tick();
+  } catch (e) { document.body.textContent = 'The AI viewer loads its code from the web, and this browser could not reach it.'; document.body.style.padding = '24px'; }
+})();
+</script>
+<script>
+if (NET_PAGE) throw 'the AI viewer page: the panel below is not used here';
 const $ = id => document.getElementById(id);
 
 // --- keys, by their place in the BBC's keyboard matrix: row << 4 | column (hex)
@@ -749,6 +798,7 @@ const APP_STATES = {running: 'Running', loaded: 'Starting', refused: 'Refused', 
 let appFold = null;
 try { appFold = localStorage.getItem('appFold'); } catch (e) {}
 function showApp(a) {
+  $('netopen').hidden = !(a && a.state === 'running' && a.name === 'elite-agent');
   $('app').hidden = !a;
   if (!a) return;
   $('app').classList.toggle('folded', appFold !== '0');
@@ -852,41 +902,6 @@ async function pollProgram() {
 }
 pollProgram();
 
-// --- the network flying now, drawn by the elite-agent web demo's own code (web/src/panel.js, web/panel.json, loaded from
-// the commit below): the app's "agent net" gives its senses, the page runs the weights again here to light the units
-const NET_SRC = 'https://cdn.jsdelivr.net/gh/8bitkick/elite-agent@5c926d866180c1d532bca3ae6185d6106854c427/web/';
-const NET_NAMES = {0: ['fight', 'Dogfight AI'], 1: ['camera', 'Camera AI'], 2: ['interceptor', 'Interceptor AI'], 3: [null, 'Docking AI']};
-const NET_TOP = 310, NET_H = 790;      // (the tallest network, the camera: 46 rows of the demo's 16 px)
-let netLoad = null;
-function netPanel() {
-  netLoad ??= Promise.all([import(NET_SRC + 'src/panel.js'), fetch(NET_SRC + 'panel.json').then((r) => r.json())]).then(([m, data]) => {
-    const p = new m.Panel($('netc'), data, null, null);
-    $('netc').height = NET_H;
-    return {m, p};
-  }).catch((e) => { netLoad = null; throw e; });
-  return netLoad;
-}
-async function pollNet() {
-  let wait = 200;
-  try {
-    if (document.hidden || $('app').hidden || $('app').classList.contains('folded') || $('program').hidden) wait = 1000;
-    else {
-      const j = JSON.parse((await api('/api/command', 'agent net')).reply);
-      const name = NET_NAMES[j.n];
-      if (!name) $('netwrap').hidden = true;
-      else {
-        const {m, p} = await netPanel();
-        const senses = Float32Array.from(j.s.match(/..../g) || [], (h) => (parseInt(h, 16) << 16 >> 16) / 256);
-        p.drawNet({view: name[0] ? 'fight' : 'dock', fightNet: name[0], senses}, NET_TOP);
-        $('netname').textContent = name[1];
-        $('netname').style.color = `rgb(${(name[0] ? m.fightCol(name[0]) : m.CYAN).join(',')})`;
-        $('netwrap').hidden = false;
-      }
-    }
-  } catch (e) { $('netwrap').hidden = true; wait = 3000; }
-  setTimeout(pollNet, wait);
-}
-pollNet();
 </script>
 </body>
 </html>
