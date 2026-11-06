@@ -64,6 +64,14 @@ static void *psram_alloc(size_t size)
     return p;
 }
 
+// (the app's: bounded, and only ever handed out, like the rest)
+void *machine_psram_alloc(uint32_t size)
+{
+    uint32_t need = (size + 31) & ~31u;
+    if ((uint32_t) (s_psram_next - (uint8_t *)0x11000000) + need > 8u * 1024 * 1024) return NULL;
+    return psram_alloc(size);
+}
+
 // ---- Clock ----
 
 // Slow the flash interface before raising the clock (nothing else sets it

@@ -320,6 +320,7 @@ static void start(const struct machine_hook_io *io) {
         .turbo_get = machine_turbo_get, .turbo_set = machine_turbo_set,
         .view_open = machine_view_open, .view_buffer = machine_view_buffer, .view_map = machine_view_map, .view_shown = machine_view_shown,
         .view_set = machine_view_set, .view_taps = machine_view_taps, .view_edges = machine_view_edges, .view_errors = machine_view_errors,
+        .psram_alloc = machine_psram_alloc,
 #if APP_RAM
         .ram = s_builtin ? NULL : (void *) s_app->ram_base, .ram_size = s_builtin ? 0 : APP_RAM_TOP - s_app->ram_base,
 #endif

@@ -870,6 +870,7 @@ machine_turbo_set(bool on) {
 }
 
 // (no app on this machine: nothing to swap with)
+void *machine_psram_alloc(uint32_t size) { (void) size; return NULL; }      // (the Model B: no app RAM, nor this)
 bool machine_view_open(int rows, int *row_words, int *display_rows) { (void) rows; (void) row_words; (void) display_rows; return false; }
 uint32_t *machine_view_buffer(void) { return NULL; }
 void machine_view_release(void) {}
