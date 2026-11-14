@@ -297,3 +297,12 @@ build and measure, where things are, and what hasn't been tried yet.
 
 beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The ROMs
 aren't part of this repository; see [ROMs](#roms).
+
+## Optional Bluetooth keyboard and Nimbus
+
+Presto builds can enable an original SteelSeries Nimbus and a Classic Bluetooth HID
+keyboard with `-DBLUETOOTH=ON`. The web interface then provides discovery,
+connection/reconnection and separately saved per-machine controls and keyboard
+mappings for both BBC Model B and Master. BLE-only keyboards and Nimbus+ are not
+supported. Bluetooth is off by default; this upstream port needs hardware testing.
+See [Bluetooth setup, build and validation](docs/bluetooth.md).

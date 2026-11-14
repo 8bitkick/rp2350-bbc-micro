@@ -18,6 +18,11 @@ const char *machine_name(void);
 
 // a key by its place in the BBC's keyboard matrix (row << 4 | column)
 void machine_key(int code, bool down);
+#if NIMBUS_TEST
+#define MACHINE_KEY_IMPL machine_key_raw
+#else
+#define MACHINE_KEY_IMPL machine_key
+#endif
 // a key from the USB channel: an SDL scancode (tools/presto.py key)
 void machine_key_sdl(uint32_t scancode, bool down);
 // BREAK

@@ -29,3 +29,6 @@ void net_restart(bool after_reply);
 #endif
 
 #endif
+
+// True after DHCP, gates Bluetooth reconnect attempts to avoid radio contention.
+bool net_boot_has_address(void);

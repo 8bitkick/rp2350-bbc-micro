@@ -16,6 +16,8 @@ enum mem_flash_region {
     MEM_FLASH_SAVE_DATA,    // the save disc: a whole single sided disc, 80 tracks of 10 sectors
     MEM_FLASH_SYSTEM,       // the system's settings (a sector): which machine the launcher boots
     MEM_FLASH_WIFI,         // the WiFi network to join (a sector; a board with a network)
+    MEM_FLASH_CONTROLLER_A, // redundant Bluetooth settings banks
+    MEM_FLASH_CONTROLLER_B,
     MEM_FLASH_REGIONS
 };
 

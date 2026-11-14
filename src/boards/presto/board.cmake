@@ -1,3 +1,6 @@
+option(BLUETOOTH "Original Nimbus and Classic HID keyboard support" OFF)
+option(BT_KEYBOARD_CLASSIC "Classic HID keyboard alongside Nimbus" ON)
+option(BT_KEYBOARD_DISCOVERY "Classic keyboard discovery" ON)
 # The Pimoroni Presto (RP2350B, 8 MB PSRAM, 480x480 ST7701 panel, WiFi, SD card, piezo, seven
 # LEDs on its back): what a machine's firmware needs of it. Included by the top-level
 # CMakeLists.txt (-DBOARD=presto); a machine calls board_setup(<target>). See
@@ -11,6 +14,21 @@ list(APPEND PICO_BOARD_HEADER_DIRS ${BOARD_DIR})
 set(BOARD_FLASH_SAVE_SHIFT 0 CACHE STRING "Move the save disc down the flash by this much (testing)")
 
 function(board_setup TARGET)
+    if(BLUETOOTH)
+        if(BT_KEYBOARD_CLASSIC)
+            target_sources(${TARGET} PRIVATE ${BOARD_DIR}/keyboard_host.c)
+            target_compile_definitions(${TARGET} PRIVATE BT_KEYBOARD_CLASSIC=1)
+        endif()
+        if(BT_KEYBOARD_DISCOVERY)
+            target_sources(${TARGET} PRIVATE ${BOARD_DIR}/keyboard_discovery.c)
+            target_compile_definitions(${TARGET} PRIVATE BT_KEYBOARD_DISCOVERY=1)
+        endif()
+        target_sources(${TARGET} PRIVATE ${BOARD_DIR}/presto_bluetooth.c ${COMMON_DIR}/controller.c ${COMMON_DIR}/controller_store.c
+            ${PICO_BTSTACK_PATH}/src/classic/btstack_link_key_db_memory.c)
+        target_compile_definitions(${TARGET} PRIVATE NIMBUS_TEST=1)
+        target_link_libraries(${TARGET} PRIVATE pico_btstack_classic
+            pico_btstack_hci_transport_cyw43 pico_btstack_run_loop_async_context)
+    endif()
     target_sources(${TARGET} PRIVATE
             ${BOARD_DIR}/presto_board.c     # board_init
             ${BOARD_DIR}/presto_lcd.c       # the panel: 4-bit rows, scanned out by PIO and DMA

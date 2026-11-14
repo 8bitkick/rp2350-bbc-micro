@@ -227,6 +227,55 @@ progress { width: 100%; height: 6px; margin-top: 8px; accent-color: var(--accent
     <button id="send">Send ⏎</button>
   </div>
 </section>
+<section id="bluetoothPanel" hidden><h2>Nimbus controller</h2>
+<p>Put the joystick into pairing mode, scan, then choose its name or address and Connect. Disconnect it from other computers first.</p>
+<div class="row bluetooth-actions">
+<button onclick="btCommand('scan')">Scan for controllers</button>
+<button id="btStopScan" hidden onclick="btCommand('stop-scan')">Stop scan</button>
+<select id="btDevices" aria-label="Choose a joystick"><option value="">Choose a joystick</option></select>
+<button onclick="$('btDevices').value!==''?btCommand('connect '+$('btDevices').value):$('btError').textContent='Scan and choose a joystick first.'">Connect</button>
+<button onclick="btCommand('disconnect')">Disconnect</button>
+<button onclick="btCommand('reconnect')">Reconnect</button>
+<button onclick="btCommand('forget')">Forget</button>
+<button id="btDownload" onclick="btDownload()">Download controller status</button>
+</div>
+<details><summary>Game controls</summary>
+<label>Mode <select id="btMode"><option value="0">Off</option><option value="1">Joystick</option><option value="2">Keyboard</option></select></label>
+<label>Joystick port <select id="btPort"><option value="1">1</option><option value="2">2</option></select></label>
+<label>Movement <select id="btSource"><option value="0">Left stick + D-pad</option><option value="1">Right stick + D-pad</option><option value="2">D-pad only</option></select></label>
+<label>Dead zone (%) <input id="btDead" type="number" min="0" max="50" value="15"></label>
+<label><input id="btInvX" type="checkbox">Invert stick X</label>
+<label><input id="btInvY" type="checkbox">Invert stick Y</label>
+<p id="btModeHelp">Direction key assignments apply in Keyboard mode. Fire applies in Joystick mode; other button key assignments work in either mode. Select the game’s joystick option when using Joystick mode.</p>
+<div id="btMappings" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px"></div>
+<button onclick="btDefaults()">Default mappings</button><button onclick="btApply()">Apply controls</button>
+</details>
+<p id="btConnection" role="status"></p>
+<p id="btStorage" role="status"></p>
+<pre id="btValues"></pre><p id="btError" role="status"></p></section>
+<section id="classicKeyboardPanel" hidden><h2>Bluetooth keyboard</h2>
+<p>Put the keyboard into pairing mode, scan, then choose its name or address and Connect. Disconnect it from other computers first.</p>
+<div class="row bluetooth-actions">
+<span id="keyboardDiscoveryPanel" hidden><button onclick="keyboardScan('keyboard-scan')">Scan for keyboards</button>
+<button id="keyboardStopScan" hidden onclick="keyboardScan('keyboard-stop')">Stop scan</button></span>
+<select id="keyboardChoice" aria-label="Choose a discovered keyboard"><option value="">Choose a keyboard</option></select>
+<button onclick="keyboardHostCommand('connect '+$('keyboardChoice').value)">Connect</button>
+<button onclick="keyboardHostCommand('disconnect')">Disconnect</button>
+<button onclick="keyboardHostCommand('reconnect')">Reconnect</button>
+<button onclick="keyboardHostCommand('forget')">Forget</button>
+</div>
+<details id="keyboardMappingPanel"><summary>Key mappings</summary>
+<p>Mappings apply to this machine only. Unmapped keys use their normal controls. Add a mapping, press one Bluetooth keyboard key, then click its destination on the emulator keyboard above.</p>
+<div class="row"><button onclick="keyboardMappingStart()">Add mapping</button>
+<select id="keyboardMappings" aria-label="Saved key mappings"><option value="">No custom mappings</option></select>
+<button onclick="keyboardMappingDelete()">Delete mapping</button>
+<button id="keyboardMappingCancel" hidden onclick="keyboardMappingCancel()">Cancel</button></div>
+<p id="keyboardMappingStatus" role="status"></p>
+</details>
+<p id="keyboardScanStatus" role="status"></p>
+<p id="keyboardHostStatus" role="status"></p><p id="keyboardHostStorage" role="status"></p><p id="keyboardHostPin" role="status"></p><p id="keyboardHostError" role="status"></p>
+
+</section>
 </main>
 
 <script>
@@ -502,7 +551,166 @@ async function api(path, body, method = 'POST') {
 const BOARDS = {presto: 'Pimoroni Presto'};
 const MACHINES = {master: 'BBC Master', beeb: 'BBC Model B'};
 let builtFor, switchingTo;
+let machineEpoch=0;
+let btFormMachine=null;
+const btLabels=['Up','Down','Left','Right','A','B','X','Y','Left shoulder','Right shoulder','Left trigger','Right trigger','Menu'];
+function btBuildForm(machine,cfg) {
+  if(btFormMachine===machine)return;
+  btFormMachine=machine;
+  $('btModeHelp').textContent='Direction key assignments apply in Keyboard mode. Fire applies in Joystick mode; other button key assignments work in either mode. Select the game’s joystick option when using Joystick mode.';
+  const rows=machine==='master'?ROWS_MASTER:ROWS_BEEB;
+  const keys=new Map([[-1,'None'],[-2,'Joystick fire']]);
+  for(const row of rows)for(const [label,key] of row)if(Number.isInteger(key)&&key>=0&&key<128&&!keys.has(key))keys.set(key,label.replace(/\n/g,' ')||'SPACE');
+  const box=$('btMappings');box.replaceChildren();
+  btLabels.forEach((name,i)=>{
+    const label=document.createElement('label');label.textContent=name+' ';
+    const select=document.createElement('select');select.id='btMap'+i;
+    for(const [value,text] of keys)select.add(new Option(text,String(value)));
+    label.append(select);box.append(label);
+  });
+  btSetForm(cfg||[0,1,0,15,0,0,...Array(13).fill(-1)]);
+}
+function btSetForm(c) {
+  ['btMode','btPort','btSource','btDead'].forEach((id,i)=>$(id).value=c[i]);
+  $('btInvX').checked=!!c[4];$('btInvY').checked=!!c[5];
+  for(let i=0;i<13;i++)$('btMap'+i).value=c[6+i];
+}
+function btDefaults() {
+  btSetForm([1,1,0,15,0,0,0x39,0x29,0x19,0x79,-2,-1,-1,-1,-1,-1,-1,-1,-1]);
+}
+async function btApply() {
+  const c=['btMode','btPort','btSource','btDead'].map(id=>Number($(id).value));
+  c.push(+$('btInvX').checked,+$('btInvY').checked);
+  for(let i=0;i<13;i++)c.push(Number($('btMap'+i).value));
+  if(c.some(v=>!Number.isInteger(v))||c[3]<0||c[3]>50){$('btError').textContent='Use a whole-number dead zone from 0 to 50.';return;}
+  await btCommand('config '+c.join(' '));
+}
+function btDownload() {
+  const url=URL.createObjectURL(new Blob([JSON.stringify({time:new Date().toISOString(),...status},null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='presto-nimbus.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+async function btCommand(command) {
+  try { if(command==='reconnect')$('btError').textContent='Enabling reconnection…'; await api('/api/bluetooth',command); $('btError').textContent=command.startsWith('config ')?'Controls saved for this machine.':command==='reconnect'?'Reconnection enabled. One click is enough; keep the Nimbus searching.':''; }
+  catch(e) { $('btError').textContent=String(e); }
+}
+let keyboardScanPending=false, keyboardDevices=[], keyboardConnection=null, keyboardScanState='idle';
+function deviceSelector(select,kind,connection,devices) {
+ const connected=connection?.state==='connected';
+ const previous=select.disabled?'':select.value;
+ select.disabled=connected||devices.length===0;
+ const prompt=connected?(connection.address||'Connected '+kind):devices.length?`Choose a ${kind}`:`No ${kind}s found — scan first`;
+ select.replaceChildren(new Option(prompt,''));
+ if(!connected){for(const d of devices)select.add(new Option(d.label,d.value));
+ if([...select.options].some(o=>o.value===previous))select.value=previous;}
+}
+function keyboardSelector(){deviceSelector($('keyboardChoice'),'keyboard',keyboardConnection,keyboardDevices);}
+
+async function keyboardRefresh() {
+  if(keyboardScanPending)return;
+  keyboardScanPending=true;
+  const epoch=machineEpoch;
+  try {
+    const r=await api('/api/keyboard/discovery',null,'GET'); if(epoch!==machineEpoch||switchingTo)return;
+    keyboardScanState=r.state;
+    $('keyboardStopScan').hidden=r.state!=='classic_scan';
+    keyboardDevices=r.devices.filter(d=>d.hid_hint).map(d=>({label:`${d.name||'Unnamed input device'} — ${d.address}`,value:d.address}));
+    keyboardSelector();
+    $('keyboardScanStatus').hidden=keyboardConnection?.state==='connected'&&r.state!=='classic_scan'&&r.state!=='error';
+    const labels={idle:'Ready to scan.',classic_scan:'Scanning Classic Bluetooth…',finished:'Scan finished.',error:'Scan could not start.'};
+    $('keyboardScanStatus').textContent=(labels[r.state]||r.state)+(r.truncated?' List full; keyboard and input-device candidates are prioritised.':'')+(r.output_truncated?' Some results did not fit the response.':'');
+    if(r.state==='finished'&&keyboardDevices.length===0)$('keyboardScanStatus').textContent='No keyboards found. Press the keyboard’s Connect button to make it discoverable, then scan again. An already connected keyboard may not appear.';
+  } catch(e){$('keyboardScanStatus').hidden=false;$('keyboardScanStatus').textContent=e.message;}
+  finally {keyboardScanPending=false;}
+}
+async function keyboardScan(command){
+  try{await api('/api/bluetooth',command);await keyboardRefresh();}
+  catch(e){$('keyboardScanStatus').hidden=false;$('keyboardScanStatus').textContent='Could not start or stop scanning. Wait for Wi-Fi and any controller connection attempt to finish, then retry.';}
+}
+async function keyboardHostCommand(command){
+ if(command.startsWith('connect ')&&!/^[0-9a-f]{2}(:[0-9a-f]{2}){5}$/i.test(command.slice(8).trim())){$('keyboardHostError').textContent='Scan and choose a keyboard first.';return;}
+ try{await api('/api/bluetooth','keyboard '+command);$('keyboardHostError').textContent='';}
+ catch(e){$('keyboardHostError').textContent=e.message==='Conflict'?'The keyboard or radio is busy. Disconnect the current keyboard before pairing another, and wait for scanning or connection attempts to finish.':e.message;}
+}
+let mappingActive=false,mappingUsage=0,mappingSeen=false,mappingSaving=false;
+function hidKeyName(usage){
+ if(usage>=4&&usage<=29)return String.fromCharCode(65+usage-4);
+ if(usage>=30&&usage<=39)return '1234567890'[usage-30];
+ if(usage>=58&&usage<=69)return 'F'+(usage-57);
+ return ({40:'Enter',41:'Escape',42:'Backspace',43:'Tab',44:'Space',45:'Minus',46:'Equals',47:'[',48:']',49:'Backslash',51:'Semicolon',52:'Quote',53:'Grave',54:'Comma',55:'Period',56:'Slash',57:'Caps Lock',74:'Home',76:'Delete',79:'Right',80:'Left',81:'Down',82:'Up',224:'Left Ctrl',225:'Left Shift',226:'Left Alt',227:'Left GUI',228:'Right Ctrl',229:'Right Shift',230:'Right Alt',231:'Right GUI'})[usage]||`Key ${usage}`;
+}
+function emulatorKeyName(machine,code){
+ const rows=machine==='master'?ROWS_MASTER:ROWS_BEEB;
+ for(const row of rows)for(const [name,key] of row)if(key===code)return name.replace(/\n/g,' ')||'Space';
+
+ return `Key ${code}`;
+}
+async function keyboardMappingStart(){
+ try{await api('/api/bluetooth','keyboard capture');mappingActive=true;mappingSeen=false;mappingUsage=0;
+ $('keyboardMappingCancel').hidden=false;$('keyboardMappingStatus').textContent='Press one key on the Bluetooth keyboard. Input is paused while mapping (60-second timeout).';}
+ catch(e){$('keyboardMappingStatus').textContent='Connect the Bluetooth keyboard before adding a mapping.';}
+}
+async function keyboardMappingCancel(){
+ try{await api('/api/bluetooth','keyboard capture-cancel');mappingActive=false;mappingUsage=0;$('keyboardMappingCancel').hidden=true;$('keyboardMappingStatus').textContent='Mapping cancelled.';}
+ catch(e){$('keyboardMappingStatus').textContent='Could not cancel yet. Capture will time out automatically.';}
+}
+async function keyboardMappingDelete(){
+ const source=$('keyboardMappings').value;if(!source)return;
+ try{await api('/api/bluetooth','keyboard unmap '+source);$('keyboardMappingStatus').textContent='Mapping deleted. The key uses its normal control again.';}
+ catch(e){$('keyboardMappingStatus').textContent='Could not delete the mapping: '+e.message;}
+}
+// Capture phase prevents a chosen on-screen key from also reaching the game.
+$('kbwrap').addEventListener('pointerdown',async e=>{
+ if(!mappingActive)return;e.preventDefault();e.stopImmediatePropagation();
+ const key=e.target.closest('[data-code]');if(!key||!mappingUsage||mappingSaving)return;
+ const target=Number(key.dataset.code);if(!Number.isInteger(target)||target<0||target>=128){$('keyboardMappingStatus').textContent='Choose an emulator keyboard key, not Reset or a joystick button.';return;}
+ mappingSaving=true;const epoch=machineEpoch;
+ try{await api('/api/bluetooth',`keyboard map ${mappingUsage} ${target}`);if(epoch!==machineEpoch)return;
+ mappingActive=false;mappingUsage=0;$('keyboardMappingCancel').hidden=true;$('keyboardMappingStatus').textContent='Mapping saved for this machine.';}
+ catch(e){$('keyboardMappingStatus').textContent='Could not save mapping (maximum 32 per machine): '+e.message;}
+ finally{mappingSaving=false;}
+},true);
+function keyboardMappingsShow(s){
+ const list=$('keyboardMappings'),old=list.value;
+ const signature=JSON.stringify([s.machine,s.keyboard_mappings||[]]);
+ if(list.dataset.signature!==signature){list.replaceChildren(new Option((s.keyboard_mappings||[]).length?'Choose a mapping':'No custom mappings',''));
+ for(const [source,target] of s.keyboard_mappings||[])list.add(new Option(`${hidKeyName(source)} → ${emulatorKeyName(s.machine,target)}`,String(source)));
+ if([...list.options].some(o=>o.value===old))list.value=old;list.dataset.signature=signature;}
+ const k=s.bluetooth_keyboard;if(!mappingActive||!k)return;
+ if(k.capturing){mappingSeen=true;if(k.captured_usage&&!mappingUsage){mappingUsage=k.captured_usage;$('keyboardMappingStatus').textContent=`${hidKeyName(mappingUsage)} captured. Click its destination on the emulator keyboard above.`;$('kbwrap').scrollIntoView({behavior:'smooth',block:'center'});}}
+ else if(mappingSeen){mappingActive=false;mappingUsage=0;$('keyboardMappingCancel').hidden=true;$('keyboardMappingStatus').textContent='Capture ended. Add mapping to try again.';}
+}
+
+function showBluetooth(s) {
+ $('classicKeyboardPanel').hidden=!s.bluetooth_keyboard;
+ if(status.machine&&status.machine!==s.machine){mappingActive=false;mappingUsage=0;mappingSeen=false;$('keyboardMappingCancel').hidden=true;}
+ keyboardMappingsShow(s);
+ keyboardConnection=s.bluetooth_keyboard;keyboardSelector();
+ if(s.bluetooth_keyboard){const k=s.bluetooth_keyboard;
+ $('keyboardHostStatus').textContent=k.state==='connected'?'Keyboard connected.':k.state==='connecting'?'Keyboard connection attempt in progress.':k.state==='starting'?'Keyboard support starting.':k.remembered&&k.reconnect?'Waiting for the keyboard to reconnect. Press a key to wake it.':'Keyboard disconnected.';
+ $('keyboardHostStorage').textContent=k.remembered?'Keyboard remembered. Key mappings are saved separately for each machine.':'No saved keyboard. Pair once to remember it.';
+ if(k.state==='connected'&&keyboardScanState!=='classic_scan'&&keyboardScanState!=='error')$('keyboardScanStatus').hidden=true;
+ $('keyboardHostPin').textContent=k.pin?`Type ${k.pin} on the Bluetooth keyboard, then press Enter.`:'';
+ }
+  $('keyboardDiscoveryPanel').hidden=!s.keyboard_discovery;
+  if(s.keyboard_discovery)keyboardRefresh();
+  $('bluetoothPanel').hidden=!s.bluetooth;
+  $('btValues').hidden=true;
+  $('btDownload').hidden=true;
+  if(s.bluetooth) {
+    btBuildForm(s.machine,s.bluetooth.config);
+    const b=s.bluetooth, select=$('btDevices');
+    $('btStopScan').hidden=b.state!=='scanning';
+    deviceSelector(select,'joystick',b,b.devices.map((address,i)=>({label:address,value:String(i)})));
+    $('btValues').textContent=JSON.stringify(b,null,2);
+    $('btConnection').textContent=b.state==='connected'?'Joystick connected.':b.state==='connecting'?'Connection attempt in progress; no further clicks needed.':b.remembered&&b.reconnect_enabled?`Listening for the Nimbus${b.retry_ms?' — next outgoing attempt in '+Math.ceil(b.retry_ms/1000)+' seconds':''}. Keep the controller searching.`:'Reconnect is paused, or no controller is saved.';
+    $('btStorage').textContent=b.save_error?'Saving failed. Apply controls again to retry; changes may not survive restart.':b.save_pending?'Saving controller data…':b.remembered?'Joystick remembered. Controls are saved separately for each machine.':'No saved controller. Pair once to remember it.';
+  }
+
+}
 function show(s) {
+  if(status.machine!==s.machine)++machineEpoch;
+  showBluetooth(s);
   status = s;
   if (s.machine && s.machine !== builtFor) {
     builtFor = s.machine;

@@ -118,6 +118,8 @@ void via_set_CA2(struct via_struct* p_via, int level);
 void via_set_CB1(struct via_struct* p_via, int level);
 void via_set_CB2(struct via_struct* p_via, int level);
 
+/* Update external input bits without disturbing the other peripherals. */
+void via_update_peripheral_b(struct via_struct* p_via, uint8_t mask, uint8_t value);
 void via_set_peripheral_b(struct via_struct* p_via, uint8_t val);
 
 /* These are used by the debugger. In particular, for reads, side effects of

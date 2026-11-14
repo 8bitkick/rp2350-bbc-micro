@@ -1,3 +1,6 @@
+#if NIMBUS_TEST
+#include "presto_bluetooth.h"
+#endif
 /*
  * The Presto's network (net_if.h): WiFi through its RM2 module (CYW43439), DHCP, mDNS (beeb.local),
  * the WiFi network saved in flash, and a small HTTP server: the web page and /api/<name>, each
@@ -88,6 +91,13 @@ bool net_wifi_save(const char *ssid, const char *pass) {
 }
 
 static void restart_soon(void) {
+#if NIMBUS_TEST
+    presto_bluetooth_prepare_restart();
+    uint32_t started=time_us_32();
+    while(!presto_bluetooth_restart_done() && time_us_32()-started<1500000u) {
+        cyw43_arch_poll();watchdog_update();sleep_ms(2);
+    }
+#endif
     printf("NET restarting\n");
     fflush(stdout);
     sleep_ms(100);
@@ -149,6 +159,9 @@ static void net_start(void) {
     join();
     boot_guard_step(45);
     wifi_on = true;
+#if NIMBUS_TEST
+    presto_bluetooth_start();
+#endif
 }
 
 static void check_link(void) {
@@ -1025,4 +1038,9 @@ void net_frame(void) {
         }
         restart_soon();
     }
+}
+
+bool net_boot_has_address(void) {
+ return wifi_on && cyw43_tcpip_link_status(&cyw43_state,CYW43_ITF_STA)==CYW43_LINK_UP
+  && netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA])->addr!=0;
 }

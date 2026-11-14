@@ -1,3 +1,7 @@
+#if NIMBUS_TEST
+#include "controller.h"
+#include "presto_bluetooth.h"
+#endif
 // The front end every machine shares (frontend.h): the USB channel, the network, queued keys.
 //
 // The USB channel (tools/presto.py speaks it):
@@ -249,6 +253,10 @@ void frontend_frame(void) {
     if (frames < 100 && ++frames == 100) boot_guard_ok();     // running: disarm the boot guard (boot_guard.c)
     usb_poll();
     api_frame();
+#if NIMBUS_TEST
+    presto_bluetooth_frame();
+    controller_frame();
+#endif
     drive0_frame();     // the save disc
 #if BOARD_HAS_NET
     net_frame();
