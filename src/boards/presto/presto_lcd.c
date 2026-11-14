@@ -446,6 +446,8 @@ void board_display_init(const uint16_t *const *rows) {
     board_display_backlight(255);
 }
 
+const uint16_t *const *board_display_get_rows(void) { return row_table; }
+
 void board_display_set_rows(const uint16_t *const *rows) {
     row_table = rows;
 #if PRESTO_LCD_TIMING_DMA

@@ -29,6 +29,7 @@
 #include "hardware/watchdog.h"
 
 #include "frontend.h"
+#include "boot_banner.h"
 #include "drive.h"
 #include "api.h"
 #include "machine_if.h"
@@ -235,6 +236,7 @@ void frontend_init(void) {
 #if BOARD_HAS_NET
     net_init();
 #endif
+    boot_banner_show();
 }
 
 void frontend_poll(void) {
