@@ -28,19 +28,16 @@ other discs and type on the machine's own keyboard over WiFi.
 
 ## Install on a Presto
 
-No tools needed: one file onto the Presto.
+Build the firmware first ([Quick start](#quick-start-building-it-yourself)), then:
 
-1. Download `rp2350-bbc-micro-presto-<version>.uf2` from the [latest release](https://github.com/8bitkick/rp2350-bbc-micro/releases/latest).
-2. Plug the Presto into your computer with a USB-C cable. Hold **BOOT** on the back, tap **RESET**, then let go:
+1. Plug the Presto into your computer with a USB-C cable. Hold **BOOT** on the back, tap **RESET**, then let go:
    a drive called **RP2350** appears.
-3. Drag the `.uf2` onto that drive. The Presto restarts by itself.
+2. Drag `build-dual-boot/presto_dual_boot.uf2` onto that drive. The Presto restarts by itself.
 
-It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite.bbcelite.com/), and after a few
-seconds [elite-agent](https://github.com/8bitkick/elite-agent) starts playing it as Commander JAMESON, already
-Deadly, carrying on from its last save after a power-off. (Flashing a release replaces the Master's saves.) The BBC Model B, with its own
+It boots the BBC Master 128 into [Mark Moxon's flicker-free Elite](https://elite.bbcelite.com/). The BBC Model B, with its own
 flicker-free Elite, is one click away on the [web panel](#web-panel---httpbeeblocal) once the Presto is on your
-WiFi. Elite is © Ian Bell and David Braben; the release carries Mark Moxon's builds unmodified, and this
-repository doesn't contain them (`setup.sh` downloads them when you build).
+WiFi. Elite is © Ian Bell and David Braben; this repository doesn't contain it (`setup.sh` downloads
+Mark Moxon's builds when you build).
 
 ## Quick start (building it yourself)
 
@@ -52,7 +49,7 @@ git clone https://github.com/8bitkick/rp2350-bbc-micro.git && cd rp2350-bbc-micr
 scripts/setup.sh              # both machines -> build-dual-boot/presto_dual_boot.uf2
 ```
 
-It needs the [ROMs](#roms) in `roms/` first (or add `--roms` to download them). `setup.sh` fetches
+It needs your own [system files](#roms) in `roms/` first. `setup.sh` fetches
 the rest (the Arm toolchain, the Pico SDK and Elite) and builds the [dual-boot firmware](docs/dual-boot.md): the BBC Model B and the BBC Master 128
 in one `.uf2`, with the choice between them on the [web panel](#web-panel---httpbeeblocal). Add
 `--apt` on Debian, Ubuntu or Raspberry Pi OS to install the host packages first. Sound and the LEDs
@@ -177,16 +174,12 @@ On Windows, run it from Git Bash, with CMake and Ninja installed; it also fetche
 `pioasm` and `picotool`. To keep the toolchain and SDK (1.6 GB) somewhere else, such as outside a
 synced folder, run `DEPS=<dir> scripts/setup.sh` once; `deps/env.sh` remembers it.
 
-`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite
-(and with `--roms` the [ROMs](#roms)), and builds
+`setup.sh` fetches the Arm toolchain and the Pico SDK into `deps/`, downloads flicker-free Elite, and builds
 `build-dual-boot/presto_dual_boot.uf2` (`--beeb`: `build/presto_beebjit.uf2`, `--master`:
 `build-master/presto_master.uf2`). Flash it as in the [install steps](#install-on-a-presto), or run
 `scripts/setup.sh --flash` with the Presto in BOOTSEL mode. To rebuild after a change:
 `. deps/env.sh && scripts/build-dual-boot.sh` (one machine: `ninja -C build presto_beebjit` or
 `ninja -C build-master`).
-
-`scripts/setup.sh --gxr` also fetches the Graphics Extension ROM, which many
-[BBC Micro Bot](https://www.bbcmicrobot.com/) snapshots need.
 
 ### What `setup.sh` downloads
 
@@ -205,7 +198,7 @@ Everything is fetched over HTTPS from these places; re-running keeps what's alre
 
 ### ROMs
 
-The ROMs aren't part of this repository. The build needs these in `roms/` (`--beeb` needs only the
+These aren't part of this repository; supply your own. The build needs them in `roms/` (`--beeb` needs only the
 Model B's three):
 
 | File | ROM |
@@ -216,8 +209,7 @@ Model B's three):
 | `roms/mos3.20/` `mos.rom`, `dfs.rom`, `viewsht.rom`, `edit.rom`, `basic4.rom`, `adfs.rom`, `view.rom`, `terminal.rom` | MOS 3.20 (Master 128) |
 | `roms/general/gxr.rom` | Graphics Extension ROM (optional, built in when present) |
 
-Put them there before running `setup.sh`, or add `--roms` to have it download them; without them it
-stops and lists what's missing. Files already there are kept. `--apt` installs
+Put them there before running `setup.sh`; without them it stops and lists what's missing. Files already there are kept. `--apt` installs
 the host packages (CMake, Ninja, a host compiler) with `sudo apt`.
 
 ### Build options
@@ -227,7 +219,7 @@ One machine and one board per build; everything else is a switch:
 | Option | |
 |---|---|
 | `-DMACHINE=beeb` | The BBC Model B on beebjit (the default): `build/presto_beebjit.uf2` |
-| `-DMACHINE=master` | The BBC Master 128 on Kieran Connell's emulator: `build/presto_master.uf2`. `scripts/setup.sh --master` fetches its discs (with `--roms`, its MOS 3.20 ROMs) and builds it in `build-master/`; [docs/master/README.md](docs/master/README.md) has how it runs and why the Master isn't on beebjit |
+| `-DMACHINE=master` | The BBC Master 128 on Kieran Connell's emulator: `build/presto_master.uf2`. `scripts/setup.sh --master` fetches its discs and builds it in `build-master/`; [docs/master/README.md](docs/master/README.md) has how it runs and why the Master isn't on beebjit |
 | `-DBOARD=presto` | The board (the only one so far; [docs/porting-a-board.md](docs/porting-a-board.md)) |
 | `-DSOUND=ON` | The BBC's sound on the Presto's piezo |
 | `-DAMBIENT=ON` | The LEDs on the back lit with what's on screen |

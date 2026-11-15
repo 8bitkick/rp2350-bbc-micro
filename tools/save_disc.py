@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """save_disc.py <disc.ssd> <D.NAME> <file> <out.ssd>: a copy of a DFS disc with one more file on it, in directory
 D (a commander saved in Elite's E. directory, say), in the free space after its last file. Used to make a release's
-save disc (tools/dual_boot_uf2.py --save) from the built-in disc and a commander kept in .github/release/."""
+save disc (tools/dual_boot_uf2.py --save) from the built-in disc and a commander file."""
 import sys
 
 def entries(d):

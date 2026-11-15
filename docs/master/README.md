@@ -123,8 +123,8 @@ scripts/setup.sh --master --disc=pop-beeb.ssd  # or another disc in discs/
 ```
 
 It fetches the pinned Arm toolchain and Pico SDK into `deps/` and the six discs above into `discs/`.
-It needs the MOS 3.20 ROMs in `roms/mos3.20/` (the list is in [the README](../../README.md#roms));
-`--roms` downloads them. None of them are in this repository. Then hold BOOT and tap RESET on the Presto, and copy `build-master/presto_master.uf2` to
+It needs your own MOS 3.20 files in `roms/mos3.20/` (the list is in [the README](../../README.md#roms));
+none of them are in this repository. Then hold BOOT and tap RESET on the Presto, and copy `build-master/presto_master.uf2` to
 the RP2350 drive (or add `--flash`). After that, `python3 tools/presto.py bootsel` gets to the
 bootloader without the buttons.
 

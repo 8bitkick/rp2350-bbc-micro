@@ -11,4 +11,4 @@ The firmware builds in these ROMs, which aren't part of this repository:
 | `mos3.20/mos.rom`, `dfs.rom`, `viewsht.rom`, `edit.rom`, `basic4.rom`, `adfs.rom`, `view.rom`, `terminal.rom` | MOS 3.20 | the Master 128 |
 | `general/gxr.rom` | Graphics Extension ROM | optional: BBC Micro Bot snapshots that use it |
 
-Put them here, or run `scripts/setup.sh --roms`.
+Supply your own copies here.

@@ -3,7 +3,7 @@
 # docs/master/README.md. Included by the top-level CMakeLists.txt with -DMACHINE=master (which has
 # already set the board and initialised the SDK):
 #   cmake -S . -B build -G Ninja -DMACHINE=master [-DBEEB_DISC=discs/pop-beeb.ssd] && ninja -C build
-# BEEB_ROMS is the MOS 3.20 set (roms/mos3.20, fetched by scripts/setup.sh --master); BEEB_DISC is
+# BEEB_ROMS is the MOS 3.20 set (roms/mos3.20, supplied by you); BEEB_DISC is
 # the disc built in and booted at power on. The firmware is build/presto_master.uf2.
 
 set(PRESTO_DIR ${CMAKE_CURRENT_LIST_DIR})   # the Master's own files

@@ -1,15 +1,12 @@
 #!/bin/sh
 # From a fresh clone to the Presto firmware: fetches the pinned toolchain and Pico SDK into deps/,
-# flicker-free Elite (and with --roms the machines' ROMs), and builds the dual-boot firmware, both machines and
+# flicker-free Elite, and builds the dual-boot firmware, both machines and
 # the launcher in one .uf2 (build-dual-boot/presto_dual_boot.uf2, docs/dual-boot.md), the machine
 # chosen on the web panel.
 #
-#   scripts/setup.sh [--apt] [--roms] [--gxr] [--demos] [--beeb | --master [--disc=NAME]] [--no-build] [--flash]
+#   scripts/setup.sh [--apt] [--demos] [--beeb | --master [--disc=NAME]] [--no-build] [--flash]
 #
 #   --apt        install the host packages first (Debian, Ubuntu, Raspberry Pi OS; uses sudo)
-#   --roms       also fetch the ROMs into roms/ (scripts/fetch-roms.sh, from beebjit's ROM set); without
-#                it, the ROMs must already be there
-#   --gxr        also fetch Acorn's GXR ROM (graphics extension; some BBC Micro Bot snapshots need it)
 #   --demos      also fetch Bitshifters' Wobble Colours and Bar Beeb, for the test harness
 #   --beeb       the BBC Model B alone (beebjit): builds build/presto_beebjit.uf2
 #   --master     the BBC Master 128 alone (Kieran Connell's emulator): builds build-master/presto_master.uf2
@@ -18,6 +15,8 @@
 #                EvilIn11.ssd, arcadians.ssd, or your own .ssd
 #   --no-build   fetch everything but don't build
 #   --flash      after building, copy the firmware to a Presto in BOOTSEL mode (the RP2350 drive)
+#
+# The machines' system files aren't fetched: supply your own in roms/ (roms/README.md).
 #
 # Re-running is safe: anything already fetched is kept. Afterwards, ". deps/env.sh" sets up a shell
 # for rebuilding with "scripts/build-dual-boot.sh" (--beeb: "ninja -C build presto_beebjit", --master:
@@ -39,19 +38,17 @@ ROOT=$(cd "$ROOT" && pwd $PWD_OPT)
 DEPS=${DEPS:-$ROOT/deps}
 mkdir -p "$DEPS" "$ROOT/deps"
 DEPS=$(cd "$DEPS" && pwd $PWD_OPT)
-DO_APT=0; DO_ROMS=0; DO_GXR=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MACH=both; DISC=; DISC_DEFAULT=elite-master-flicker-free-sng47.ssd
+DO_APT=0; DO_DEMOS=0; DO_BUILD=1; DO_FLASH=0; MACH=both; DISC=; DISC_DEFAULT=elite-master-flicker-free-sng47.ssd
 for a in "$@"; do
   case "$a" in
     --apt) DO_APT=1 ;;
-    --roms) DO_ROMS=1 ;;
-    --gxr) DO_GXR=1 ;;
     --demos) DO_DEMOS=1 ;;
     --beeb) MACH=beeb ;;
     --master) MACH=master ;;
     --disc=*) DISC=${a#--disc=} ;;
     --no-build) DO_BUILD=0 ;;
     --flash) DO_FLASH=1 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "unknown option $a (see --help)"; exit 1 ;;
   esac
 done
@@ -135,16 +132,11 @@ export PATH=$(cd "$TOOLCHAIN/bin" && pwd):\$PATH
 EOF
 . "$ROOT/deps/env.sh"
 
-# ---- Discs and ROMs that aren't part of this repository
+# ---- Discs that aren't part of this repository
 if [ ! -f "$ROOT/discs/elite-disc-flicker-free-sth.ssd" ]; then
   say "Fetching flicker-free Elite (Mark Moxon)"
   mkdir -p "$ROOT/discs"
   "$ROOT/scripts/fetch-elite.sh"
-fi
-if [ $DO_GXR = 1 ] && [ ! -f "$ROOT/roms/general/gxr.rom" ]; then
-  say "Fetching the GXR ROM (from beebjit's ROM set)"
-  curl -fsSL -o "$ROOT/roms/general/gxr.rom" \
-    https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/gxr.rom
 fi
 if [ $DO_DEMOS = 1 ]; then
   for d in bs-wobble-colours.ssd bs-bar-beeb.ssd; do
@@ -154,19 +146,15 @@ if [ $DO_DEMOS = 1 ]; then
   done
 fi
 
-# ---- ROMs
-if [ $DO_ROMS = 1 ]; then
-  say "Fetching the ROMs (beebjit's ROM set)"
-  "$ROOT/scripts/fetch-roms.sh" $([ $MACH = beeb ] && echo --beeb)
-fi
+# ---- The machines' system files (supplied by you, in roms/)
 NEED="os/os12.rom general/basic2.rom general/dfs09.rom"
 [ $MACH = beeb ] || for r in mos dfs viewsht edit basic4 adfs view terminal; do NEED="$NEED mos3.20/$r.rom"; done
 ROMS_MISSING=""
 for r in $NEED; do [ -f "$ROOT/roms/$r" ] || ROMS_MISSING="$ROMS_MISSING roms/$r"; done
 if [ -n "$ROMS_MISSING" ]; then
-  echo "The build needs these ROMs, not found:"
+  echo "The build needs these system files in roms/, not found:"
   for r in $ROMS_MISSING; do echo "  $r"; done
-  echo "Put them there, or run scripts/setup.sh --roms to download them (see README)."
+  echo "Supply your own copies there (see roms/README.md)."
   [ $DO_BUILD = 1 ] && exit 1
 fi
 

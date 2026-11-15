@@ -9,7 +9,7 @@ this upstream adaptation still needs its own hardware validation.
 ## Build
 
 ```sh
-scripts/setup.sh --no-build --roms
+scripts/setup.sh --no-build
 . deps/env.sh
 OS_CMAKE_ARGS="-DSOUND=ON -DAMBIENT=ON -DBLUETOOTH=ON" \
   scripts/build-dual-boot.sh build-bluetooth

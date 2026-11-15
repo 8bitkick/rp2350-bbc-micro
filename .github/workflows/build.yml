@@ -1,5 +1,7 @@
 # Every machine on every board, with and without the sound and the LEDs, and the Model B's
-# off-board harness tests. (Speed is checked on the board itself: docs/cores.md.)
+# off-board harness tests. (Speed is checked on the board itself: docs/cores.md.) The build jobs use
+# blank system files (scripts/blank-system-files.sh); the harness needs the real ones, from the
+# SYSTEM_FILES_URL secret (a .tar.gz of roms/), and is skipped without it.
 name: build
 
 on:
@@ -27,14 +29,12 @@ jobs:
           path: deps
           key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
       - name: Fetch the toolchain, the SDK and Elite
-        run: scripts/setup.sh --no-build --roms
-      - name: The Master's ROMs and disc
-        if: matrix.machine == 'master'
+        run: scripts/setup.sh --no-build
+      - name: Blank system files and the Master's disc
         run: |
-          mkdir -p roms/mos3.20 discs
-          for r in mos dfs viewsht edit basic4 adfs view terminal; do
-            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
-          done
+          scripts/blank-system-files.sh
+          [ "${{ matrix.machine }}" = master ] || exit 0
+          mkdir -p discs
           curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
             https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
             || { echo "::warning::the Elite disc's host is unreachable: building with a blank disc (only the build is checked)"; \
@@ -47,10 +47,6 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DMACHINE=${{ matrix.machine }} -DBOARD=${{ matrix.board }} $F
           ninja -C build
           ls -la build/*.uf2
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.machine }}-${{ matrix.board }}-${{ matrix.features == 'plain' && 'plain' || 'sound-ambient' }}
-          path: build/*.uf2
 
   # The program hook, built with a small test program on each machine.
   app:
@@ -67,14 +63,12 @@ jobs:
         with:
           path: deps
           key: deps-${{ runner.os }}-${{ hashFiles('scripts/setup.sh') }}
-      - run: scripts/setup.sh --no-build --roms
-      - name: The Master's ROMs and disc
-        if: matrix.machine == 'master'
+      - run: scripts/setup.sh --no-build
+      - name: Blank system files and the Master's disc
         run: |
-          mkdir -p roms/mos3.20 discs
-          for r in mos dfs viewsht edit basic4 adfs view terminal; do
-            curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o roms/mos3.20/$r.rom https://raw.githubusercontent.com/scarybeasts/beebjit/master/roms/mos3.20/$r.rom
-          done
+          scripts/blank-system-files.sh
+          [ "${{ matrix.machine }}" = master ] || exit 0
+          mkdir -p discs
           curl -fsSL --retry 5 --retry-delay 15 --retry-all-errors --connect-timeout 30 -o discs/elite-master-flicker-free-sng47.ssd \
             https://elite.bbcelite.com/versions/flicker_free_elite/elite-master-flicker-free-sng47.ssd \
             || { echo "::warning::the Elite disc's host is unreachable: building with a blank disc (only the build is checked)"; \
@@ -105,18 +99,26 @@ jobs:
       fail-fast: false
       matrix:
         target: [native, qemu]
+    env:
+      SYSTEM_FILES_URL: ${{ secrets.SYSTEM_FILES_URL }}
     steps:
       - uses: actions/checkout@v4
+      - name: System files (from the SYSTEM_FILES_URL secret)
+        id: sys
+        run: |
+          if [ -z "$SYSTEM_FILES_URL" ]; then echo "::notice::no SYSTEM_FILES_URL secret: harness skipped"; echo "ok=0" >> $GITHUB_OUTPUT; exit 0; fi
+          curl -fsSL "$SYSTEM_FILES_URL" | tar -xz
+          echo "ok=1" >> $GITHUB_OUTPUT
       - name: Elite (for the Elite scenarios)
+        if: steps.sys.outputs.ok == '1'
         run: scripts/fetch-elite.sh
-      - name: The Model B's ROMs
-        run: scripts/fetch-roms.sh --beeb
       - name: QEMU and the Arm toolchain
-        if: matrix.target == 'qemu'
+        if: steps.sys.outputs.ok == '1' && matrix.target == 'qemu'
         run: |
           sudo apt-get update && sudo apt-get install -y qemu-system-arm ninja-build
-          scripts/setup.sh --no-build --roms
+          scripts/setup.sh --no-build
       - name: Build and test (interpreter, then the JIT)
+        if: steps.sys.outputs.ok == '1'
         timeout-minutes: 60
         run: |
           [ -f deps/env.sh ] && . deps/env.sh
