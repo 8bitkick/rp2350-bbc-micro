@@ -1,3 +1,9 @@
+#if NIMBUS_TEST
+#include "presto_bluetooth.h"
+#if BT_KEYBOARD_DISCOVERY
+#include "keyboard_discovery.h"
+#endif
+#endif
 // The command layer (see api.h): every operation once, for the USB channel and the HTTP API.
 #include <malloc.h>
 #include <stdarg.h>
@@ -203,6 +209,9 @@ static void status_json(char *j, size_t size) {
         app_json(j + n, (uint32_t) (size - (size_t) n), false);
         n += (int) strlen(j + n);
     }
+#if NIMBUS_TEST
+    if(n>0 && (size_t)n<size){presto_bluetooth_json(j+n,size-n);n+=(int)strlen(j+n);}
+#endif
     if (n > 0 && (size_t) n + 2 <= size) strcpy(j + n, "}");
 }
 
@@ -555,10 +564,26 @@ static void cmd_command(api_req_t *r) {
     }
 }
 
+#if NIMBUS_TEST
+#if BT_KEYBOARD_DISCOVERY
+static void cmd_keyboard_discovery(api_req_t *r){keyboard_discovery_json(r->out,r->size);}
+#endif
+static void cmd_bluetooth(api_req_t *r) {
+    int code=presto_bluetooth_command(r->args);
+    api_reply(r,code,"{\"ok\":%s}",code==200?"true":"false");
+}
+#endif
+
 // ---- The commands
 
 static const api_cmd_t s_cmds[] = {
     {"status", NULL, false, cmd_status},
+#if NIMBUS_TEST
+    {"bluetooth", NULL, true, cmd_bluetooth},
+#if BT_KEYBOARD_DISCOVERY
+    {"keyboard/discovery", NULL, false, cmd_keyboard_discovery},
+#endif
+#endif
     {"machine", NULL, true, cmd_machine},
     {"stats", NULL, false, cmd_stats},
     {"keys", NULL, true, cmd_keys},

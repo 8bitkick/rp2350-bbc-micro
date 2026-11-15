@@ -1,3 +1,6 @@
+#if NIMBUS_TEST
+#include "controller.h"
+#endif
 // What the web panel, the SD card and the USB channel ask of the machine
 // (machine_if.h, drive.h), for Kieran Connell's Master 128. All of
 // it runs on core 0, between machine runs (main.c), so nothing here races
@@ -61,6 +64,9 @@ static void reset(bool boot)
         machine_autoboot(m);
     }
     main_machine_was_reset();
+#if NIMBUS_TEST
+    controller_reset();
+#endif
 }
 
 static bool s_boot_next;
@@ -83,7 +89,7 @@ void machine_boot_shift(void)
 
 // ---- Keys ----
 
-void machine_key(int vkey, bool down)
+void MACHINE_KEY_IMPL(int vkey, bool down)
 {
     struct machine *m = s_m;
     machine_queue_key(m, m->synced + 2000, (vkey >> 4) & 7, vkey & 15, down);
@@ -133,3 +139,12 @@ void presto_machine_poll(void)
 {
     frontend_poll();
 }
+
+#if NIMBUS_TEST
+void machine_controller(unsigned port,uint16_t x,uint16_t y,unsigned directions,bool fire) {
+    (void)directions;if(!s_m||port<1||port>2)return;
+    machine_set_analogue(s_m,(port-1)*2,x);machine_set_analogue(s_m,(port-1)*2+1,y);
+    unsigned mask=1u<<(port+3);
+    s_m->sysvia.peripheral_b=(s_m->sysvia.peripheral_b&~mask)|(fire?0:mask);
+}
+#endif

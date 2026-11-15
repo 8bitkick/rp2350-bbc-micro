@@ -303,3 +303,12 @@ aren't part of this repository; see [ROMs](#roms).
 On power-on, the Presto shows an owl startup screen with build details, DHCP/IP
 progress and optional Bluetooth joystick/keyboard status. Open `http://beeb.local/`
 after boot. See [startup screen behaviour and testing](docs/startup-screen.md).
+
+## Optional Bluetooth keyboard and Nimbus
+
+Presto builds can enable an original SteelSeries Nimbus and a Classic Bluetooth HID
+keyboard with `-DBLUETOOTH=ON`. The web interface then provides discovery,
+connection/reconnection and separately saved per-machine controls and keyboard
+mappings for both BBC Model B and Master. BLE-only keyboards and Nimbus+ are not
+supported. Bluetooth is off by default; this upstream port needs hardware testing.
+See [Bluetooth setup, build and validation](docs/bluetooth.md).

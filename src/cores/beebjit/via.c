@@ -1583,3 +1583,7 @@ void via_set_registers(struct via_struct* p_via,
   (void) timing_set_firing(p_timing, p_via->t2_timer_id, !t2_oneshot_fired);
   p_via->t1_pb7 = t1_pb7;
 }
+
+void via_update_peripheral_b(struct via_struct* p_via, uint8_t mask, uint8_t value) {
+  p_via->peripheral_b = (p_via->peripheral_b & ~mask) | (value & mask);
+}
