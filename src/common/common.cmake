@@ -4,7 +4,15 @@
 # guard, the sound. A machine calls common_setup(<target>).
 
 function(common_setup TARGET)
+    execute_process(COMMAND git rev-parse --short=12 HEAD
+        WORKING_DIRECTORY ${TOP_DIR} OUTPUT_VARIABLE BOOT_BUILD_ID
+        OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if (NOT BOOT_BUILD_ID)
+        set(BOOT_BUILD_ID "source archive")
+    endif()
+    target_compile_definitions(${TARGET} PRIVATE BOOT_BUILD_ID="${BOOT_BUILD_ID}")
     target_sources(${TARGET} PRIVATE
+            ${COMMON_DIR}/boot_banner.c
             ${COMMON_DIR}/api/api.c
             ${COMMON_DIR}/frontend.c
             ${COMMON_DIR}/drive.c           # the disc in drive 0, the save disc

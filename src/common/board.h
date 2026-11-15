@@ -34,6 +34,7 @@ void board_init(void);
 // valid, live in RAM, and have a NULL at rows[BOARD_DISPLAY_HEIGHT]. Entries may be changed at
 // any time (pointer writes are atomic).
 void board_display_init(const uint16_t *const *rows);
+const uint16_t *const *board_display_get_rows(void);
 void board_display_set_rows(const uint16_t *const *rows);
 void board_display_backlight(uint8_t brightness);
 // a row's pixels as byte swapped RGB565 (screenshots); buf holds BOARD_DISPLAY_WIDTH

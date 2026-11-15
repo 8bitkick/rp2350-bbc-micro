@@ -297,3 +297,9 @@ build and measure, where things are, and what hasn't been tried yet.
 
 beebjit is licensed under the GNU GPL v3, as is Kieran Connell's Master 128 emulator, and so is this port; see [COPYING](COPYING) and [LICENSE](LICENSE). The ROMs
 aren't part of this repository; see [ROMs](#roms).
+
+### Startup status
+
+On power-on, the Presto shows an owl startup screen with build details, DHCP/IP
+progress and optional Bluetooth joystick/keyboard status. Open `http://beeb.local/`
+after boot. See [startup screen behaviour and testing](docs/startup-screen.md).

@@ -12,6 +12,12 @@ extern "C" {
 // /api/<name> and the web page, src/boards/presto/presto_net.c). The common code calls these on
 // core 0; a board without a network builds without them.
 
+// Startup polling joins WiFi without accepting uploads into the banner buffer.
+void net_boot_poll(void);
+bool net_boot_configured(void);
+bool net_boot_address_ready(void);
+void net_boot_status(char *out, size_t size);
+
 void net_init(void);        // once the machine is set up: start when it's running
 void net_poll(void);        // whenever core 0 has a moment: move packets
 void net_frame(void);       // between frames: act on requests

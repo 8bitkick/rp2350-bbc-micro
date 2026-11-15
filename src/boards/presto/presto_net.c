@@ -117,7 +117,7 @@ static void join(void) {
 }
 
 static void start_server(void);
-static bool net_wanted, net_started;
+static bool net_wanted, net_started, server_started;
 
 // started from net_frame once the machine is running, so it boots without waiting on the
 // WiFi chip (its firmware takes a moment to load)
@@ -144,7 +144,7 @@ static void net_start(void) {
     // no power saving: it adds a lot of latency to every key press from the web page
     cyw43_wifi_pm(&cyw43_state, CYW43_NONE_PM);
     boot_guard_step(43);
-    start_server();
+    // The listener starts in net_frame, after the boot banner releases staging.
     boot_guard_step(44);
     join();
     boot_guard_step(45);
@@ -200,6 +200,20 @@ static const char *link_name(void) {
         case CYW43_LINK_BADAUTH: return "wrong password";
         default: return "joining";
     }
+}
+
+void net_boot_poll(void) {
+    if (net_wanted && !net_started) { net_started = true; net_start(); }
+    net_poll();
+}
+bool net_boot_configured(void) { return saved_cred() != NULL; }
+bool net_boot_address_ready(void) {
+    return wifi_on && cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA) == CYW43_LINK_UP &&
+        !ip4_addr_isany_val(*netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA]));
+}
+void net_boot_status(char *out, size_t size) {
+    snprintf(out, size, "%s", net_boot_address_ready() ?
+        ip4addr_ntoa(netif_ip4_addr(&cyw43_state.netif[CYW43_ITF_STA])) : link_name());
 }
 
 void net_print_status(void) {
@@ -967,6 +981,7 @@ void net_frame(void) {
         net_start();
     }
     if (!wifi_on) return;
+    if (!server_started) { start_server(); server_started = true; }
     last_poll_us -= 1000;   // (always poll here: in turbo core 0 seldom waits for core 1)
     net_poll();
     // a disc that's arrived: from its staging area to the start of the disc RAM, where drive 0 reads it
