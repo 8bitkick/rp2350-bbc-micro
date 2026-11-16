@@ -304,3 +304,9 @@ connection/reconnection and separately saved per-machine controls and keyboard
 mappings for both BBC Model B and Master. BLE-only keyboards and Nimbus+ are not
 supported. Bluetooth is off by default; this upstream port needs hardware testing.
 See [Bluetooth setup, build and validation](docs/bluetooth.md).
+
+While running, BOOT opens an SD title chooser when a keyboard or enabled joystick
+is connected. Use Up/Down and Return (or Nimbus A/Fire) to load a title. BOOT
+cycles from chooser to status to the emulator. Emulation pauses and sound mutes
+while the menu is open; web and Bluetooth remain active. See
+[BOOT menu details](docs/startup-screen.md#boot-button-sd-chooser-and-status).

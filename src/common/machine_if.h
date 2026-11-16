@@ -69,6 +69,8 @@ void machine_drive_clean(void);
 // a program being installed (app.c): the machine paused, and the screen given to what's going on
 // and how far (of 1000), as often as that changes (a board that can't draw it keeps the machine's
 // last picture); permille < 0: over without a restart, the machine carries on
+// Exclude time spent in the BOOT menu from emulation pacing.
+void machine_status_resumed(uint64_t elapsed_us);
 void machine_install_screen(const char *what, int permille);
 
 // a USB "!" command only this machine has (e.g. the Model B's crtc, state, peek): false if it

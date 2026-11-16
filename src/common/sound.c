@@ -62,6 +62,8 @@ static volatile uint32_t s_offset;          // emulated ticks - 2 x time_us_32()
 static volatile uint32_t s_rate_q16 = 65536;  // emulated time / real time
 static volatile uint32_t s_frames;
 static volatile bool s_mute;
+static volatile bool status_mute;
+void audio_status_mute(bool mute) { status_mute = mute; }
 static volatile bool s_off = true;         // off until the user turns it on (the web panel, "sound on")
 static volatile bool s_have_now;
 static uint32_t s_dropped;
@@ -284,7 +286,7 @@ static void __not_in_flash_func(fill)(uint16_t *buf) {
     __dmb();
     uint32_t tail = s_ring_tail;
     // sum: up to sn_ticks x 4 channels x 8191; gain 256 makes that full scale (DAC_TOP)
-    uint32_t gain = (s_gain * 8) / sn_ticks;
+    uint32_t gain = status_mute ? 0 : (s_gain * 8) / sn_ticks;
     uint32_t top = s_dac_top;
     uint32_t shift = (top == DAC_TOP) ? 16 : 18;
     int32_t lp_a = (int32_t) s_lp_a;

@@ -17,6 +17,7 @@ void audio_init(void);
 // from sound.c (BEEBJIT_SOUND_WRITE_HOOK), on core 0: a byte written to the SN76489
 void audio_sn_write(uint64_t ticks, uint8_t value);
 // each emulated frame, on core 0: the emulated time now (2 MHz ticks); mute in turbo
+void audio_status_mute(bool mute);
 void audio_frame(uint64_t ticks, bool mute);
 // "!audio": the state of play ("AUDIO ..."); or, while playing, set
 //   audio vol <percent>    the volume (100: four channels at full volume are full scale)

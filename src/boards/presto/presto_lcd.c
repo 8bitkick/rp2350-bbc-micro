@@ -68,6 +68,7 @@ static uint lcd_dma, lcd_dma2;
 // all, only one per frame to rewind it. The table ends with a NULL, and a zero written to a DMA
 // trigger register doesn't start the channel.
 static const uint16_t *const *volatile row_table;
+static const uint16_t *const *pending_rows;
 static volatile uint32_t frame_count;
 static volatile uint32_t frame_time_us;     // when the current frame's display area began
 static uint32_t display_offset_us;          // from the frame interrupt (the front porch's start) to it
@@ -171,6 +172,17 @@ static uint frame_dma, frame_dma2;
 static const uint16_t *const *volatile row_table_1;    // &row_table[1], for frame_dma
 #endif
 
+// Called only in the vertical blank interrupt, before frame DMA starts.
+static void __not_in_flash_func(publish_rows)(void) {
+    const uint16_t *const *rows=__atomic_exchange_n(&pending_rows,NULL,__ATOMIC_ACQUIRE);
+    if(!rows)return;
+    row_table=rows;
+#if PRESTO_LCD_TIMING_DMA
+    row_table_1=&rows[1];
+    dma_hw->ch[frame_dma2].read_addr=(uintptr_t)&rows[0];
+#endif
+}
+
 static void __not_in_flash_func(frame_start_isr)(void) {
     if (lcd_pio->irq & 0x2) {
         // start of frame (the front porch)
@@ -199,6 +211,7 @@ static void __not_in_flash_func(frame_start_isr)(void) {
         // and restart the program; the DMA starts the next frame.
         if (!dma_channel_is_busy(lcd_dma) && dma_hw->ch[lcd_dma2].read_addr == (uintptr_t) &row_table[BOARD_DISPLAY_HEIGHT + 1] &&
             pio_sm_is_tx_fifo_empty(lcd_pio, parallel_sm)) {
+            publish_rows();
             __sev();
             return;
         }
@@ -212,6 +225,7 @@ static void __not_in_flash_func(frame_start_isr)(void) {
         load_colours();
         sm_exec(pio_encode_jmp(st7701_rgbe_offset_row_start));
         pio_sm_set_enabled(lcd_pio, parallel_sm, true);
+        publish_rows();
 #else
         // (the timing from an interrupt too: the rows restarted here, each frame)
         frame_time_us = now + display_offset_us;
@@ -223,6 +237,7 @@ static void __not_in_flash_func(frame_start_isr)(void) {
         load_colours();
         sm_exec(pio_encode_jmp(st7701_rgbe_offset_row_start));
         pio_sm_set_enabled(lcd_pio, parallel_sm, true);
+        publish_rows();
         dma_hw->ch[lcd_dma2].read_addr = (uintptr_t) &row_table[1];
         dma_channel_set_read_addr(lcd_dma, row_table[0], true);
 #endif
@@ -446,15 +461,13 @@ void board_display_init(const uint16_t *const *rows) {
     board_display_backlight(255);
 }
 
-const uint16_t *const *board_display_get_rows(void) { return row_table; }
+const uint16_t *const *board_display_get_rows(void) {
+    const uint16_t *const *pending=__atomic_load_n(&pending_rows,__ATOMIC_ACQUIRE);
+    return pending?pending:row_table;
+}
 
 void board_display_set_rows(const uint16_t *const *rows) {
-    row_table = rows;
-#if PRESTO_LCD_TIMING_DMA
-    // (from the next frame: what frame_dma and frame_dma2 read)
-    row_table_1 = &rows[1];
-    dma_hw->ch[frame_dma2].read_addr = (uintptr_t) &rows[0];
-#endif
+    __atomic_store_n(&pending_rows,rows,__ATOMIC_RELEASE);
 }
 
 // a pixel code -> RGB565
