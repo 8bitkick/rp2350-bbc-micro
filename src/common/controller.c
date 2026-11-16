@@ -18,10 +18,20 @@ void controller_keyboard_map_get(uint8_t map[64]){memcpy(map,bluetooth_map,64);}
 static unsigned joystick_port;
 static unsigned menu_directions;
 static bool menu_fire,menu_capture,menu_release;
+static uint8_t menu_keys[32];
+static bool keyboard_menu_release;
+void controller_keyboard_menu_state(unsigned *d,bool *f) {
+ *d=((menu_keys[0x52/8]>>(0x52%8))&1) | (((menu_keys[0x51/8]>>(0x51%8))&1)<<1);
+ if(*d==3)*d=0;
+ *f=(menu_keys[0x28/8]&(1u<<(0x28%8))) || (menu_keys[0x58/8]&(1u<<(0x58%8)));
+}
 bool controller_menu_state(unsigned *directions,bool *fire){
  *directions=menu_directions;*fire=menu_fire;return online && cfg[0]!=0;
 }
-void controller_menu_capture(bool capture){menu_capture=capture;menu_release=true;}
+void controller_menu_capture(bool capture){
+ menu_capture=capture;menu_release=true;keyboard_menu_release=true;
+ controller_bluetooth_keyboard(menu_keys);
+}
 void machine_key_raw(int code,bool down);
 void machine_key(int code,bool down) {
     if(code<0||code>255)return;
@@ -126,8 +136,11 @@ void controller_get_config(int32_t out[19]) {for(int i=0;i<19;i++)out[i]=cfg[i];
 
 /* Called between frames. Aggregate aliases (e.g. both Shift keys) before release. */
 void controller_bluetooth_keyboard(const uint8_t usages[32]){
+ if(usages!=menu_keys)memcpy(menu_keys,usages,sizeof menu_keys);
+ bool any=false;for(unsigned i=0;i<32;i++)any|=menu_keys[i]!=0;
+ if(!any)keyboard_menu_release=false;
  bool desired[256]={0};keyboard_capture=desired;
- for(unsigned i=4;i<256;i++)if(usages[i/8]&(1u<<(i%8))){
+ for(unsigned i=4;i<256;i++)if(!menu_capture && !keyboard_menu_release && usages[i/8]&(1u<<(i%8))){
   bool mapped=false;
   for(unsigned j=0;j<64;j+=2)if(bluetooth_map[j]==i){machine_key(bluetooth_map[j+1],true);mapped=true;break;}
   if(!mapped)machine_key_sdl(i,true);

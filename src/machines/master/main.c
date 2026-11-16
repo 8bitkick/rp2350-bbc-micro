@@ -68,7 +68,7 @@ static void *psram_alloc(size_t size)
 void *machine_psram_alloc(uint32_t size)
 {
     uint32_t need = (size + 31) & ~31u;
-    if ((uint32_t) (s_psram_next - (uint8_t *)0x11000000) + need > 8u * 1024 * 1024) return NULL;
+    if ((uint32_t) (s_psram_next - (uint8_t *)0x11000000) + need > 8u * 1024 * 1024 - BOARD_STATUS_BYTES) return NULL;
     return psram_alloc(size);
 }
 
@@ -180,6 +180,7 @@ static uint32_t s_core0_pct, s_core1_pct, s_speed_permille;
 static uint32_t s_frames;
 static bool s_turbo;
 static bool s_turbo_ended;
+void machine_status_resumed(uint64_t elapsed_us) { (void)elapsed_us; s_turbo_ended = true; }
 static bool s_hold;             // a program being installed: the machine paused (machine_install_screen)
 static bool s_was_reset;
 static struct machine_hook_io s_hook_io;     // what the app run alongside sees (frame_hook)

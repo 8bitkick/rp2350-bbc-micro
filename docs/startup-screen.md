@@ -21,8 +21,8 @@ The two temporary packed-pixel images reuse the idle disc-upload staging area.
 HTTP uploads start only after the banner releases it. Status updates draw into
 the inactive buffer, wait for two display frames before reusing the previous
 one, and restore the original display table before releasing the pointer tables.
-No CPU emulation, render pipeline, JIT, save-disc layout or runtime BOOT-button
-behaviour is changed.
+The power-on banner does not change CPU emulation, the render pipeline, JIT or
+save-disc layout. Runtime BOOT controls are described below.
 
 The owl in `assets/boot-owl.png` is user-supplied artwork. Its aspect ratio is
 preserved. `tools/embed_boot_logo.py` regenerates the checked-in header with
@@ -38,3 +38,37 @@ Validation:
 - Hardware acceptance: cold boot with/without Wi-Fi, readable stable banner,
   correct IP, browser access after boot, keyboard/Nimbus reconnection, normal
   gameplay and web machine switching. Host tests cannot verify panel tearing.
+
+## BOOT button: SD chooser and status
+
+With `BOOT_FILE_SELECTOR=ON` (default), press the Presto's BOOT button while
+running to pause emulation and mute sound temporarily. Wi-Fi, the web interface
+and Bluetooth continue to work.
+
+If an enabled joystick or a Classic Bluetooth keyboard is connected and the SD
+card root contains usable titles, the first press opens the file chooser:
+
+- Joystick Up/Down or keyboard Up/Down selects a title, with hold-to-repeat.
+- Nimbus A, mapped Fire, Return or keypad Enter loads it and resumes emulation.
+- A second BOOT press shows status; a third returns to the current emulator.
+- Without a connected input device or usable titles, BOOT opens status directly;
+  the next press returns. A failed load shows an error and leaves BOOT available.
+
+The keyboard's cursor/Enter actions use its physical HID keys, independent of
+saved emulator mappings. Menu input is captured, and held controls must be
+released before they reach the emulator again. Keyboard and joystick can be used
+together. The keyboard alone is sufficient; a joystick need not be configured.
+
+Only files accepted by the existing BBC SD loader are listed, sorted by name,
+up to 240 nonempty files no larger than its image limit. Subdirectories are not
+browsed. Titles use the existing loader and machine-safe reset mechanism.
+
+The menu reserves 256 KiB at the top of PSRAM, outside both machine allocators,
+and allocates approximately 50 KiB of SRAM on first use for immutable display
+rows. Allocation failure leaves the emulator running. Display table changes are
+published during vertical blank; emulation resumes with its pacing clock
+adjusted for the pause. The original sound settings are retained.
+
+`-DBOOT_FILE_SELECTOR=OFF` disables runtime BOOT handling and its PSRAM reservation;
+the power-on banner remains available. With Bluetooth disabled the runtime
+status screen still works, but there is no keyboard/joystick file selection.

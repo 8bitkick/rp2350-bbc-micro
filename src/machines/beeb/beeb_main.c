@@ -379,9 +379,12 @@ static void __not_in_flash_func(wire_wait_hook)(int is_end) {
 }
 #endif
 
+static uint64_t s_status_pause_us;
+void machine_status_resumed(uint64_t elapsed_us) { s_status_pause_us += elapsed_us; }
+
 uint64_t
 beebjit_host_time_us(void) {
-  return (time_us_64() + s_turbo_time_us);
+  return (time_us_64() + s_turbo_time_us - s_status_pause_us);
 }
 
 static void
@@ -527,7 +530,7 @@ presto_beebjit_disc_ram(void) {
   if ((board_psram() == NULL) || (size < (8u << 20))) {
     return NULL;
   }
-  return (board_psram() + size - PRESTO_DISC_RAM_SIZE);
+  return (board_psram() + size - BOARD_STATUS_BYTES - PRESTO_DISC_RAM_SIZE);
 }
 
 void*
@@ -550,7 +553,7 @@ beebjit_host_big_region(uint8_t** p_base) {
     return size;
   }
   *p_base = (uint8_t*) PRESTO_JIT_REGION_END;
-  return (size - (PRESTO_JIT_REGION_END - PRESTO_JIT_REGION_START) -
+  return (size - BOARD_STATUS_BYTES - (PRESTO_JIT_REGION_END - PRESTO_JIT_REGION_START) -
           PRESTO_DISC_RAM_SIZE);
 }
 

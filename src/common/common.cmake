@@ -3,7 +3,10 @@
 # front end (frontend.c), drive 0 and the save disc (drive.c), the flash (mem.c), the boot
 # guard, the sound. A machine calls common_setup(<target>).
 
+option(BOOT_FILE_SELECTOR "BOOT button status and SD title chooser" ON)
+
 function(common_setup TARGET)
+    target_compile_definitions(${TARGET} PRIVATE WITH_BOOT_FILE_SELECTOR=$<BOOL:${BOOT_FILE_SELECTOR}>)
     execute_process(COMMAND git rev-parse --short=12 HEAD
         WORKING_DIRECTORY ${TOP_DIR} OUTPUT_VARIABLE BOOT_BUILD_ID
         OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)

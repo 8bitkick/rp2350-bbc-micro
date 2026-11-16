@@ -70,3 +70,11 @@
 }
 
 #endif
+
+// Runtime chooser scratch/title area, excluded from both machine allocators.
+#if WITH_BOOT_FILE_SELECTOR
+#define BOARD_STATUS_BYTES (256u * 1024u)
+#else
+#define BOARD_STATUS_BYTES 0u
+#endif
+#define BOARD_BOOT_BUTTON_PIN 46

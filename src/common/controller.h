@@ -20,6 +20,7 @@ void machine_controller(unsigned port,uint16_t x,uint16_t y,unsigned directions,
 
 // UI captures mapped directions/fire without delivering them to the emulator.
 bool controller_menu_state(unsigned *directions, bool *fire);
+void controller_keyboard_menu_state(unsigned *directions, bool *fire);
 void controller_menu_capture(bool capture);
 
 #ifdef __cplusplus

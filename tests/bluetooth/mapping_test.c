@@ -68,5 +68,17 @@ int main(void){
  machine_key(42,true);usages[0]=0;controller_bluetooth_keyboard(usages);assert(keys[42]);
  machine_key(42,false);assert(!keys[42]);
  memset(remap,0,sizeof remap);controller_keyboard_map_set(remap);
+ // Raw keyboard menu actions ignore mappings and suppress delivery until release.
+ memset(usages,0,sizeof usages);controller_bluetooth_keyboard(usages);
+ remap[0]=0x52;remap[1]=42;controller_keyboard_map_set(remap);
+ usages[0x52/8]|=1u<<(0x52%8);controller_bluetooth_keyboard(usages);assert(keys[42]);
+ controller_menu_capture(true);assert(!keys[42]);
+ controller_keyboard_menu_state(&md,&mf);assert(md==1&&!mf);
+ memset(usages,0,sizeof usages);usages[0x51/8]|=1u<<(0x51%8);usages[0x28/8]|=1u<<(0x28%8);
+ controller_bluetooth_keyboard(usages);controller_keyboard_menu_state(&md,&mf);assert(md==2&&mf&&!keys[0x28]);
+ controller_menu_capture(false);controller_bluetooth_keyboard(usages);assert(!keys[0x28]);
+ memset(usages,0,sizeof usages);controller_bluetooth_keyboard(usages);
+ usages[0x28/8]|=1u<<(0x28%8);controller_bluetooth_keyboard(usages);assert(keys[0x28]);
+ memset(usages,0,sizeof usages);controller_bluetooth_keyboard(usages);assert(!keys[0x28]);
  puts("Normalization, ports, dead zone, inversion, keyboard ownership, reset, disconnect and validation passed");
 }

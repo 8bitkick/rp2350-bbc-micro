@@ -250,7 +250,8 @@ void frontend_poll(void) {
 #endif
 }
 
-void frontend_frame(void) {
+static void frontend_frame_once(void) {
+    boot_status_frame();
     static unsigned frames;
     if (frames < 100 && ++frames == 100) boot_guard_ok();     // running: disarm the boot guard (boot_guard.c)
     usb_poll();
@@ -263,4 +264,18 @@ void frontend_frame(void) {
 #if BOARD_HAS_NET
     net_frame();
 #endif
+}
+
+// Pause at the normal emulation boundary while networking/input keep running.
+void frontend_frame(void) {
+    uint64_t started = time_us_64();
+    bool paused = false;
+    do {
+        frontend_frame_once();
+        if (!boot_status_visible()) break;
+        paused = true;
+        watchdog_update();
+        sleep_ms(20);
+    } while (true);
+    if (paused) machine_status_resumed(time_us_64() - started);
 }
